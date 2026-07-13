@@ -1,0 +1,119 @@
+Metadata-Version: 2.4
+Name: tesi-m3d
+Version: 0.1.0
+Summary: Patch-wise 3D localization pipeline for M3Dsynth synthetic CT manipulations.
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.24
+Requires-Dist: pillow>=10
+Provides-Extra: train
+Requires-Dist: torch>=2.2; extra == "train"
+Requires-Dist: scikit-learn>=1.4; extra == "train"
+Requires-Dist: tqdm>=4.66; extra == "train"
+Requires-Dist: PyYAML>=6; extra == "train"
+Requires-Dist: scipy>=1.11; extra == "train"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+
+# Tesi Magistrale Piscopo
+
+Codice sperimentale per localizzare manipolazioni sintetiche locali in CT 3D usando una pipeline patch-wise ispirata a `Localization of Synthetic Manipulations in Western Blot Images` e valutata su M3Dsynth.
+
+## Repository di riferimento
+
+I repository originali restano separati da questo progetto:
+
+- `../M3Dsynth`: dataset metadata e utility ufficiali M3Dsynth.
+- `../western-blot-synthetic-manipulation-localization`: pipeline patch-wise 2D Western Blot.
+
+Questo repository contiene solo codice di tesi e non importa la storia Git dei due lavori esterni.
+
+## Struttura
+
+- `src/tesi_m3d/`: dataset, patch 3D, modello, loss, inference, post-processing, evaluation.
+- `configs/`: configurazioni leave-generator-out.
+- `scripts/`: entrypoint CLI sottili.
+- `tests/`: test sintetici senza dataset reale.
+- `data/`, `outputs/`, `checkpoints/`: cartelle locali ignorate da Git.
+
+## Setup
+
+Ambiente gia presente in `.venv`. Per reinstallare dipendenze:
+
+```bash
+cd /Users/robertopiscopo/PycharmProjects/PythonProject/TesiMagistralePiscopo
+.venv/bin/python -m pip install -e '.[dev,train]'
+```
+
+## Test patch extraction volumetrica
+
+Questo test non richiede M3Dsynth scaricato. Usa un volume sintetico `64x64x64` e una mask con cubo manipolato `32x32x32`.
+
+```bash
+cd /Users/robertopiscopo/PycharmProjects/PythonProject/TesiMagistralePiscopo
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_patch3d.py
+```
+
+Criteri attesi:
+
+- `PatchGrid(64^3, patch=32^3, stride=16)` produce `27` patch.
+- Patch partono sugli assi da `0, 16, 32`.
+- Patch senza voxels manipolati hanno label `0`.
+- Patch boundary con `0 < overlap < 0.05` hanno label `None`.
+- Patch con `overlap >= 0.05` hanno label `1`.
+- Heatmap ricostruita ha shape `64^3` e score piu alto nel cubo.
+
+Smoke manuale:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python - <<'PY'
+import numpy as np
+from tesi_m3d.patches import PatchGrid, binary_cube_mask, extract_patches, labels_from_mask
+
+volume = np.zeros((64, 64, 64), dtype=np.float32)
+mask = binary_cube_mask((64, 64, 64), start=(16, 16, 16), size=(32, 32, 32))
+grid = PatchGrid(volume_shape=volume.shape, patch_shape=(32, 32, 32), stride=(16, 16, 16))
+patches = extract_patches(volume, grid)
+labels = labels_from_mask(mask, grid, positive_overlap_fraction=0.05)
+print(patches.shape)
+print(labels.count(1), labels.count(0), labels.count(None))
+PY
+```
+
+Output chiave atteso: `(27, 32, 32, 32)`.
+
+## Smoke heatmap da score finti
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python - <<'PY'
+import numpy as np
+from tesi_m3d.patches import PatchGrid
+
+grid = PatchGrid((64, 64, 64), (32, 32, 32), (16, 16, 16))
+scores = np.zeros(len(grid), dtype=np.float32)
+scores[len(scores) // 2] = 1.0
+np.save('/private/tmp/patch_scores.npy', scores)
+PY
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m tesi_m3d.inference --scores /private/tmp/patch_scores.npy --out /private/tmp/heatmap.npy
+```
+
+## Test completi
+
+```bash
+cd /Users/robertopiscopo/PycharmProjects/PythonProject/TesiMagistralePiscopo
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
+```
+
+## Esperimenti leave-generator-out
+
+Configurazioni iniziali:
+
+- `configs/leave_out_cycle.yaml`
+- `configs/leave_out_diffusion.yaml`
+- `configs/leave_out_pix2pix.yaml`
+
+Ogni run allena su due generatori e valuta sul generatore escluso. I dati M3Dsynth/LIDC vanno scaricati in `data/` o cartella esterna ignorata da Git.
+
+## Nota preprocessing
+
+Default v1: percentile normalization. HU clipping fisso `[-1000, 400]` sara aggiunto solo dopo verifica del range reale dei TIFF M3Dsynth (`dtype`, `min`, `max`).

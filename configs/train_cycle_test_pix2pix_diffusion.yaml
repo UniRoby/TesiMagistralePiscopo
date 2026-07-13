@@ -1,0 +1,43 @@
+# Cross-generator experiment for M3Dsynth.
+# Main thesis protocol: train on one generator, test on the other two.
+experiment_name: train_cycle_test_pix2pix_diffusion
+data_root: data/M3Dsynth
+metadata_dir: ../M3Dsynth/data
+output_dir: outputs/train_cycle_test_pix2pix_diffusion
+
+split:
+  train_set: train
+  valid_set: valid
+  test_set: test
+  train_mods: [cycle]
+  valid_mods: [cycle]
+  test_mods: [pix2pix, diffusion]
+  include_real: true
+
+patches:
+  patch_shape: [32, 32, 32]
+  train_stride: [32, 32, 32]
+  inference_stride: [16, 16, 16]
+  positive_overlap_fraction: 0.05
+
+model:
+  name: simple_3d_cnn
+  in_channels: 1
+  num_classes: 1
+  base_channels: 16
+  dropout: 0.2
+
+training:
+  epochs: 50
+  batch_size: 16
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  mixed_precision: true
+  loss: focal
+  num_workers: 0
+  seed: 21
+
+evaluation:
+  threshold_source: validation
+  detection_score: max_heatmap
+  localization_metrics: [f1, iou, voxel_auc, ap]

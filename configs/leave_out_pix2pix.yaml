@@ -1,0 +1,40 @@
+# Leave-generator-out experiment for M3Dsynth.
+experiment_name: leave_out_pix2pix
+data_root: data/M3Dsynth
+metadata_dir: ../M3Dsynth/data
+output_dir: outputs/leave_out_pix2pix
+
+split:
+  train_set: train
+  valid_set: valid
+  test_set: test
+  train_mods: [cycle, diffusion]
+  heldout_mod: pix2pix
+  include_real: true
+
+patches:
+  patch_shape: [32, 32, 32]
+  train_stride: [32, 32, 32]
+  inference_stride: [16, 16, 16]
+  positive_overlap_fraction: 0.05
+
+model:
+  name: simple_3d_cnn
+  in_channels: 1
+  num_classes: 1
+  base_channels: 16
+
+training:
+  epochs: 50
+  batch_size: 16
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  mixed_precision: true
+  loss: focal
+  num_workers: 0
+  seed: 21
+
+evaluation:
+  threshold_source: validation
+  detection_score: max_heatmap
+  localization_metrics: [f1, iou, auc]

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tesi-m3d"
+version = "0.1.0"
+description = "Patch-wise 3D localization pipeline for M3Dsynth synthetic CT manipulations."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.24",
+  "pillow>=10",
+]
+
+[project.optional-dependencies]
+train = [
+  "torch>=2.2",
+  "scikit-learn>=1.4",
+  "tqdm>=4.66",
+  "PyYAML>=6",
+  "scipy>=1.11",
+]
+dev = [
+  "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

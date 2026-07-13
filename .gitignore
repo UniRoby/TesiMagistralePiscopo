@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE local state
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries/
+.idea/shelf/
+
+# Thesis data
+data/
+outputs/
+runs/
+checkpoints/
+*.ckpt
+*.pth
+*.pt
+*.onnx
+*.npz
+*.npy
+*.nii
+*.nii.gz
+*.tiff
+*.tif
+*.dcm
+
+# OS
+.DS_Store
+
+docs/metadata.csv
