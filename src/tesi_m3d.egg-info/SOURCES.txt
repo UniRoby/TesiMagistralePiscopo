@@ -5,10 +5,12 @@ src/tesi_m3d/dataset.py
 src/tesi_m3d/evaluate.py
 src/tesi_m3d/evaluation.py
 src/tesi_m3d/inference.py
+src/tesi_m3d/lidc_conversion.py
 src/tesi_m3d/losses.py
 src/tesi_m3d/model.py
 src/tesi_m3d/patches.py
 src/tesi_m3d/postprocess.py
+src/tesi_m3d/synthetic.py
 src/tesi_m3d/train.py
 src/tesi_m3d.egg-info/PKG-INFO
 src/tesi_m3d.egg-info/SOURCES.txt
@@ -17,6 +19,8 @@ src/tesi_m3d.egg-info/requires.txt
 src/tesi_m3d.egg-info/top_level.txt
 tests/test_dataset.py
 tests/test_evaluation.py
+tests/test_lidc_conversion.py
 tests/test_model.py
 tests/test_patch3d.py
 tests/test_smoke.py
+tests/test_synthetic.py

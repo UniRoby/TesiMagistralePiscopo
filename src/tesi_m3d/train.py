@@ -59,13 +59,13 @@ def build_training_objects(config: dict[str, Any], data_root_override: str | Non
         raise RuntimeError("PyTorch is required for training") from exc
 
     data_root = Path(data_root_override or config.get("data_root", "data/M3Dsynth"))
-    metadata_dir = Path(config.get("metadata_dir", "../M3Dsynth/data"))
+    metadata_dir = Path(config.get("metadata_dir", "metadata/m3dsynth"))
     if not metadata_dir.is_absolute():
         metadata_dir = Path.cwd() / metadata_dir
     if not metadata_dir.exists():
         raise FileNotFoundError(
             f"metadata directory not found: {metadata_dir}. "
-            "Set metadata_dir to the official M3Dsynth repo data folder, e.g. ../M3Dsynth/data. "
+            "The repository includes the official CSV files under metadata/m3dsynth. "
             "Set data_root to the downloaded TIFF dataset folder containing cycle/, pix2pix/, diffusion/, real/."
         )
 
@@ -150,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     """Parse CLI arguments for patch classifier training."""
 
     parser = argparse.ArgumentParser(description="Train a patch-wise 3D detector on M3Dsynth.")
-    parser.add_argument("--config", required=True, help="Path to a leave-generator-out YAML config.")
+    parser.add_argument("--config", required=True, help="Path to a cross-generator YAML config.")
     parser.add_argument("--data-root", help="Override dataset root from config.")
     parser.add_argument("--output-dir", help="Override output directory from config.")
     parser.add_argument("--device", default="cpu", help="PyTorch device, for example cpu, cuda, or mps.")

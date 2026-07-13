@@ -1,84 +1,123 @@
 # Tesi Magistrale Piscopo
 
-Codice sperimentale per localizzare manipolazioni sintetiche locali in CT 3D usando una pipeline patch-wise ispirata a `Localization of Synthetic Manipulations in Western Blot Images` e valutata su M3Dsynth.
-
+Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT,
+ispirata a *Localization of Synthetic Manipulations in Western Blot Images* e
+valutata sul dataset M3Dsynth.
 
 ## Struttura
 
-- `src/tesi_m3d/`: dataset, patch 3D, modello, loss, inference, post-processing, evaluation.
-- `configs/`: configurazioni train x -> test y,z; leave-generator-out & 
-- `scripts/`: entrypoint CLI sottili.
-- `tests/`: test sintetici senza dataset reale.
+- `src/tesi_m3d/`: dataset, patch 3D, modello, loss, inferenza e metriche.
+- `metadata/m3dsynth/`: CSV ufficiali M3Dsynth versionati con il progetto.
+- `configs/`: esperimenti cross-generator e baseline leave-generator-out.
+- `scripts/`: training sintetico, conversione LIDC e altri entrypoint.
+- `tests/`: test eseguibili senza il dataset medico.
+- `docs/LAB_WORKFLOW.md`: procedura completa per il PC Windows del laboratorio.
 
+## Setup Windows con Conda
 
-## Setup
+Da Anaconda Prompt:
 
-Ambiente gia presente in `.venv`. 
-
-## Test patch extraction volumetrica
-
-Questo test non richiede M3Dsynth scaricato. Usa un volume sintetico `64x64x64` e una mask con cubo manipolato `32x32x32`.
-
-```bash
-cd PATH PROGETTO
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_patch3d.py
+```bat
+cd /d "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo"
+conda create -n tesi-m3d python=3.11 -y
+conda activate tesi-m3d
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev,train,conversion]"
 ```
 
-Criteri attesi:
+Verifica GPU:
 
-- `PatchGrid(64^3, patch=32^3, stride=16)` produce `27` patch.
-- Patch partono sugli assi da `0, 16, 32`.
-- Patch senza voxels manipolati hanno label `0`.
-- Patch boundary con `0 < overlap < 0.05` hanno label `None`.
-- Patch con `overlap >= 0.05` hanno label `1`.
-- Heatmap ricostruita ha shape `64^3` e score piu alto nel cubo.
-
-
-## Test completi
-
-```bash
-cd path progetto
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
+```bat
+nvidia-smi
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
 ```
 
+## Test senza dati medici
 
-## Smoke training sintetico
-
-Questo comando non usa M3Dsynth/LIDC. Genera volumi NumPy finti, allena il modello per 2 epoche CPU, salva checkpoint e heatmap in `outputs/synthetic_smoke/`.
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/smoke_synthetic_training.py
+```bat
+python -m pytest -q -p no:cacheprovider
+python scripts\smoke_synthetic_training.py
 ```
 
-Uso: validare pipeline end-to-end prima della macchina laboratorio. Non produce risultati scientifici.
+Il test patch extraction usa un volume finto `64x64x64`, patch `32x32x32` e
+stride `16`. Deve produrre 27 patch. Lo smoke training controlla forward,
+backward, checkpoint, heatmap e metriche; non produce risultati scientifici.
 
+## Metadata
 
-## Dataset M3Dsynth: metadata e TIFF
+La pipeline distingue due tipi di CSV:
 
-Il training usa due percorsi diversi:
+- `metadata/m3dsynth/data.csv`: record reali e manipolati, coordinate e `orig_id`.
+- `metadata/m3dsynth/sets.csv`: split train/valid/test per paziente originale.
+- `metadata/m3dsynth/centers.csv`: centri di crop ufficiali, conservati per confronti futuri.
+- `metadata/m3dsynth/LIDC.csv`: serie LIDC richieste e mapping DICOM ufficiale.
+- `C:\Tesi Magistrale Piscopo\Reale\metadata.csv`: manifest del download IDC;
+  serve alla conversione per trovare i DICOM, ma non viene letto dal training.
 
-- `metadata_dir`: CSV ufficiali dal repo clonato M3Dsynth, default `../M3Dsynth/data`. TODO cambia percorso 
-- `data_root`: dataset TIFF scaricato, default `data/M3Dsynth`, con sottocartelle `cycle/`, `pix2pix/`, `diffusion/`, `real/`.
+I quattro CSV ufficiali M3Dsynth sono inclusi nella repo: non è più necessario
+avere `../M3Dsynth/data` durante training e test.
 
+## Dati laboratorio
 
-## Esperimenti cross-generator
+La root passata a `--data-root` è `C:\Tesi Magistrale Piscopo`:
 
-Protocollo principale di tesi: allenare su un solo generatore e valutare sugli altri due. Questo misura generalizzazione severa tra famiglie di manipolazioni. (Attualmente un solo dataset manipolato scaricato)
-
-Configurazioni principali:
-
-- `configs/train_pix2pix_test_cycle_diffusion.yaml`
-- `configs/train_cycle_test_pix2pix_diffusion.yaml`
-- `configs/train_diffusion_test_pix2pix_cycle.yaml`
-
-Esempio:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m tesi_m3d.train --config configs/train_pix2pix_test_cycle_diffusion.yaml
+```text
+C:\Tesi Magistrale Piscopo\
+  pix2pix\
+    Scan\<img_id>\slide0000.tiff ...
+    label\<img_id>\slide0000.tiff ...
+  real\
+    scan\<orig_id>__<sdir_id>\slide0000.tiff ...
+  Reale\
+    lidc_idri\...\*.dcm
+    metadata.csv
+  TesiMagistralePiscopo\
 ```
 
-Le configurazioni `configs/leave_out_*.yaml` restano come baseline secondaria: allenano su due generatori e valutano sul generatore escluso. I dati M3Dsynth/LIDC vanno scaricati in `data/` o cartella esterna ignorata da Git.
+Su Windows `Scan` e `scan` sono equivalenti. Per mantenere portabilità verso
+Linux è comunque consigliato rinominare la cartella pix2pix in `scan`.
 
-## Nota preprocessing
+## Conversione LIDC DICOM in TIFF
 
-Default v1: percentile normalization. HU clipping fisso `[-1000, 400]` sara aggiunto solo dopo verifica del range reale dei TIFF M3Dsynth (`dtype`, `min`, `max`).
+Non usare `get_M3Dsynth.sh` per questa macchina: scaricherebbe di nuovo tutti i
+generatori e la conversione originale usa primitive Unix. Eseguire prima una
+sola serie:
+
+```bat
+python scripts\convert_lidc_to_tiff.py ^
+  --dicom-root "C:\Tesi Magistrale Piscopo\Reale\lidc_idri" ^
+  --download-metadata "C:\Tesi Magistrale Piscopo\Reale\metadata.csv" ^
+  --output-root "C:\Tesi Magistrale Piscopo" ^
+  --limit 1 --workers 1
+```
+
+Dopo il controllo, convertire tutte le 744 serie richieste:
+
+```bat
+python scripts\convert_lidc_to_tiff.py ^
+  --dicom-root "C:\Tesi Magistrale Piscopo\Reale\lidc_idri" ^
+  --download-metadata "C:\Tesi Magistrale Piscopo\Reale\metadata.csv" ^
+  --output-root "C:\Tesi Magistrale Piscopo" ^
+  --workers 2
+```
+
+## Primo training con pix2pix
+
+Con il solo generatore pix2pix disponibile si può già verificare costruzione
+del dataset patch-level, bilanciamento, training GPU e salvataggio checkpoint:
+
+```bat
+python -m tesi_m3d.train ^
+  --config configs\train_pix2pix_test_cycle_diffusion.yaml ^
+  --data-root "C:\Tesi Magistrale Piscopo" ^
+  --device cuda
+```
+
+Il comando attuale allena e salva il checkpoint. La valutazione cross-generator
+scientifica verrà eseguita quando `cycle` e `diffusion` saranno disponibili.
+
+## Preprocessing
+
+Il default v1 è la normalizzazione percentile, coerente con il codice M3Dsynth.
+Il clipping HU fisso `[-1000, 400]` resta sospeso perché i TIFF ufficiali sono
+valori raw convertiti in `uint16`, non HU direttamente garantiti.

@@ -1,7 +1,7 @@
 # Leave-generator-out experiment for M3Dsynth.
 experiment_name: leave_out_diffusion
 data_root: data/M3Dsynth
-metadata_dir: ../M3Dsynth/data
+metadata_dir: metadata/m3dsynth
 output_dir: outputs/leave_out_diffusion
 
 split:

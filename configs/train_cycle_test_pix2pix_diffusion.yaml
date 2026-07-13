@@ -2,7 +2,7 @@
 # Main thesis protocol: train on one generator, test on the other two.
 experiment_name: train_cycle_test_pix2pix_diffusion
 data_root: data/M3Dsynth
-metadata_dir: ../M3Dsynth/data
+metadata_dir: metadata/m3dsynth
 output_dir: outputs/train_cycle_test_pix2pix_diffusion
 
 split:

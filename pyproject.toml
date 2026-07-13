@@ -21,6 +21,9 @@ train = [
   "PyYAML>=6",
   "scipy>=1.11",
 ]
+conversion = [
+  "pydicom>=2.4",
+]
 dev = [
   "pytest>=8",
 ]

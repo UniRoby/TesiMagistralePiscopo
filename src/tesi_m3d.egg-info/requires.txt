@@ -1,6 +1,9 @@
 numpy>=1.24
 pillow>=10
 
+[conversion]
+pydicom>=2.4
+
 [dev]
 pytest>=8
 

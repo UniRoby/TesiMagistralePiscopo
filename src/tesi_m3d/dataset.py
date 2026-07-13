@@ -198,9 +198,20 @@ def assert_no_orig_id_leakage(groups: dict[str, Sequence[M3DSynthRecord]]) -> No
 
 
 def scan_dir(data_root: str | Path, record: M3DSynthRecord) -> Path:
-    """Return directory containing TIFF scan slices for one record."""
+    """Return the TIFF directory for a manipulated or real CT record.
 
-    return Path(data_root) / record.mod / "scan" / record.img_id
+    Official M3Dsynth data use ``real/scan/<img_id>`` and symbolic links for
+    real records that share one source series.  The portable Windows converter
+    stores each real series once as ``real/scan/<orig_id>__<sdir_id>`` because
+    creating directory symlinks can require administrator privileges.  The
+    official layout remains the first choice when it is present.
+    """
+
+    root = Path(data_root) / record.mod / "scan"
+    official_path = root / record.img_id
+    if record.is_real and not official_path.exists():
+        return root / f"{record.orig_id}__{record.sdir_id}"
+    return official_path
 
 
 def label_dir(data_root: str | Path, record: M3DSynthRecord) -> Path:
