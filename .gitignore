@@ -16,7 +16,7 @@ venv/
 env/
 
 # IDE local state
-*.idea/
+.idea/
 
 *.egg-info/
 
