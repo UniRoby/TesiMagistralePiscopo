@@ -11,7 +11,7 @@ esperimenti della tesi.
 - GPU NVIDIA RTX 5060 Ti con 16 GB VRAM.
 - Dataset DICOM LIDC-IDRI già scaricato.
 - Dataset manipolato pix2pix già scaricato.
-- Diffusion in download; cycle non ancora disponibile.
+- Diffusion e cycle non ancora disponibili.
 
 Percorsi:
 
@@ -21,27 +21,6 @@ C:\Tesi Magistrale Piscopo\Reale\metadata.csv   manifest download IDC
 C:\Tesi Magistrale Piscopo\pix2pix\Scan          TIFF manipolati
 C:\Tesi Magistrale Piscopo\pix2pix\label         mask TIFF
 ```
-
-## 2. Clone e aggiornamento repository
-
-Aprire Anaconda Prompt:
-
-```bat
-cd /d "C:\Tesi Magistrale Piscopo"
-git clone URL_DELLA_REPOSITORY TesiMagistralePiscopo
-cd TesiMagistralePiscopo
-```
-
-Se la repository è già presente:
-
-```bat
-cd /d "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo"
-git pull
-```
-
-Il clone separato di `grip-unina/M3Dsynth` non è più necessario per leggere i
-CSV: sono versionati in `metadata\m3dsynth`. Può essere mantenuto come codice di
-riferimento del paper.
 
 ## 3. Environment Conda
 
@@ -68,9 +47,7 @@ nvidia-smi
 python -c "import torch; print('torch', torch.__version__); print('cuda', torch.cuda.is_available()); print('gpu', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'non disponibile')"
 ```
 
-Risultato necessario: `cuda True` e nome RTX 5060 Ti. Se CUDA è `False`, usare
-il selettore ufficiale PyTorch per installare una build Windows compatibile con
-il driver NVIDIA, poi ripetere il controllo.
+Risultato necessario: `cuda True` e nome RTX 5060 Ti.
 
 ## 5. Test del codice senza dataset
 
@@ -90,32 +67,14 @@ Questa fase dimostra solo che la pipeline funziona end-to-end.
 
 ## 6. Ruolo dei CSV
 
-### Manifest IDC `Reale\metadata.csv`
-
-Il file contiene 1.308 serie appartenenti a 1.010 pazienti: PatientID, Study e
-Series Instance UID, dimensione, URL, percorso di download e stato. Tutte le
-righe hanno `completion_status=success`.
-
-Serve per:
-
-- confermare che il download DICOM sia terminato;
-- associare le serie richieste da M3Dsynth alle cartelle create dal downloader;
-- diagnosticare serie mancanti tramite PatientID e SeriesInstanceUID.
-
-Non decide gli split e non viene letto dal training. La verifica svolta nella
-repo ha trovato una corrispondenza unica per tutte le 744 serie di `LIDC.csv`:
-il file è sufficiente e non deve essere pulito. Il suo campo
-`S5cmdManifestPath` può conservare il vecchio path senza `Reale`, perché lo
-script ricostruisce il percorso relativo a partire da PatientID.
-
 ### CSV ufficiali `metadata\m3dsynth`
 
-- `data.csv`: 11.828 record; collega `img_id`, generatore, `orig_id`, serie e coordinate.
+- `data.csv`: collega `img_id`, generatore, `orig_id`, serie e coordinate.
 - `sets.csv`: assegna ciascun `orig_id` a train, valid o test evitando leakage.
 - `centers.csv`: centri di crop usati dalle baseline ufficiali.
 - `LIDC.csv`: 744 serie DICOM reali richieste e relativo identificatore `sdir_id`.
 
-La pipeline custom usa direttamente `data.csv` e `sets.csv`; la conversione usa
+La pipeline usa direttamente `data.csv` e `sets.csv`; la conversione usa
 anche `LIDC.csv`. `centers.csv` resta disponibile per confronti con il protocollo
 ufficiale.
 
@@ -127,10 +86,6 @@ reali. La conversione è quindi necessaria per:
 - fornire esempi reali con lo stesso contenitore dei manipolati;
 - mantenere ordinamento delle slice e conversione `uint16` di M3Dsynth;
 - applicare la stessa normalizzazione percentile a entrambe le classi.
-
-Non eseguire `get_M3Dsynth.sh`: oltre a non essere nativo Windows, scarica
-cycle, pix2pix e diffusion prima di convertire LIDC. I dati manipolati già
-presenti non devono essere riscaricati.
 
 ## 8. Smoke conversion di una serie
 
@@ -193,7 +148,7 @@ C:\Tesi Magistrale Piscopo\
     scan\<orig_id>__<sdir_id>\slide0000.tiff ...
 ```
 
-Windows non distingue `Scan` da `scan`; il loader richiede logicamente `scan`.
+Il loader richiede logicamente `scan`.
 Il nome `label` deve contenere le mask con gli stessi `img_id` di pix2pix.
 
 ## 11. Primo training disponibile: pix2pix
@@ -225,7 +180,7 @@ due generatori indicati nel nome. Il checkpoint pix2pix serve a validare
 architettura, accesso ai dati, patch extraction e uso GPU. La valutazione
 cross-generator sarà eseguita quando cycle e diffusion saranno presenti.
 
-## 12. Protocollo finale quando arrivano gli altri dataset
+## 12. Protocollo finale quando ci saranno tutti gli altri dataset
 
 Run principali:
 
@@ -235,7 +190,7 @@ python -m tesi_m3d.train --config configs\train_cycle_test_pix2pix_diffusion.yam
 python -m tesi_m3d.train --config configs\train_diffusion_test_pix2pix_cycle.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda
 ```
 
-Le configurazioni `leave_out_*.yaml` restano baseline secondaria: allenamento su
+Le configurazioni `leave_out_*.yaml` restano baseline alternativa: allenamento su
 due generatori e test sul terzo.
 
 ## 13. Errori comuni

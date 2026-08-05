@@ -22,6 +22,8 @@ env/
 .idea/dictionaries/
 .idea/shelf/
 
+*.egg-info/
+
 # Thesis data
 data/
 outputs/
