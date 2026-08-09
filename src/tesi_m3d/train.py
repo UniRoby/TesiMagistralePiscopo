@@ -128,13 +128,14 @@ def train_one_epoch(model, loader, loss_fn, optimizer, device: str = "cpu") -> f
 
     try:
         import torch
+        from tqdm import tqdm
     except ImportError as exc:  # pragma: no cover - optional train env
-        raise RuntimeError("PyTorch is required for training") from exc
+        raise RuntimeError("PyTorch and tqdm are required for training") from exc
 
     model.to(device)
     model.train()
     losses: list[float] = []
-    for batch in loader:
+    for batch in tqdm(loader, desc="    batch", leave=False, disable=False):
         image = batch["image"].to(device)
         label = batch["label"].to(device)
         optimizer.zero_grad(set_to_none=True)
@@ -165,18 +166,32 @@ def main() -> None:
     except ImportError as exc:  # pragma: no cover - optional train env
         raise RuntimeError("PyTorch is required for training") from exc
 
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        tqdm = None
+
     args = parse_args()
     config = load_yaml_config(args.config)
     output_dir = Path(args.output_dir or config.get("output_dir", "outputs/train"))
     output_dir.mkdir(parents=True, exist_ok=True)
+    print("Loading dataset and building model...")
     model, loader, loss_fn, optimizer = build_training_objects(config, data_root_override=args.data_root)
     epochs = int(config.get("training", {}).get("epochs", 1))
-    for epoch in range(epochs):
-        mean_loss = train_one_epoch(model, loader, loss_fn, optimizer, device=args.device)
-        print(f"epoch={epoch + 1}, train_loss={mean_loss:.6f}")
+
+    if tqdm:
+        epoch_iter = tqdm(range(epochs), desc="epoch")
+        for epoch in epoch_iter:
+            mean_loss = train_one_epoch(model, loader, loss_fn, optimizer, device=args.device)
+            epoch_iter.set_postfix({"loss": f"{mean_loss:.6f}"})
+    else:
+        for epoch in range(epochs):
+            mean_loss = train_one_epoch(model, loader, loss_fn, optimizer, device=args.device)
+            print(f"epoch={epoch + 1}, train_loss={mean_loss:.6f}")
+
     checkpoint = output_dir / "patch3d_classifier.pt"
     torch.save({"model_state_dict": model.state_dict(), "config": config}, checkpoint)
-    print(f"Saved checkpoint to {checkpoint}")
+    print(f"\nSaved checkpoint to {checkpoint}")
 
 
 if __name__ == "__main__":

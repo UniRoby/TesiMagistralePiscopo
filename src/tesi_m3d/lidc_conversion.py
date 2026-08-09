@@ -35,6 +35,43 @@ def real_series_output_dir(output_root: str | Path, orig_id: str, sdir_id: str) 
     return Path(output_root) / "real" / "scan" / f"{orig_id}__{sdir_id}"
 
 
+def resolve_dataset_root(output_root: str | Path | None, require_pix2pix: bool = True) -> Path:
+    """Resolve the dataset root that must hold both ``pix2pix/`` and ``real/``.
+
+    The training loader reads ``<data_root>/pix2pix/scan`` and ``<data_root>/real/scan``
+    from one root, so writing ``real/`` next to the source code instead of next to
+    ``pix2pix/`` silently breaks training with ``no TIFF slices found``. The presence of
+    a ``pix2pix`` directory is therefore used as the dataset-root marker.
+
+    When ``output_root`` is ``None`` the current directory and its parents are searched
+    for that marker, so the converter lands in the right place regardless of where it
+    is launched from.
+    """
+
+    if output_root is None:
+        start = Path.cwd().resolve()
+        for candidate in (start, *start.parents):
+            if (candidate / "pix2pix").is_dir():
+                return candidate
+        raise FileNotFoundError(
+            f"no dataset root containing 'pix2pix' found in {start} or its parents; "
+            "pass --output-root explicitly"
+        )
+
+    root = Path(output_root).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"output root does not exist: {root}")
+    if require_pix2pix and not (root / "pix2pix").is_dir():
+        present = sorted(child.name for child in root.iterdir() if child.is_dir())
+        raise FileNotFoundError(
+            f"{root} does not look like the dataset root: no 'pix2pix' directory here "
+            f"(found: {', '.join(present) if present else 'no subdirectories'}). "
+            "Point --output-root at the folder that already contains pix2pix, "
+            "or pass --allow-any-root to write anyway."
+        )
+    return root
+
+
 def dicom_series_suffix(dicom_reference: str) -> str:
     """Extract the final UID suffix embedded in an official LIDC path."""
 
@@ -245,11 +282,21 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(description="Convert downloaded LIDC DICOM series to M3Dsynth TIFF.")
     parser.add_argument("--dicom-root", required=True, help="Directory containing LIDC-IDRI patient folders.")
-    parser.add_argument("--output-root", required=True, help="Dataset root containing pix2pix/ and future real/.")
+    parser.add_argument(
+        "--output-root",
+        help="Dataset root containing pix2pix/ and future real/. "
+        "Detected automatically from the current directory upwards when omitted.",
+    )
     parser.add_argument("--download-metadata", required=True, help="IDC download metadata.csv path.")
     parser.add_argument("--metadata-dir", default="metadata/m3dsynth", help="Official M3Dsynth CSV directory.")
     parser.add_argument("--workers", type=int, default=2, help="Parallel conversion processes.")
     parser.add_argument("--limit", type=int, help="Convert only the first N series for a smoke test.")
+    parser.add_argument(
+        "--allow-any-root",
+        action="store_true",
+        help="Skip the pix2pix/ check on --output-root; the training loader will not "
+        "find the converted series unless they sit next to pix2pix/.",
+    )
     return parser.parse_args()
 
 
@@ -257,14 +304,16 @@ def main() -> None:
     """Resolve all required series and convert them to TIFF."""
 
     args = parse_args()
+    output_root = resolve_dataset_root(args.output_root, require_pix2pix=not args.allow_any_root)
     jobs = build_conversion_jobs(
         dicom_root=args.dicom_root,
-        output_root=args.output_root,
+        output_root=output_root,
         metadata_dir=args.metadata_dir,
         download_metadata=args.download_metadata,
         limit=args.limit,
     )
-    print(f"Resolved {len(jobs)} DICOM series; output={Path(args.output_root) / 'real' / 'scan'}")
+    print(f"Dataset root: {output_root}")
+    print(f"Resolved {len(jobs)} DICOM series; output={output_root / 'real' / 'scan'}")
     run_conversion(jobs, workers=args.workers)
 
 

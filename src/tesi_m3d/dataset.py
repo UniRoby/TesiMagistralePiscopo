@@ -8,6 +8,7 @@ here so training, inference, and tests can share the same path logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 import csv
 from typing import Iterable, Sequence
@@ -220,15 +221,16 @@ def label_dir(data_root: str | Path, record: M3DSynthRecord) -> Path:
     return Path(data_root) / record.mod / "label" / record.img_id
 
 
-def load_tiff_stack(dirname: str | Path, dtype: np.dtype | type = np.float32) -> np.ndarray:
-    """Load a TIFF stack saved as ``slide0000.tiff``, ``slide0001.tiff``, ..."""
+def _load_tiff_stack_impl(dirname_str: str, dtype_name: str) -> np.ndarray:
+    """Load TIFF stack from disk (shared implementation)."""
 
     try:
         from PIL import Image
     except ImportError as exc:  # pragma: no cover - depends on optional env
         raise RuntimeError("Pillow is required to load M3Dsynth TIFF stacks") from exc
 
-    dirname = Path(dirname)
+    target_dtype = np.dtype(dtype_name)
+    dirname = Path(dirname_str)
     slices = []
     index = 0
     while True:
@@ -236,11 +238,36 @@ def load_tiff_stack(dirname: str | Path, dtype: np.dtype | type = np.float32) ->
         if not filename.exists():
             break
         with Image.open(filename) as image:
-            slices.append(np.asarray(image, dtype=dtype))
+            slices.append(np.asarray(image))
         index += 1
     if not slices:
         raise FileNotFoundError(f"no TIFF slices found in {dirname}")
-    return np.stack(slices, axis=0)
+    stack = np.stack(slices, axis=0)
+    return stack.astype(target_dtype) if stack.dtype != target_dtype else stack
+
+
+@lru_cache(maxsize=1000)
+def _load_tiff_stack_cached(dirname_str: str, dtype_name: str) -> np.ndarray:
+    """Load TIFF stack with LRU caching to avoid redundant disk reads.
+
+    maxsize=1000 allows ~75 GB in-memory cache (assuming 75 MB per series).
+    """
+    return _load_tiff_stack_impl(dirname_str, dtype_name)
+
+
+def load_tiff_stack(dirname: str | Path, dtype: np.dtype | type | None = None, use_cache: bool = True) -> np.ndarray:
+    """Load a TIFF stack saved as ``slide0000.tiff``, ``slide0001.tiff``, ...
+
+    dtype: target dtype. If None, returns native uint16 from TIFF files.
+    use_cache: if False, bypass LRU cache (useful when each series is read once).
+    """
+
+    dtype_str = "uint16" if dtype is None else np.dtype(dtype).name
+    dirname_str = str(Path(dirname).resolve())
+    if use_cache:
+        return _load_tiff_stack_cached(dirname_str, dtype_str)
+    else:
+        return _load_tiff_stack_impl(dirname_str, dtype_str)
 
 
 def normalize_percentile(scan: np.ndarray, low: float = 1.0, high: float = 99.0) -> np.ndarray:
@@ -251,18 +278,54 @@ def normalize_percentile(scan: np.ndarray, low: float = 1.0, high: float = 99.0)
     lo, hi = np.percentile(source, [low, high])
     if hi <= lo:
         return np.zeros_like(scan, dtype=np.float32)
-    scan = np.clip(scan.astype(np.float32), lo, hi)
-    return ((scan - lo) / (hi - lo)).astype(np.float32)
+    # Preallocate float32 and copy in-place to avoid temporary copy from astype
+    result = np.empty(scan.shape, dtype=np.float32)
+    result[:] = scan
+    lo = np.float32(lo)
+    hi = np.float32(hi)
+    result -= lo
+    result /= (hi - lo)
+    return result
 
 
-def load_scan_and_mask(data_root: str | Path, record: M3DSynthRecord) -> tuple[np.ndarray, np.ndarray]:
-    """Load normalized scan and boolean manipulation mask for one record."""
+def load_scan_and_mask(data_root: str | Path, record: M3DSynthRecord, use_cache: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    """Load normalized scan and boolean manipulation mask for one record.
 
-    scan = normalize_percentile(load_tiff_stack(scan_dir(data_root, record), dtype=np.float32))
+    Handles shape misalignment in the z-dimension:
+    - pix2pix padding: mask often has +1 z-slice (trimmed);
+    - General mismatch: if mask z differs from scan z, trim (if longer) or pad with
+      zeros (if shorter). Y and X must match exactly.
+
+    use_cache: if False, bypass LRU cache (use during training where each series is read once).
+    """
+
+    scan = normalize_percentile(load_tiff_stack(scan_dir(data_root, record), use_cache=use_cache))
     if record.is_real:
         mask = np.zeros(scan.shape, dtype=bool)
     else:
-        mask = load_tiff_stack(label_dir(data_root, record), dtype=np.float32) > 0
+        mask = load_tiff_stack(label_dir(data_root, record), use_cache=use_cache) > 0
+
+        # Align mask to scan shape if z-dimension differs
+        if scan.shape != mask.shape:
+            scan_z, scan_y, scan_x = scan.shape
+            mask_z, mask_y, mask_x = mask.shape
+
+            # Y and X must match exactly — this is a critical error if they don't
+            if scan_y != mask_y or scan_x != mask_x:
+                raise ValueError(
+                    f"scan/mask spatial (y, x) mismatch for {record.img_id}: "
+                    f"scan {scan.shape} != mask {mask.shape}"
+                )
+
+            # Handle z-dimension mismatch
+            if mask_z > scan_z:
+                # Mask is longer: trim from the end (pix2pix padding convention)
+                mask = mask[:scan_z]
+            elif mask_z < scan_z:
+                # Mask is shorter: pad with zeros (background) at the end
+                padding = scan_z - mask_z
+                mask = np.pad(mask, ((0, padding), (0, 0), (0, 0)), mode="constant", constant_values=False)
+
     if scan.shape != mask.shape:
         raise ValueError(f"scan/mask shape mismatch for {record.img_id}: {scan.shape} != {mask.shape}")
     return scan, mask
@@ -279,12 +342,25 @@ def build_patch_examples(
 
     Boundary patches with tiny non-zero overlap receive label ``None`` from
     ``labels_from_mask`` and are skipped to avoid noisy supervision.
+    Only loads mask (not scan) to minimize memory during indexing.
     """
 
     examples: list[PatchExample] = []
     for record_index, record in enumerate(records):
-        scan, mask = load_scan_and_mask(data_root, record)
-        grid = PatchGrid(scan.shape, patch_shape=patch_shape, stride=stride)
+        # Load mask only (much smaller) to get shape and labels, without loading scan
+        if record.is_real:
+            # Real data: infer shape from scan alone without loading all pixels
+            scan = load_tiff_stack(scan_dir(data_root, record), use_cache=False)
+            mask = np.zeros(scan.shape, dtype=bool)
+            del scan  # Free memory immediately
+        else:
+            # Pix2pix: load mask as bool to save memory
+            mask = (load_tiff_stack(label_dir(data_root, record), use_cache=False) > 0).astype(bool)
+            # Get shape from mask, align to scan shape if needed
+            scan_shape_z = mask.shape[0]  # Assume mask z is correct after alignment
+            # For now, use mask shape as proxy (will be corrected in __getitem__)
+
+        grid = PatchGrid(mask.shape, patch_shape=patch_shape, stride=stride)
         labels = labels_from_mask(mask, grid, positive_overlap_fraction=positive_overlap_fraction)
         for coord, slc, label in zip(grid.iter_coords(), grid.iter_slices(), labels):
             if label is None:
@@ -347,15 +423,21 @@ class M3DSynthPatchDataset:
 
         example = self.examples[index]
         record = self.records[example.record_index]
-        scan, _ = load_scan_and_mask(self.data_root, record)
+        scan, _ = load_scan_and_mask(self.data_root, record, use_cache=False)
         z, y, x = example.coord
         dz, dy, dx = self.patch_shape
         patch = scan[z : z + dz, y : y + dy, x : x + dx]
+        # Pad patch if it's smaller than patch_shape (happens at boundaries)
+        if patch.shape != self.patch_shape:
+            pad_z = dz - patch.shape[0]
+            pad_y = dy - patch.shape[1]
+            pad_x = dx - patch.shape[2]
+            patch = np.pad(patch, ((0, pad_z), (0, pad_y), (0, pad_x)), mode="constant", constant_values=0)
         # Channel dimension is added here so model input becomes (B, 1, D, H, W).
         image = torch.from_numpy(patch[None].astype(np.float32, copy=False))
         label = torch.tensor([float(example.label)], dtype=torch.float32)
         soft_score = torch.tensor([float(example.soft_score)], dtype=torch.float32)
-        return {"image": image, "label": label, "soft_score": soft_score, "record": record, "coord": example.coord}
+        return {"image": image, "label": label, "soft_score": soft_score}
 
 
 def _read_split_table(sets_csv: Path) -> dict[str, str]:

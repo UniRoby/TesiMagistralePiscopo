@@ -1,0 +1,41 @@
+﻿.\.venv\Scripts\python : Traceback (most recent call last):
+In riga:1 car:357
++ ... lePiscopo"; .\.venv\Scripts\python -m tesi_m3d.train --config configs ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo\src\tesi_m3d\train.py", line 198, in <module>
+    main()
+    ~~~~^^
+  File "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo\src\tesi_m3d\train.py", line 179, in main
+    model, loader, loss_fn, optimizer = build_training_objects(config, data_root_override=args.data_root)
+                                        ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo\src\tesi_m3d\train.py", line 95, in build_training_objects
+    train_dataset = M3DSynthPatchDataset(
+        groups["train"],
+    ...<3 lines>...
+        positive_overlap_fraction=float(patch_cfg.get("positive_overlap_fraction", 0.05)),
+    )
+  File "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo\src\tesi_m3d\dataset.py", line 380, in __init__
+    self.examples = list(examples) if examples is not None else build_patch_examples(
+                                                                ~~~~~~~~~~~~~~~~~~~~^
+        self.records,
+        ^^^^^^^^^^^^^
+    ...<3 lines>...
+        positive_overlap_fraction=positive_overlap_fraction,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo\src\tesi_m3d\dataset.py", line 339, in build_patch_examples
+    scan, mask = load_scan_and_mask(data_root, record)
+                 ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo\src\tesi_m3d\dataset.py", line 292, in load_scan_and_mask
+    scan = normalize_percentile(load_tiff_stack(scan_dir(data_root, record)))
+  File "C:\Tesi Magistrale Piscopo\TesiMagistralePiscopo\src\tesi_m3d\dataset.py", line 275, in normalize_percentile
+    scan = scan.astype(np.float32)
+numpy._core._exceptions._ArrayMemoryError: Unable to allocate 318. MiB for an array with shape (318, 512, 512) and 
+data type float32
+Loading dataset and building model...
