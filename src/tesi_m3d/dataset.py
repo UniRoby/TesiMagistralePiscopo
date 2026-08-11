@@ -8,14 +8,17 @@ here so training, inference, and tests can share the same path logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 import csv
-from typing import Iterable, Sequence
+import warnings
+from typing import TYPE_CHECKING, Iterable, Sequence
 
 import numpy as np
 
-from .patches import PatchGrid, labels_from_mask, patch_overlap_fraction
+from .volume_io import align_mask_to_scan, load_label_mask, load_normalized_scan, VolumeCache
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle is resolved lazily at runtime
+    from .patch_index import PatchIndex
 
 
 @dataclass(frozen=True)
@@ -246,28 +249,33 @@ def _load_tiff_stack_impl(dirname_str: str, dtype_name: str) -> np.ndarray:
     return stack.astype(target_dtype) if stack.dtype != target_dtype else stack
 
 
-@lru_cache(maxsize=1000)
-def _load_tiff_stack_cached(dirname_str: str, dtype_name: str) -> np.ndarray:
-    """Load TIFF stack with LRU caching to avoid redundant disk reads.
-
-    maxsize=1000 allows ~75 GB in-memory cache (assuming 75 MB per series).
-    """
-    return _load_tiff_stack_impl(dirname_str, dtype_name)
-
-
-def load_tiff_stack(dirname: str | Path, dtype: np.dtype | type | None = None, use_cache: bool = True) -> np.ndarray:
+def load_tiff_stack(
+    dirname: str | Path,
+    dtype: np.dtype | type | None = None,
+    use_cache: bool | None = None,
+) -> np.ndarray:
     """Load a TIFF stack saved as ``slide0000.tiff``, ``slide0001.tiff``, ...
 
     dtype: target dtype. If None, returns native uint16 from TIFF files.
-    use_cache: if False, bypass LRU cache (useful when each series is read once).
+    use_cache: deprecated and ignored. An ``lru_cache`` used to sit here, but
+        caching raw stacks keyed by directory could not bound memory (1000
+        entries exhausted 32 GB) and never hit anyway, because the sampler drew
+        patches in fully random order. Caching now lives in
+        :class:`~tesi_m3d.volume_io.VolumeCache`, which caches *normalized*
+        volumes and is paired with a volume-grouped sampler that makes hits the
+        common case.
     """
 
+    if use_cache is not None:
+        warnings.warn(
+            "load_tiff_stack(use_cache=...) is deprecated and ignored; "
+            "caching moved to tesi_m3d.volume_io.VolumeCache",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     dtype_str = "uint16" if dtype is None else np.dtype(dtype).name
     dirname_str = str(Path(dirname).resolve())
-    if use_cache:
-        return _load_tiff_stack_cached(dirname_str, dtype_str)
-    else:
-        return _load_tiff_stack_impl(dirname_str, dtype_str)
+    return _load_tiff_stack_impl(dirname_str, dtype_str)
 
 
 def normalize_percentile(scan: np.ndarray, low: float = 1.0, high: float = 99.0) -> np.ndarray:
@@ -288,44 +296,34 @@ def normalize_percentile(scan: np.ndarray, low: float = 1.0, high: float = 99.0)
     return result
 
 
-def load_scan_and_mask(data_root: str | Path, record: M3DSynthRecord, use_cache: bool = False) -> tuple[np.ndarray, np.ndarray]:
+def load_scan_and_mask(
+    data_root: str | Path,
+    record: M3DSynthRecord,
+    use_cache: bool | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Load normalized scan and boolean manipulation mask for one record.
 
-    Handles shape misalignment in the z-dimension:
-    - pix2pix padding: mask often has +1 z-slice (trimmed);
-    - General mismatch: if mask z differs from scan z, trim (if longer) or pad with
-      zeros (if shorter). Y and X must match exactly.
+    Mask z-misalignment is resolved by :func:`~tesi_m3d.volume_io.align_mask_to_scan`,
+    which is the single alignment rule shared with the patch index builder.
 
-    use_cache: if False, bypass LRU cache (use during training where each series is read once).
+    use_cache: deprecated and ignored, see :func:`load_tiff_stack`.
     """
 
-    scan = normalize_percentile(load_tiff_stack(scan_dir(data_root, record), use_cache=use_cache))
+    if use_cache is not None:
+        warnings.warn(
+            "load_scan_and_mask(use_cache=...) is deprecated and ignored",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    scan = load_normalized_scan(data_root, record)
     if record.is_real:
-        mask = np.zeros(scan.shape, dtype=bool)
-    else:
-        mask = load_tiff_stack(label_dir(data_root, record), use_cache=use_cache) > 0
+        return scan, np.zeros(scan.shape, dtype=bool)
 
-        # Align mask to scan shape if z-dimension differs
-        if scan.shape != mask.shape:
-            scan_z, scan_y, scan_x = scan.shape
-            mask_z, mask_y, mask_x = mask.shape
-
-            # Y and X must match exactly — this is a critical error if they don't
-            if scan_y != mask_y or scan_x != mask_x:
-                raise ValueError(
-                    f"scan/mask spatial (y, x) mismatch for {record.img_id}: "
-                    f"scan {scan.shape} != mask {mask.shape}"
-                )
-
-            # Handle z-dimension mismatch
-            if mask_z > scan_z:
-                # Mask is longer: trim from the end (pix2pix padding convention)
-                mask = mask[:scan_z]
-            elif mask_z < scan_z:
-                # Mask is shorter: pad with zeros (background) at the end
-                padding = scan_z - mask_z
-                mask = np.pad(mask, ((0, padding), (0, 0), (0, 0)), mode="constant", constant_values=False)
-
+    mask = align_mask_to_scan(
+        load_label_mask(label_dir(data_root, record)),
+        scan.shape,
+        img_id=record.img_id,
+    )
     if scan.shape != mask.shape:
         raise ValueError(f"scan/mask shape mismatch for {record.img_id}: {scan.shape} != {mask.shape}")
     return scan, mask
@@ -340,40 +338,27 @@ def build_patch_examples(
 ) -> list[PatchExample]:
     """Create patch-level index entries by reading masks once.
 
-    Boundary patches with tiny non-zero overlap receive label ``None`` from
-    ``labels_from_mask`` and are skipped to avoid noisy supervision.
-    Only loads mask (not scan) to minimize memory during indexing.
+    Boundary patches with a non-zero but sub-threshold overlap are ambiguous
+    supervision and are skipped.
+
+    Backward-compatible wrapper over :func:`~tesi_m3d.patch_index.build_patch_index`.
+    Prefer the ``PatchIndex`` form for large record sets: materializing four
+    million ``PatchExample`` objects costs hundreds of MB where the arrays cost
+    tens.
     """
 
-    examples: list[PatchExample] = []
-    for record_index, record in enumerate(records):
-        # Load mask only (much smaller) to get shape and labels, without loading scan
-        if record.is_real:
-            # Real data: infer shape from scan alone without loading all pixels
-            scan = load_tiff_stack(scan_dir(data_root, record), use_cache=False)
-            mask = np.zeros(scan.shape, dtype=bool)
-            del scan  # Free memory immediately
-        else:
-            # Pix2pix: load mask as bool to save memory
-            mask = (load_tiff_stack(label_dir(data_root, record), use_cache=False) > 0).astype(bool)
-            # Get shape from mask, align to scan shape if needed
-            scan_shape_z = mask.shape[0]  # Assume mask z is correct after alignment
-            # For now, use mask shape as proxy (will be corrected in __getitem__)
+    from .patch_index import build_patch_index  # local import breaks the import cycle
 
-        grid = PatchGrid(mask.shape, patch_shape=patch_shape, stride=stride)
-        labels = labels_from_mask(mask, grid, positive_overlap_fraction=positive_overlap_fraction)
-        for coord, slc, label in zip(grid.iter_coords(), grid.iter_slices(), labels):
-            if label is None:
-                continue
-            examples.append(
-                PatchExample(
-                    record_index=record_index,
-                    coord=coord,
-                    label=int(label),
-                    soft_score=patch_overlap_fraction(mask[slc]),
-                )
-            )
-    return examples
+    return list(
+        build_patch_index(
+            records,
+            data_root,
+            patch_shape=patch_shape,
+            stride=stride,
+            positive_overlap_fraction=positive_overlap_fraction,
+            progress=False,
+        )
+    )
 
 
 class M3DSynthPatchDataset:
@@ -389,55 +374,147 @@ class M3DSynthPatchDataset:
         self,
         records: Sequence[M3DSynthRecord],
         data_root: str | Path,
-        examples: Sequence[PatchExample] | None = None,
+        examples: "Sequence[PatchExample] | PatchIndex | None" = None,
         patch_shape: tuple[int, int, int] = (32, 32, 32),
         stride: tuple[int, int, int] = (32, 32, 32),
         positive_overlap_fraction: float = 0.05,
+        cache_dir: str | Path | None = None,
+        volume_cache_size: int = 2,
     ) -> None:
-        """Store records and optionally build patch index from masks."""
+        """Store records and build or accept a patch index.
+
+        cache_dir: where to persist the built patch index; ``None`` rebuilds it
+            every time, which costs minutes on the full training set.
+        volume_cache_size: how many normalized volumes to keep resident. Only
+            useful together with :class:`~tesi_m3d.sampling.VolumeGroupedBatchSampler`,
+            which keeps consecutive accesses on the same volume.
+        """
+
+        from .patch_index import PatchIndex, load_or_build_patch_index
 
         self.records = list(records)
         self.data_root = Path(data_root)
-        self.patch_shape = patch_shape
-        self.stride = stride
-        self.examples = list(examples) if examples is not None else build_patch_examples(
-            self.records,
-            self.data_root,
-            patch_shape=patch_shape,
-            stride=stride,
-            positive_overlap_fraction=positive_overlap_fraction,
-        )
+        self.patch_shape = tuple(int(v) for v in patch_shape)
+        self.stride = tuple(int(v) for v in stride)
+
+        if examples is None:
+            self._index = load_or_build_patch_index(
+                self.records,
+                self.data_root,
+                cache_dir,
+                patch_shape=self.patch_shape,
+                stride=self.stride,
+                positive_overlap_fraction=positive_overlap_fraction,
+            )
+        elif isinstance(examples, PatchIndex):
+            self._index = examples
+        else:
+            self._index = _index_from_examples(examples)
+
+        self._volume_cache = VolumeCache(maxsize=volume_cache_size)
+        # Resolving a path costs a syscall; the sampler asks for these keys once
+        # per example at construction time, so they are memoized per record.
+        self._volume_key_by_record: dict[int, str] = {}
+
+    @property
+    def examples(self) -> "PatchIndex":
+        """Return the patch index; iterating it yields ``PatchExample``."""
+
+        return self._index
+
+    @property
+    def labels(self) -> np.ndarray:
+        """Return all patch labels as a ``uint8`` array without materializing objects."""
+
+        return self._index.label
+
+    def volume_key(self, index: int) -> str:
+        """Return the resolved scan directory backing patch ``index``.
+
+        This is the grouping key for the sampler and the volume cache. It is the
+        *resolved* directory, so the 1787 real training records that point at 489
+        directories collapse onto 489 keys instead of being reloaded per record.
+        """
+
+        record_index = int(self._index.record_index[index])
+        key = self._volume_key_by_record.get(record_index)
+        if key is None:
+            key = str(scan_dir(self.data_root, self.records[record_index]).resolve())
+            self._volume_key_by_record[record_index] = key
+        return key
 
     def __len__(self) -> int:
         """Return number of supervised patch examples."""
 
-        return len(self.examples)
+        return len(self._index)
 
     def __getitem__(self, index: int) -> dict[str, object]:
-        """Load one patch and return torch tensors plus metadata."""
+        """Return one patch as torch tensors, reusing the cached volume."""
 
         try:
             import torch
         except ImportError as exc:  # pragma: no cover - depends on train env
             raise RuntimeError("PyTorch is required to use M3DSynthPatchDataset") from exc
 
-        example = self.examples[index]
-        record = self.records[example.record_index]
-        scan, _ = load_scan_and_mask(self.data_root, record, use_cache=False)
-        z, y, x = example.coord
+        record_index = int(self._index.record_index[index])
+        record = self.records[record_index]
+        # The mask is not needed here: labels come from the prebuilt index, and
+        # loading it was doubling the IO for every patch.
+        scan = self._volume_cache.get(
+            self.volume_key(index),
+            lambda: load_normalized_scan(self.data_root, record),
+        )
+        z, y, x = (int(v) for v in self._index.coord[index])
         dz, dy, dx = self.patch_shape
         patch = scan[z : z + dz, y : y + dy, x : x + dx]
-        # Pad patch if it's smaller than patch_shape (happens at boundaries)
         if patch.shape != self.patch_shape:
-            pad_z = dz - patch.shape[0]
-            pad_y = dy - patch.shape[1]
-            pad_x = dx - patch.shape[2]
-            patch = np.pad(patch, ((0, pad_z), (0, pad_y), (0, pad_x)), mode="constant", constant_values=0)
+            # Unreachable for a well-formed index, since the grid is built from
+            # the scan shape. Kept as a loud guard rather than a silent pad.
+            warnings.warn(
+                f"patch at {(z, y, x)} of {record.img_id} is {patch.shape}, "
+                f"expected {self.patch_shape}; zero-padding",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            patch = np.pad(
+                patch,
+                [(0, d - s) for d, s in zip(self.patch_shape, patch.shape)],
+                mode="constant",
+                constant_values=0,
+            )
         # Channel dimension is added here so model input becomes (B, 1, D, H, W).
-        image = torch.from_numpy(patch[None].astype(np.float32, copy=False))
-        label = torch.tensor([float(example.label)], dtype=torch.float32)
-        soft_score = torch.tensor([float(example.soft_score)], dtype=torch.float32)
+        image = torch.from_numpy(np.ascontiguousarray(patch[None], dtype=np.float32))
+        label = torch.tensor([float(self._index.label[index])], dtype=torch.float32)
+        soft_score = torch.tensor([float(self._index.soft_score[index])], dtype=torch.float32)
         return {"image": image, "label": label, "soft_score": soft_score}
+
+    def __getstate__(self) -> dict:
+        """Pickle without resident volumes so spawned workers start empty."""
+
+        state = self.__dict__.copy()
+        state["_volume_cache"] = VolumeCache(maxsize=self._volume_cache.maxsize)
+        return state
+
+
+def _index_from_examples(examples: "Sequence[PatchExample]") -> "PatchIndex":
+    """Convert a legacy ``PatchExample`` sequence into a :class:`PatchIndex`."""
+
+    from .patch_index import PatchIndex
+
+    examples = list(examples)
+    if not examples:
+        return PatchIndex(
+            record_index=np.empty(0, dtype=np.int32),
+            coord=np.empty((0, 3), dtype=np.int32),
+            label=np.empty(0, dtype=np.uint8),
+            soft_score=np.empty(0, dtype=np.float32),
+        )
+    return PatchIndex(
+        record_index=np.asarray([e.record_index for e in examples], dtype=np.int32),
+        coord=np.asarray([e.coord for e in examples], dtype=np.int32),
+        label=np.asarray([e.label for e in examples], dtype=np.uint8),
+        soft_score=np.asarray([e.soft_score for e in examples], dtype=np.float32),
+    )
 
 
 def _read_split_table(sets_csv: Path) -> dict[str, str]:

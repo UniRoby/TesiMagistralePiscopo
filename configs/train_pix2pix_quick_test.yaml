@@ -1,23 +1,36 @@
-# Quick test config: 10% of data, 2 epochs, large batch to verify the full pipeline end-to-end
+# Quick test config: verify the full pipeline end-to-end in a few minutes.
+#
+# Subsetting is done by RECORDS (data.max_train_records), never by widening the
+# stride. A stride of 128 with a 32-voxel patch samples 1.5% of each volume and
+# yields zero positive patches on every series measured, which would silently
+# train the classifier on an all-negative set.
 experiment_name: train_pix2pix_quick_test
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
 output_dir: outputs/train_pix2pix_quick_test
+cache_dir: D:/tesi_m3d_cache  # the dataset drive C: has only a few GB free
 
 split:
   train_set: train
   valid_set: valid
-  test_set: test
   train_mods: [pix2pix]  # Only pix2pix, not real CT
   valid_mods: [pix2pix]
   test_mods: [cycle, diffusion]
   include_real: false  # Skip real CT to speed up
 
+data:
+  max_train_records: 32  # 32 of 1537 volumes; shuffled first so inj and rem both appear
+  max_valid_records: 8
+  record_subset_seed: 21
+
 patches:
   patch_shape: [32, 32, 32]
-  train_stride: [128, 128, 128]  # Reduced from 32 to 128 to drastically decrease patch count
+  train_stride: [32, 32, 32]
   inference_stride: [16, 16, 16]
   positive_overlap_fraction: 0.05
+  max_patches_per_volume: 32  # one volume load serves exactly one batch
+  neg_per_pos: 5.0  # ~5 positives + 27 negatives per batch = 16% positive rate
+  max_valid_patches_per_volume: 256
 
 model:
   name: simple_3d_cnn
@@ -28,13 +41,17 @@ model:
 
 training:
   epochs: 2  # Just 2 epochs to verify pipeline works
-  batch_size: 4  # Reduced to avoid OOM during patch indexing
+  batch_size: 32
+  max_patches_per_epoch: 1024
+  volume_cache_size: 2
   learning_rate: 0.0003
   weight_decay: 0.0001
   mixed_precision: true
+  amp_dtype: bfloat16
   loss: focal
-  num_workers: 0  # Keep 0 for Windows; LRU cache handles I/O
+  num_workers: 0  # Keep 0 for Windows; raise only after verifying spawn works
   seed: 21
+  checkpoint_every_epoch: true
 
 evaluation:
   threshold_source: validation
