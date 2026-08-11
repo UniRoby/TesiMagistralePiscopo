@@ -22,7 +22,7 @@ env/
 
 # Thesis data
 data/
-outputs/
+outputs/train_pix2pix_quick_test
 runs/
 checkpoints/
 *.ckpt
