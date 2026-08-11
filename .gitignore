@@ -27,7 +27,6 @@ runs/
 checkpoints/
 *.ckpt
 *.pth
-*.pt
 *.onnx
 *.npz
 *.npy
