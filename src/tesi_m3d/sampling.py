@@ -198,27 +198,31 @@ class VolumeGroupedBatchSampler:
 
 
 class SequentialVolumeBatchSampler:
-    """Yield every patch exactly once, grouped by volume, for evaluation.
+    """Yield deterministic, volume-grouped evaluation batches.
 
-    Validation must see the natural class distribution, otherwise reported AP is
-    measured against a distribution the model will never face. This sampler only
-    reorders: it does not resample or rebalance.
+    When labels are supplied and a per-volume cap is set, every positive patch
+    is retained before negatives are sampled. This prevents a small validation
+    budget from silently dropping the rare class altogether.
     """
 
     def __init__(
         self,
         volume_keys: Sequence[str],
         batch_size: int,
+        labels: np.ndarray | None = None,
         max_patches_per_volume: int | None = None,
         max_volumes: int | None = None,
         seed: int = 0,
     ) -> None:
-        """Group example indices by volume, preserving every patch."""
+        """Group indices by volume and retain positives under a budget."""
 
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
         self.batch_size = int(batch_size)
         self.seed = int(seed)
+        if labels is not None and len(volume_keys) != len(labels):
+            raise ValueError("volume_keys and labels must have the same length")
+        labels = None if labels is None else np.asarray(labels)
 
         order = np.argsort(np.asarray(volume_keys, dtype=object), kind="stable")
         keys_sorted = [volume_keys[i] for i in order]
@@ -233,11 +237,26 @@ class SequentialVolumeBatchSampler:
         if max_volumes is not None and max_volumes < len(groups):
             groups = [groups[i] for i in sorted(rng.permutation(len(groups))[:max_volumes])]
         if max_patches_per_volume is not None:
-            groups = [
-                group if len(group) <= max_patches_per_volume
-                else rng.choice(group, size=max_patches_per_volume, replace=False)
-                for group in groups
-            ]
+            capped_groups = []
+            for group in groups:
+                if len(group) <= max_patches_per_volume:
+                    capped_groups.append(group)
+                    continue
+                if labels is None:
+                    capped_groups.append(rng.choice(group, size=max_patches_per_volume, replace=False))
+                    continue
+                positives = group[labels[group] > 0]
+                negatives = group[labels[group] == 0]
+                # Positives are never truncated: a volume with more positives
+                # than the nominal budget deliberately yields a longer group.
+                n_negatives = max(0, int(max_patches_per_volume) - len(positives))
+                chosen_negatives = (
+                    rng.choice(negatives, size=min(n_negatives, len(negatives)), replace=False)
+                    if n_negatives > 0
+                    else np.empty(0, dtype=np.int64)
+                )
+                capped_groups.append(np.sort(np.concatenate([positives, chosen_negatives])))
+            groups = capped_groups
 
         self._batches: list[list[int]] = []
         for group in groups:

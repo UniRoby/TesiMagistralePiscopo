@@ -132,6 +132,80 @@ def volume_auc_ba(y_true: np.ndarray, y_score: np.ndarray, threshold: float = 0.
     return auc, balanced_accuracy(y_true, y_score, threshold=threshold)
 
 
+def best_threshold_by_balanced_accuracy(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+) -> tuple[float, float]:
+    """Select a score threshold maximizing balanced accuracy.
+
+    Candidate thresholds are the observed scores, so the returned threshold is
+    exact for the supplied validation predictions. Equal scores prefer the
+    highest threshold, reducing false positives deterministically.
+    """
+
+    y_true = np.asarray(y_true).astype(bool)
+    y_score = np.asarray(y_score, dtype=np.float32)
+    if y_true.shape != y_score.shape or y_true.size == 0:
+        raise ValueError("y_true and y_score must be non-empty arrays with the same shape")
+    if np.unique(y_true).size != 2:
+        raise ValueError("threshold calibration requires both positive and negative examples")
+    best_threshold = float(np.min(y_score))
+    best_value = -float("inf")
+    for threshold in np.unique(y_score):
+        value = balanced_accuracy(y_true, y_score, float(threshold))
+        if value >= best_value:
+            best_threshold = float(threshold)
+            best_value = float(value)
+    return best_threshold, best_value
+
+
+def best_heatmap_threshold_by_f1(
+    masks: Sequence[np.ndarray],
+    heatmaps: Sequence[np.ndarray],
+    thresholds: Iterable[float] | None = None,
+) -> tuple[float, BinaryLocalizationMetrics]:
+    """Select a global heatmap threshold by micro-averaged voxel F1/Dice.
+
+    Heatmaps are processed one at a time, avoiding a large concatenated 3D
+    validation tensor. Ties prefer the highest threshold.
+    """
+
+    if len(masks) != len(heatmaps) or not masks:
+        raise ValueError("masks and heatmaps must be non-empty sequences of equal length")
+    if thresholds is None:
+        thresholds = np.linspace(0.01, 0.99, 99)
+    candidates = [float(value) for value in thresholds]
+    if not candidates:
+        raise ValueError("at least one threshold is required")
+    has_positive = False
+    best_threshold = candidates[0]
+    best_metrics: BinaryLocalizationMetrics | None = None
+    for threshold in candidates:
+        tp = fp = fn = 0.0
+        for mask, heatmap in zip(masks, heatmaps):
+            truth = np.asarray(mask, dtype=bool)
+            prediction = np.asarray(heatmap, dtype=np.float32) >= threshold
+            if truth.shape != prediction.shape:
+                raise ValueError("every mask and heatmap pair must share a shape")
+            has_positive |= bool(np.any(truth))
+            tp += np.logical_and(truth, prediction).sum(dtype=np.float64)
+            fp += np.logical_and(~truth, prediction).sum(dtype=np.float64)
+            fn += np.logical_and(truth, ~prediction).sum(dtype=np.float64)
+        precision = 1.0 if tp + fp == 0 else float(tp / (tp + fp))
+        recall = 1.0 if tp + fn == 0 else float(tp / (tp + fn))
+        f1 = 1.0 if 2 * tp + fp + fn == 0 else float(2 * tp / (2 * tp + fp + fn))
+        metrics = BinaryLocalizationMetrics(
+            precision=precision, recall=recall, f1=f1, dice=f1,
+            iou=1.0 if tp + fp + fn == 0 else float(tp / (tp + fp + fn)),
+        )
+        if best_metrics is None or metrics.f1 >= best_metrics.f1:
+            best_threshold, best_metrics = threshold, metrics
+    if not has_positive:
+        raise ValueError("localization threshold calibration requires at least one positive voxel")
+    assert best_metrics is not None
+    return best_threshold, best_metrics
+
+
 def best_threshold_by_f1(
     mask: np.ndarray,
     heatmap: np.ndarray,

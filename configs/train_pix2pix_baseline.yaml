@@ -57,4 +57,8 @@ training:
 evaluation:
   threshold_source: validation
   detection_score: max_heatmap
+  heatmap_aggregation: average
+  calibration_batch_size: 32
+  calibration_threshold_steps: 99
+  calibrate_best: true
   localization_metrics: [f1, iou, voxel_auc, ap]

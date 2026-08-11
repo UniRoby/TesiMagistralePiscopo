@@ -4,6 +4,8 @@ import numpy as np
 
 from tesi_m3d.evaluation import (
     balanced_accuracy,
+    best_heatmap_threshold_by_f1,
+    best_threshold_by_balanced_accuracy,
     binary_localization_metrics,
     topk_detection_score,
     volume_auc_ba,
@@ -49,6 +51,24 @@ class EvaluationTests(unittest.TestCase):
         score = topk_detection_score(heatmap, fraction=0.1)
 
         self.assertAlmostEqual(score, float(np.mean(np.arange(90, 100))))
+
+    def test_calibrates_highest_balanced_accuracy_tie_threshold(self):
+        truth = np.array([0, 1, 0, 1], dtype=bool)
+        scores = np.array([0.2, 0.4, 0.6, 0.8], dtype=np.float32)
+
+        threshold, value = best_threshold_by_balanced_accuracy(truth, scores)
+
+        self.assertAlmostEqual(threshold, 0.8)
+        self.assertAlmostEqual(value, 0.75)
+
+    def test_calibrates_micro_f1_for_heatmaps(self):
+        mask = np.array([1, 1, 0, 0], dtype=bool)
+        heatmap = np.array([0.9, 0.8, 0.7, 0.1], dtype=np.float32)
+
+        threshold, metrics = best_heatmap_threshold_by_f1([mask], [heatmap], thresholds=[0.5, 0.8, 0.9])
+
+        self.assertAlmostEqual(threshold, 0.8)
+        self.assertAlmostEqual(metrics.f1, 1.0)
 
 
 if __name__ == "__main__":

@@ -13,12 +13,19 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .dataset import M3DSynthPatchDataset, cross_generator_records, read_records
-from .evaluation import volume_auc_ba
+from .dataset import M3DSynthPatchDataset, cross_generator_records, label_dir, read_records, scan_dir
+from .evaluation import (
+    BinaryLocalizationMetrics,
+    best_threshold_by_balanced_accuracy,
+    volume_auc_ba,
+    voxel_auc_ap,
+)
+from .inference import infer_heatmap
 from .losses import build_loss
 from .model import Patch3DModelConfig, build_patch3d_classifier
 from .patch_index import load_or_build_patch_index
 from .sampling import SequentialVolumeBatchSampler, VolumeGroupedBatchSampler
+from .volume_io import align_mask_to_scan, load_label_mask, load_normalized_scan
 
 KNOWN_MODEL_NAMES = {"simple_3d_cnn"}
 
@@ -314,6 +321,7 @@ def build_loaders(
         valid_sampler = SequentialVolumeBatchSampler(
             valid_keys,
             batch_size=batch_size,
+            labels=valid_dataset.labels,
             max_patches_per_volume=patch_cfg.get("max_valid_patches_per_volume", 256),
             max_volumes=training_cfg.get("max_valid_volumes"),
             seed=int(training_cfg.get("seed", 21)),
@@ -440,11 +448,15 @@ def evaluate_patch_loader(
             all_labels.append(label.detach().cpu().numpy().reshape(-1))
 
     if not all_labels:
-        return {"loss": float("nan"), "auc": float("nan"), "ap": float("nan"),
-                "balanced_accuracy": float("nan"), "n": 0.0, "n_pos": 0.0}
+        raise ValueError("validation loader yielded no patches")
 
     scores = np.concatenate(all_scores)
     labels = np.concatenate(all_labels)
+    if np.unique(labels).size != 2:
+        raise ValueError(
+            "validation must contain both positive and negative patches; "
+            f"received n={len(labels)}, n_pos={int(np.count_nonzero(labels))}"
+        )
     auc, ba = volume_auc_ba(labels, scores, threshold=0.5)
     ap = float("nan")
     if np.unique(labels).size == 2:
@@ -549,6 +561,148 @@ def _checkpoint_payload(
     if objects.scaler is not None:
         payload["scaler_state_dict"] = objects.scaler.state_dict()
     return payload
+
+
+def _load_torch_payload(path: Path) -> dict[str, Any]:
+    """Load a checkpoint compatibly across supported PyTorch releases."""
+
+    import torch
+
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:  # PyTorch < 2.6
+        payload = torch.load(path, map_location="cpu")
+    if not isinstance(payload, dict) or "model_state_dict" not in payload:
+        raise ValueError(f"checkpoint {path} does not contain model_state_dict")
+    return payload
+
+
+def _unique_validation_records(dataset: M3DSynthPatchDataset):
+    """Return one metadata record per physical validation scan directory."""
+
+    unique = {}
+    for record in dataset.records:
+        unique.setdefault(str(scan_dir(dataset.data_root, record).resolve()), record)
+    return list(unique.values())
+
+
+def _best_localization_from_counts(
+    thresholds: np.ndarray,
+    tp: np.ndarray,
+    fp: np.ndarray,
+    fn: np.ndarray,
+) -> tuple[float, BinaryLocalizationMetrics]:
+    """Select highest threshold among equal micro-F1 values."""
+
+    denominator = 2.0 * tp + fp + fn
+    f1 = np.divide(2.0 * tp, denominator, out=np.zeros_like(tp), where=denominator > 0)
+    index = int(np.flatnonzero(f1 == np.max(f1))[-1])
+    precision_denominator = tp + fp
+    recall_denominator = tp + fn
+    precision = 1.0 if precision_denominator[index] == 0 else float(tp[index] / precision_denominator[index])
+    recall = 1.0 if recall_denominator[index] == 0 else float(tp[index] / recall_denominator[index])
+    iou_denominator = tp[index] + fp[index] + fn[index]
+    iou = 1.0 if iou_denominator == 0 else float(tp[index] / iou_denominator)
+    metrics = BinaryLocalizationMetrics(precision, recall, float(f1[index]), float(f1[index]), iou)
+    return float(thresholds[index]), metrics
+
+
+def calibrate_best_checkpoint(
+    best_path: Path,
+    valid_dataset: M3DSynthPatchDataset,
+    config: dict[str, Any],
+    device: str,
+    batch_size: int,
+) -> dict[str, Any]:
+    """Calibrate volume and localization thresholds once on validation scans.
+
+    Full-resolution heatmaps are handled one volume at a time. This keeps the
+    calibration memory bounded while matching the exact inference path used by
+    the CLI.
+    """
+
+    payload = _load_torch_payload(best_path)
+    model_cfg = payload.get("config", config).get("model", {})
+    model = build_patch3d_classifier(
+        Patch3DModelConfig(
+            in_channels=int(model_cfg.get("in_channels", 1)),
+            num_classes=int(model_cfg.get("num_classes", 1)),
+            base_channels=int(model_cfg.get("base_channels", 16)),
+            dropout=float(model_cfg.get("dropout", 0.2)),
+        )
+    )
+    model.load_state_dict(payload["model_state_dict"])
+    model.to(device)
+
+    patch_cfg = config.get("patches", {})
+    evaluation_cfg = config.get("evaluation", {})
+    patch_shape = tuple(patch_cfg.get("patch_shape", (32, 32, 32)))
+    stride = tuple(patch_cfg.get("inference_stride", (16, 16, 16)))
+    aggregation = str(evaluation_cfg.get("heatmap_aggregation", "average"))
+    thresholds = np.linspace(0.01, 0.99, int(evaluation_cfg.get("calibration_threshold_steps", 99)))
+    tp = np.zeros(len(thresholds), dtype=np.float64)
+    fp = np.zeros(len(thresholds), dtype=np.float64)
+    fn = np.zeros(len(thresholds), dtype=np.float64)
+    volume_labels: list[bool] = []
+    volume_scores: list[float] = []
+    voxel_auc: list[float] = []
+    voxel_ap: list[float] = []
+
+    records = _unique_validation_records(valid_dataset)
+    for record in records:
+        scan = load_normalized_scan(valid_dataset.data_root, record)
+        heatmap = infer_heatmap(
+            model, scan, patch_shape=patch_shape, stride=stride,
+            batch_size=batch_size, aggregation=aggregation, device=device,
+        )
+        if record.is_real:
+            mask = np.zeros(scan.shape, dtype=bool)
+        else:
+            mask = align_mask_to_scan(
+                load_label_mask(label_dir(valid_dataset.data_root, record)), scan.shape, img_id=record.img_id
+            )
+        for index, threshold in enumerate(thresholds):
+            prediction = heatmap >= threshold
+            tp[index] += np.logical_and(mask, prediction).sum(dtype=np.float64)
+            fp[index] += np.logical_and(~mask, prediction).sum(dtype=np.float64)
+            fn[index] += np.logical_and(mask, ~prediction).sum(dtype=np.float64)
+        if np.any(mask):
+            auc, ap = voxel_auc_ap(mask, heatmap)
+            voxel_auc.append(auc)
+            voxel_ap.append(ap)
+        volume_labels.append(record.is_manipulated)
+        volume_scores.append(float(np.max(heatmap)))
+
+    volume_labels_array = np.asarray(volume_labels, dtype=bool)
+    volume_scores_array = np.asarray(volume_scores, dtype=np.float32)
+    detection_threshold, detection_ba = best_threshold_by_balanced_accuracy(
+        volume_labels_array, volume_scores_array
+    )
+    detection_auc, _ = volume_auc_ba(volume_labels_array, volume_scores_array, detection_threshold)
+    localization_threshold, localization_metrics = _best_localization_from_counts(thresholds, tp, fp, fn)
+    return {
+        "format_version": 1,
+        "checkpoint": best_path.name,
+        "inference": {
+            "patch_shape": [int(value) for value in patch_shape],
+            "stride": [int(value) for value in stride],
+            "aggregation": aggregation,
+        },
+        "classification": {
+            "threshold": detection_threshold,
+            "balanced_accuracy": detection_ba,
+            "auc": detection_auc,
+            "n_volumes": int(len(records)),
+            "n_positive_volumes": int(np.count_nonzero(volume_labels_array)),
+        },
+        "localization": {
+            "threshold": localization_threshold,
+            **localization_metrics.to_dict(),
+            "mean_voxel_auc_on_positive_volumes": float(np.nanmean(voxel_auc)),
+            "mean_voxel_ap_on_positive_volumes": float(np.nanmean(voxel_ap)),
+            "n_positive_volumes": int(np.count_nonzero(volume_labels_array)),
+        },
+    }
 
 
 def main() -> None:
@@ -684,6 +838,21 @@ def main() -> None:
         _checkpoint_payload(objects, config, epoch + 1, best_ap, epochs_without_improvement),
         checkpoint,
     )
+    if objects.valid_dataset is not None and bool(config.get("evaluation", {}).get("calibrate_best", True)):
+        calibration = calibrate_best_checkpoint(
+            best_path,
+            objects.valid_dataset,
+            config,
+            device=args.device,
+            batch_size=int(config.get("evaluation", {}).get("calibration_batch_size", training_cfg.get("batch_size", 8))),
+        )
+        calibration_path = output_dir / "calibration.json"
+        calibration_path.write_text(json.dumps(calibration, indent=2) + "\n")
+        print(
+            "Calibrated validation thresholds: "
+            f"detection={calibration['classification']['threshold']:.6f}, "
+            f"localization={calibration['localization']['threshold']:.6f}"
+        )
     print(f"\nSaved checkpoint to {checkpoint}")
     print(f"Metrics written to {metrics_path}")
 

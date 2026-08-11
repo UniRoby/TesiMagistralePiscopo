@@ -301,6 +301,14 @@ python -m tesi_m3d.inference `
   --device cuda --out outputs\heatmap.npy
 ```
 
+La validation della baseline conserva tutte le patch positive di ciascun
+volume e campiona solo le negative rimanenti. Al termine del training viene
+creato `calibration.json` accanto a `best.pt`: contiene una soglia per la
+decisione volume-level e una separata per la maschera di localizzazione. La
+CLI le carica automaticamente; `--threshold <valore>` sostituisce solo la
+soglia di detection. Per scegliere esplicitamente il file della maschera usare
+`--mask-out outputs\heatmap_mask.npy`.
+
 ```powershell
 python -m tesi_m3d.train `
   --config configs\train_pix2pix_test_cycle_diffusion.yaml `

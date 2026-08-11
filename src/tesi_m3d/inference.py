@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Sequence
 
@@ -112,7 +113,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--aggregation", choices=("average", "gaussian"), default="average")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="cpu", help="PyTorch device, for example cuda or cpu.")
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--threshold", type=float, help="Override calibrated detection threshold.")
+    parser.add_argument("--mask-out", help="Where to save the thresholded localization mask (.npy).")
     parser.add_argument("--out", default="outputs/heatmap.npy")
     return parser.parse_args()
 
@@ -121,6 +123,9 @@ def main() -> None:
     """CLI entrypoint for reconstructing heatmaps from patch scores."""
 
     args = parse_args()
+    detection_threshold = 0.5
+    localization_threshold = 0.5
+    threshold_source = "default"
     if args.scores is not None:
         heatmap = reconstruct_from_scores_file(
             args.scores,
@@ -142,6 +147,18 @@ def main() -> None:
             payload = torch.load(args.checkpoint, map_location="cpu")
         if not isinstance(payload, dict) or "model_state_dict" not in payload:
             raise SystemExit(f"Invalid checkpoint: {args.checkpoint}")
+        calibration_path = Path(args.checkpoint).with_name("calibration.json")
+        if calibration_path.exists():
+            calibration = json.loads(calibration_path.read_text())
+            try:
+                detection_threshold = float(calibration["classification"]["threshold"])
+                localization_threshold = float(calibration["localization"]["threshold"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise SystemExit(f"Invalid calibration file: {calibration_path}") from exc
+            threshold_source = str(calibration_path)
+        if args.threshold is not None:
+            detection_threshold = float(args.threshold)
+            threshold_source = "--threshold"
         checkpoint_config = payload.get("config", {})
         model_cfg = checkpoint_config.get("model", {})
         model = build_patch3d_classifier(
@@ -165,11 +182,17 @@ def main() -> None:
             device=args.device,
         )
         score = float(heatmap.max())
-        print(f"detection_score={score:.6f}, predicted_manipulated={score >= args.threshold}")
+        print(
+            f"detection_score={score:.6f}, detection_threshold={detection_threshold:.6f}, "
+            f"predicted_manipulated={score >= detection_threshold}, threshold_source={threshold_source}"
+        )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     np.save(out, heatmap)
     print(f"Saved heatmap to {out}")
+    mask_out = Path(args.mask_out) if args.mask_out else out.with_name(f"{out.stem}_mask.npy")
+    np.save(mask_out, heatmap >= localization_threshold)
+    print(f"Saved localization mask to {mask_out} (threshold={localization_threshold:.6f})")
 
 
 if __name__ == "__main__":

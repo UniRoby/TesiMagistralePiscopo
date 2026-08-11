@@ -124,6 +124,22 @@ class TestSequentialSampler(unittest.TestCase):
         sampler = SequentialVolumeBatchSampler(keys, batch_size=8, max_patches_per_volume=16)
         self.assertEqual(sum(len(b) for b in sampler), 48)
 
+    def test_validation_cap_keeps_every_positive_patch(self) -> None:
+        keys, labels = make_keys_and_labels(n_volumes=2, per_volume=100, n_pos=5)
+        sampler = SequentialVolumeBatchSampler(
+            keys, batch_size=8, labels=labels, max_patches_per_volume=16, seed=9
+        )
+        selected = [index for batch in sampler for index in batch]
+        self.assertEqual(len(selected), 32)
+        self.assertEqual(int(labels[selected].sum()), 10)
+        self.assertTrue(all(index in selected for index in np.flatnonzero(labels)))
+
+    def test_validation_selection_is_deterministic_with_labels(self) -> None:
+        keys, labels = make_keys_and_labels(n_volumes=3, per_volume=100, n_pos=3)
+        first = SequentialVolumeBatchSampler(keys, batch_size=8, labels=labels, max_patches_per_volume=16, seed=4)
+        second = SequentialVolumeBatchSampler(keys, batch_size=8, labels=labels, max_patches_per_volume=16, seed=4)
+        self.assertEqual(list(first), list(second))
+
 
 if __name__ == "__main__":
     unittest.main()
