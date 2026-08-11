@@ -10,7 +10,8 @@ import numpy as np
 
 from tesi_m3d.dataset import M3DSynthPatchDataset, M3DSynthRecord
 from tesi_m3d.patch_index import build_patch_index
-from tesi_m3d.train import set_global_seed, subset_records
+from tesi_m3d.model import Patch3DModelConfig, build_patch3d_classifier
+from tesi_m3d.train import _checkpoint_payload, _load_checkpoint, load_yaml_config, set_global_seed, subset_records
 
 from _tiff_fixtures import make_fake_corpus
 
@@ -62,6 +63,45 @@ class TestSeeding(unittest.TestCase):
         first = np.random.rand(5)
         set_global_seed(21)
         np.testing.assert_array_equal(first, np.random.rand(5))
+
+
+class TestBaselineAndResume(unittest.TestCase):
+    def test_baseline_config_has_the_bounded_training_budget(self) -> None:
+        config = load_yaml_config("configs/train_pix2pix_baseline.yaml")
+        self.assertEqual(config["data"]["max_train_records"], 128)
+        self.assertEqual(config["training"]["batch_size"], 32)
+        self.assertEqual(config["training"]["max_patches_per_epoch"], 4096)
+        self.assertEqual(config["patches"]["inference_stride"], [16, 16, 16])
+
+    def test_checkpoint_restores_model_optimizer_and_epoch(self) -> None:
+        try:
+            import torch
+        except ImportError:
+            self.skipTest("torch not installed")
+
+        class Objects:
+            pass
+
+        source = Objects()
+        source.model = build_patch3d_classifier(Patch3DModelConfig(base_channels=4))
+        source.optimizer = torch.optim.AdamW(source.model.parameters(), lr=1e-3)
+        source.scaler = torch.amp.GradScaler("cuda", enabled=False)
+        payload = _checkpoint_payload(source, {"model": {"base_channels": 4}}, epoch=3, best_ap=0.7)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = f"{tmp}/resume.pt"
+            torch.save(payload, checkpoint)
+            target = Objects()
+            target.model = build_patch3d_classifier(Patch3DModelConfig(base_channels=4))
+            target.optimizer = torch.optim.AdamW(target.model.parameters(), lr=1e-3)
+            target.scaler = torch.amp.GradScaler("cuda", enabled=False)
+            epoch, best_ap, without_improvement = _load_checkpoint(checkpoint, target)
+
+        self.assertEqual(epoch, 3)
+        self.assertEqual(best_ap, 0.7)
+        self.assertEqual(without_improvement, 0)
+        for expected, actual in zip(source.model.parameters(), target.model.parameters()):
+            self.assertTrue(torch.equal(expected, actual))
 
 
 class TestDatasetContract(unittest.TestCase):

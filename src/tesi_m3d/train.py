@@ -7,6 +7,7 @@ import csv
 import json
 import os
 import random
+import warnings
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -156,13 +157,26 @@ def _amp_settings(training_cfg: dict[str, Any], device: str):
     return use_amp, amp_dtype, scaler
 
 
-def _build_dataloader(dataset, batch_sampler, training_cfg: dict[str, Any]):
+def _build_dataloader(
+    dataset,
+    batch_sampler,
+    training_cfg: dict[str, Any],
+    *,
+    pin_memory: bool = False,
+):
     """Wrap ``dataset`` in a DataLoader driven by a volume-grouped batch sampler."""
 
     import torch
 
     num_workers = int(training_cfg.get("num_workers", 0))
-    kwargs: dict[str, Any] = {"batch_sampler": batch_sampler, "num_workers": num_workers}
+    kwargs: dict[str, Any] = {
+        "batch_sampler": batch_sampler,
+        "num_workers": num_workers,
+        # Pinning makes the non_blocking CUDA copies in the training loop real
+        # asynchronous transfers. It is deliberately configurable because it
+        # costs some host RAM and is useless for CPU/MPS runs.
+        "pin_memory": bool(pin_memory and training_cfg.get("pin_memory", True)),
+    }
     if num_workers > 0:
         # Without persistent workers, Windows respawns and re-imports per epoch.
         kwargs["persistent_workers"] = bool(training_cfg.get("persistent_workers", True))
@@ -269,7 +283,10 @@ def build_loaders(
         max_volumes_per_epoch=training_cfg.get("max_volumes_per_epoch"),
         seed=int(training_cfg.get("seed", 21)),
     )
-    train_loader = _build_dataloader(train_dataset, train_sampler, training_cfg)
+    pin_memory = str(device).startswith("cuda") and torch.cuda.is_available()
+    train_loader = _build_dataloader(
+        train_dataset, train_sampler, training_cfg, pin_memory=pin_memory
+    )
 
     valid_loader = None
     valid_dataset = None
@@ -301,7 +318,9 @@ def build_loaders(
             max_volumes=training_cfg.get("max_valid_volumes"),
             seed=int(training_cfg.get("seed", 21)),
         )
-        valid_loader = _build_dataloader(valid_dataset, valid_sampler, training_cfg)
+        valid_loader = _build_dataloader(
+            valid_dataset, valid_sampler, training_cfg, pin_memory=pin_memory
+        )
 
     model = build_patch3d_classifier(
         Patch3DModelConfig(
@@ -455,6 +474,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-dir", help="Where to store the patch index cache.")
     parser.add_argument("--rebuild-index", action="store_true", help="Ignore any cached patch index.")
     parser.add_argument(
+        "--resume",
+        help="Resume from a checkpoint saved by this trainer (model, optimizer, AMP scaler, epoch).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Build the index and sampler, print dataset statistics, and exit without training.",
@@ -472,6 +495,60 @@ def _write_metrics_row(path: Path, row: dict[str, Any]) -> None:
         if is_new:
             writer.writeheader()
         writer.writerow(row)
+
+
+def _load_checkpoint(path: str | Path, objects: TrainingObjects) -> tuple[int, float, int]:
+    """Restore training state and return epoch, best AP, and stop counter.
+
+    Older checkpoints containing only model weights remain usable: their
+    optimizer is freshly initialized and their next epoch follows the saved one.
+    """
+
+    import torch
+
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:  # PyTorch < 2.6 has no weights_only keyword.
+        payload = torch.load(path, map_location="cpu")
+    if not isinstance(payload, dict) or "model_state_dict" not in payload:
+        raise ValueError(f"checkpoint {path} does not contain model_state_dict")
+    objects.model.load_state_dict(payload["model_state_dict"])
+    if "optimizer_state_dict" in payload:
+        objects.optimizer.load_state_dict(payload["optimizer_state_dict"])
+    else:
+        warnings.warn(
+            "checkpoint has no optimizer state; resuming with a freshly initialized optimizer",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    if objects.scaler is not None and "scaler_state_dict" in payload:
+        objects.scaler.load_state_dict(payload["scaler_state_dict"])
+    next_epoch = int(payload.get("epoch", 0))
+    best_ap = float(payload.get("best_ap", -float("inf")))
+    epochs_without_improvement = int(payload.get("epochs_without_improvement", 0))
+    return next_epoch, best_ap, epochs_without_improvement
+
+
+def _checkpoint_payload(
+    objects: TrainingObjects,
+    config: dict[str, Any],
+    epoch: int,
+    best_ap: float,
+    epochs_without_improvement: int = 0,
+) -> dict[str, Any]:
+    """Return a complete, resumable checkpoint payload."""
+
+    payload: dict[str, Any] = {
+        "model_state_dict": objects.model.state_dict(),
+        "optimizer_state_dict": objects.optimizer.state_dict(),
+        "config": config,
+        "epoch": int(epoch),
+        "best_ap": float(best_ap),
+        "epochs_without_improvement": int(epochs_without_improvement),
+    }
+    if objects.scaler is not None:
+        payload["scaler_state_dict"] = objects.scaler.state_dict()
+    return payload
 
 
 def main() -> None:
@@ -525,9 +602,23 @@ def main() -> None:
     epochs = int(training_cfg.get("epochs", 1))
     grad_clip = training_cfg.get("grad_clip_norm")
     metrics_path = output_dir / "metrics.csv"
+    best_path = output_dir / "best.pt"
     best_ap = -float("inf")
+    epochs_without_improvement = 0
+    start_epoch = 0
+    if args.resume:
+        start_epoch, best_ap, epochs_without_improvement = _load_checkpoint(args.resume, objects)
+        if start_epoch >= epochs:
+            raise ValueError(
+                f"checkpoint is already at epoch {start_epoch}, but training.epochs is only {epochs}"
+            )
+        print(f"Resumed {args.resume} at epoch {start_epoch + 1}/{epochs}.")
 
-    epoch_iter = tqdm(range(epochs), desc="epoch") if tqdm else range(epochs)
+    early_stopping_patience = training_cfg.get("early_stopping_patience")
+    early_stopping_patience = (
+        None if early_stopping_patience is None else int(early_stopping_patience)
+    )
+    epoch_iter = tqdm(range(start_epoch, epochs), desc="epoch") if tqdm else range(start_epoch, epochs)
     for epoch in epoch_iter:
         objects.train_sampler.set_epoch(epoch)
         mean_loss = train_one_epoch(
@@ -560,16 +651,39 @@ def main() -> None:
         else:
             print(f"epoch={epoch + 1}, train_loss={mean_loss:.6f}, valid={valid_metrics}")
 
-        payload = {"model_state_dict": objects.model.state_dict(), "config": config, "epoch": epoch + 1}
+        current_ap = valid_metrics.get("ap", float("nan"))
+        # Keep a usable best checkpoint even when AP is unavailable (for example
+        # when scikit-learn is absent), then replace it whenever AP improves.
+        improved = not best_path.exists() or (
+            current_ap == current_ap and current_ap > best_ap
+        )
+        if improved:
+            best_ap = current_ap
+            epochs_without_improvement = 0
+        elif current_ap == current_ap:
+            epochs_without_improvement += 1
+
+        payload = _checkpoint_payload(
+            objects, config, epoch + 1, best_ap, epochs_without_improvement
+        )
         if bool(training_cfg.get("checkpoint_every_epoch", True)):
             torch.save(payload, output_dir / f"checkpoint_epoch{epoch + 1:03d}.pt")
-        current_ap = valid_metrics.get("ap", float("nan"))
-        if current_ap == current_ap and current_ap > best_ap:  # skips NaN
-            best_ap = current_ap
-            torch.save(payload, output_dir / "best.pt")
+        if improved:
+            torch.save(payload, best_path)
+        if (
+            early_stopping_patience is not None
+            and epochs_without_improvement >= early_stopping_patience
+        ):
+            print(
+                f"Early stopping after {epochs_without_improvement} epochs without validation AP improvement."
+            )
+            break
 
     checkpoint = output_dir / "patch3d_classifier.pt"
-    torch.save({"model_state_dict": objects.model.state_dict(), "config": config}, checkpoint)
+    torch.save(
+        _checkpoint_payload(objects, config, epoch + 1, best_ap, epochs_without_improvement),
+        checkpoint,
+    )
     print(f"\nSaved checkpoint to {checkpoint}")
     print(f"Metrics written to {metrics_path}")
 

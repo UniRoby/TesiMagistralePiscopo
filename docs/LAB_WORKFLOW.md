@@ -246,6 +246,61 @@ training completabile in **7-15 ore per epoch** (ragionevole).
 
 ## 14. Training: pix2pix
 
+### Baseline rapida (consigliata per una sessione di laboratorio)
+
+Per ottenere un checkpoint utilizzabile per detection e heatmap senza eseguire
+il protocollo completo da 50 epoche, usare la configurazione limitata a 128
+volumi e 4.096 patch per epoca:
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_baseline.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+```
+
+Prima eseguire il controllo della dimensione effettiva del sampler:
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_baseline.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda --dry-run
+```
+
+Il dry-run deve riportare fino a 128 record selezionati, circa 128 batch per
+epoca e positivi non nulli. Record reali che condividono la stessa scansione
+vengono raggruppati e possono ridurre leggermente il numero esatto di batch. La
+configurazione parte con `num_workers: 0`; per misurare
+due worker, copiare la config, impostare temporaneamente
+`max_patches_per_epoch: 640` e `num_workers: 2`, poi confrontare i 20 batch con
+la variante a zero worker usando `nvidia-smi` e Gestione attività. Conservare
+la variante più veloce solo se la RAM rimane stabile.
+
+Ogni checkpoint contiene anche optimizer, AMP scaler ed epoca. Per proseguire
+una run interrotta, aumentare `training.epochs` oltre l'epoca salvata e usare:
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_baseline.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda --resume outputs\train_pix2pix_baseline\checkpoint_epoch003.pt
+```
+
+I checkpoint creati prima di questa modifica contengono solo i pesi: sono
+validi per inferenza e possono riprendere il modello, ma l'optimizer verrà
+inizializzato di nuovo.
+
+Il checkpoint migliore (`best.pt`) può produrre direttamente una heatmap e una
+decisione volume-level basata sul massimo della heatmap:
+
+```powershell
+python -m tesi_m3d.inference `
+  --checkpoint outputs\train_pix2pix_baseline\best.pt `
+  --volume-dir "C:\Tesi Magistrale Piscopo\pix2pix\scan\<img_id>" `
+  --device cuda --out outputs\heatmap.npy
+```
+
 ```powershell
 python -m tesi_m3d.train `
   --config configs\train_pix2pix_test_cycle_diffusion.yaml `

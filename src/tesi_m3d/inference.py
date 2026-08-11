@@ -8,7 +8,9 @@ from typing import Sequence
 
 import numpy as np
 
-from .patches import PatchGrid, extract_patches, reconstruct_heatmap
+from .model import Patch3DModelConfig, build_patch3d_classifier
+from .patches import PatchGrid, reconstruct_heatmap
+from .dataset import load_tiff_stack, normalize_percentile
 
 
 def predict_patch_scores(
@@ -38,13 +40,24 @@ def predict_patch_scores(
 
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
-    patches = extract_patches(np.asarray(volume, dtype=np.float32), grid)
+    volume = np.asarray(volume, dtype=np.float32)
     target_device = torch.device(device) if device is not None else next(model.parameters()).device
     model.eval()
     scores: list[np.ndarray] = []
     with torch.no_grad():
-        for start in range(0, len(patches), batch_size):
-            batch_np = patches[start : start + batch_size]
+        # Do not materialize every overlapping inference patch at once: a
+        # 512x512 CT with stride 16 can otherwise consume multiple GB of RAM.
+        slices = grid.iter_slices()
+        while True:
+            batch_slices = []
+            try:
+                for _ in range(batch_size):
+                    batch_slices.append(next(slices))
+            except StopIteration:
+                pass
+            if not batch_slices:
+                break
+            batch_np = np.stack([volume[slc] for slc in batch_slices], axis=0)
             # Add channel dimension: (B,D,H,W) -> (B,1,D,H,W).
             batch = torch.from_numpy(batch_np[:, None]).to(target_device)
             logits = model(batch)
@@ -91,10 +104,15 @@ def parse_args() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(description="Run patch-wise 3D inference or reconstruct a heatmap.")
     parser.add_argument("--scores", help="Optional .npy/.npz patch-score file for reconstruction smoke tests.")
+    parser.add_argument("--checkpoint", help="Trained .pt checkpoint produced by tesi_m3d.train.")
+    parser.add_argument("--volume-dir", help="Directory containing slide0000.tiff, slide0001.tiff, ...")
     parser.add_argument("--volume-shape", nargs=3, type=int, metavar=("Z", "Y", "X"), default=(64, 64, 64))
     parser.add_argument("--patch-shape", nargs=3, type=int, metavar=("DZ", "DY", "DX"), default=(32, 32, 32))
     parser.add_argument("--stride", nargs=3, type=int, metavar=("SZ", "SY", "SX"), default=(16, 16, 16))
     parser.add_argument("--aggregation", choices=("average", "gaussian"), default="average")
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--device", default="cpu", help="PyTorch device, for example cuda or cpu.")
+    parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--out", default="outputs/heatmap.npy")
     return parser.parse_args()
 
@@ -103,15 +121,51 @@ def main() -> None:
     """CLI entrypoint for reconstructing heatmaps from patch scores."""
 
     args = parse_args()
-    if args.scores is None:
-        raise SystemExit("Full model inference needs a checkpoint; pass --scores to test reconstruction.")
-    heatmap = reconstruct_from_scores_file(
-        args.scores,
-        tuple(args.volume_shape),
-        patch_shape=tuple(args.patch_shape),
-        stride=tuple(args.stride),
-        aggregation=args.aggregation,
-    )
+    if args.scores is not None:
+        heatmap = reconstruct_from_scores_file(
+            args.scores,
+            tuple(args.volume_shape),
+            patch_shape=tuple(args.patch_shape),
+            stride=tuple(args.stride),
+            aggregation=args.aggregation,
+        )
+    else:
+        if not args.checkpoint or not args.volume_dir:
+            raise SystemExit("Pass --scores, or both --checkpoint and --volume-dir for model inference.")
+        try:
+            import torch
+        except ImportError as exc:  # pragma: no cover - depends on train env
+            raise RuntimeError("PyTorch is required for model inference") from exc
+        try:
+            payload = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        except TypeError:  # PyTorch < 2.6
+            payload = torch.load(args.checkpoint, map_location="cpu")
+        if not isinstance(payload, dict) or "model_state_dict" not in payload:
+            raise SystemExit(f"Invalid checkpoint: {args.checkpoint}")
+        checkpoint_config = payload.get("config", {})
+        model_cfg = checkpoint_config.get("model", {})
+        model = build_patch3d_classifier(
+            Patch3DModelConfig(
+                in_channels=int(model_cfg.get("in_channels", 1)),
+                num_classes=int(model_cfg.get("num_classes", 1)),
+                base_channels=int(model_cfg.get("base_channels", 16)),
+                dropout=float(model_cfg.get("dropout", 0.2)),
+            )
+        )
+        model.load_state_dict(payload["model_state_dict"])
+        model.to(args.device)
+        volume = normalize_percentile(load_tiff_stack(args.volume_dir))
+        heatmap = infer_heatmap(
+            model,
+            volume,
+            patch_shape=tuple(args.patch_shape),
+            stride=tuple(args.stride),
+            batch_size=args.batch_size,
+            aggregation=args.aggregation,
+            device=args.device,
+        )
+        score = float(heatmap.max())
+        print(f"detection_score={score:.6f}, predicted_manipulated={score >= args.threshold}")
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     np.save(out, heatmap)
