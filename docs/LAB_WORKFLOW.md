@@ -407,9 +407,3 @@ training:
 model:
   base_channels: 8
 ```
-
-### RAM o preparazione patch troppo lente
-
-Lasciare inizialmente `num_workers: 0` su Windows. Il codice v1 indicizza le
-patch leggendo le mask prima del training; per il primo test si deve attendere
-questa fase anche se la GPU non è ancora occupata.
