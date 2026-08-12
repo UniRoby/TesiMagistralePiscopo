@@ -390,6 +390,10 @@ def train_one_epoch(
         raise RuntimeError("PyTorch and tqdm are required for training") from exc
 
     model.to(device)
+    for state in optimizer.state.values():
+        for key, value in state.items():
+            if torch.is_tensor(value):
+                state[key] = value.to(device)
     model.train()
     losses: list[float] = []
     for batch in tqdm(loader, desc="    batch", leave=False, disable=False):

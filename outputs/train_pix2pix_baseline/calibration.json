@@ -15,21 +15,21 @@
     "aggregation": "average"
   },
   "classification": {
-    "threshold": 0.3933742940425873,
-    "balanced_accuracy": 0.5475113122171946,
-    "auc": 0.42760180995475117,
-    "n_volumes": 30,
-    "n_positive_volumes": 17
+    "threshold": 0.38882407546043396,
+    "balanced_accuracy": 0.5023809523809524,
+    "auc": 0.3523809523809524,
+    "n_volumes": 58,
+    "n_positive_volumes": 30
   },
   "localization": {
-    "threshold": 0.4,
-    "precision": 0.007211462472904624,
-    "recall": 0.05787078194240441,
-    "f1": 0.01282478734421545,
-    "dice": 0.01282478734421545,
-    "iou": 0.006453777836266187,
-    "mean_voxel_auc_on_positive_volumes": 0.8863423669068347,
-    "mean_voxel_ap_on_positive_volumes": 0.009643312256949806,
-    "n_positive_volumes": 17
+    "threshold": 0.44,
+    "precision": 0.017534156546208532,
+    "recall": 0.010753939586618392,
+    "f1": 0.013331491756450872,
+    "dice": 0.013331491756450872,
+    "iou": 0.006710476207345478,
+    "mean_voxel_auc_on_positive_volumes": 0.8920982902510927,
+    "mean_voxel_ap_on_positive_volumes": 0.015629786766156676,
+    "n_positive_volumes": 30
   }
 }

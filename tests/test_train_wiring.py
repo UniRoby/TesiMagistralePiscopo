@@ -68,7 +68,7 @@ class TestSeeding(unittest.TestCase):
 class TestBaselineAndResume(unittest.TestCase):
     def test_baseline_config_has_the_bounded_training_budget(self) -> None:
         config = load_yaml_config("configs/train_pix2pix_baseline.yaml")
-        self.assertEqual(config["data"]["max_train_records"], 128)
+        self.assertEqual(config["data"]["max_train_records"], 256)
         self.assertEqual(config["training"]["batch_size"], 32)
         self.assertEqual(config["training"]["max_patches_per_epoch"], 4096)
         self.assertEqual(config["patches"]["inference_stride"], [16, 16, 16])
