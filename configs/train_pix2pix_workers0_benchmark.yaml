@@ -1,10 +1,8 @@
-# Usable 1–2 hour pix2pix baseline for the laboratory GPU.
-# It reduces records and patches, never the training stride, so positive
-# manipulation patches remain available and inference localization is unchanged.
-experiment_name: train_pix2pix_baseline
+# 20-batch GPU/data-loading benchmark. No validation or calibration by design.
+experiment_name: train_pix2pix_workers0_benchmark
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/train_pix2pix_baseline
+output_dir: outputs/train_pix2pix_workers0_benchmark
 
 split:
   train_set: train
@@ -17,7 +15,7 @@ split:
 
 data:
   max_train_records: 256
-  max_valid_records: 64
+  max_valid_records: 0
   record_subset_seed: 21
 
 patches:
@@ -27,7 +25,6 @@ patches:
   positive_overlap_fraction: 0.05
   max_patches_per_volume: 32
   neg_per_pos: 5.0
-  max_valid_patches_per_volume: 64
 
 model:
   name: simple_3d_cnn
@@ -37,28 +34,20 @@ model:
   dropout: 0.2
 
 training:
-  epochs: 12
+  epochs: 1
   batch_size: 32
-  max_patches_per_epoch: 4096
+  max_patches_per_epoch: 640
   volume_cache_size: 2
   learning_rate: 0.0003
   weight_decay: 0.0001
   mixed_precision: true
   amp_dtype: bfloat16
-  # Start with 0. Benchmark 2 on the laboratory PC, then keep the faster value.
   num_workers: 0
   persistent_workers: true
   prefetch_factor: 1
   pin_memory: true
-  early_stopping_patience: 2
   seed: 21
-  checkpoint_every_epoch: true
+  checkpoint_every_epoch: false
 
 evaluation:
-  threshold_source: validation
-  detection_score: max_heatmap
-  heatmap_aggregation: average
-  calibration_batch_size: 32
-  calibration_threshold_steps: 99
-  calibrate_best: true
-  localization_metrics: [f1, iou, voxel_auc, ap]
+  calibrate_best: false

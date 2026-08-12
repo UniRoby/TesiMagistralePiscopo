@@ -249,8 +249,8 @@ training completabile in **7-15 ore per epoch** (ragionevole).
 ### Baseline rapida (consigliata per una sessione di laboratorio)
 
 Per ottenere un checkpoint utilizzabile per detection e heatmap senza eseguire
-il protocollo completo da 50 epoche, usare la configurazione limitata a 128
-volumi e 4.096 patch per epoca:
+il protocollo completo da 50 epoche, usare la configurazione limitata a 256
+record di training, 64 di validation e 4.096 patch per epoca:
 
 ```powershell
 python -m tesi_m3d.train `
@@ -268,7 +268,7 @@ python -m tesi_m3d.train `
   --device cuda --dry-run
 ```
 
-Il dry-run deve riportare fino a 128 record selezionati, circa 128 batch per
+Il dry-run deve riportare fino a 256 record selezionati, circa 128 batch per
 epoca e positivi non nulli. Record reali che condividono la stessa scansione
 vengono raggruppati e possono ridurre leggermente il numero esatto di batch. La
 configurazione parte con `num_workers: 0`; per misurare
@@ -277,6 +277,24 @@ due worker, copiare la config, impostare temporaneamente
 la variante a zero worker usando `nvidia-smi` e Gestione attività. Conservare
 la variante più veloce solo se la RAM rimane stabile.
 
+Per monitorare il confronto, in un secondo terminale eseguire:
+
+Eseguire una configurazione alla volta, senza `--resume`:
+
+```powershell
+python -m tesi_m3d.train --config configs\train_pix2pix_workers0_benchmark.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda
+python -m tesi_m3d.train --config configs\train_pix2pix_workers2_benchmark.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda
+```
+
+```powershell
+nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv -l 1
+```
+
+In Gestione attivita > Prestazioni > Memoria, la RAM non deve crescere
+continuamente. Conservare `num_workers: 2` solo se termina i 20 batch in meno
+tempo, la GPU resta piu occupata e RAM/VRAM rimangono sotto circa l'85%; in
+caso contrario mantenere `num_workers: 0`.
+
 Ogni checkpoint contiene anche optimizer, AMP scaler ed epoca. Per proseguire
 una run interrotta, aumentare `training.epochs` oltre l'epoca salvata e usare:
 
@@ -284,7 +302,7 @@ una run interrotta, aumentare `training.epochs` oltre l'epoca salvata e usare:
 python -m tesi_m3d.train `
   --config configs\train_pix2pix_baseline.yaml `
   --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda --resume outputs\train_pix2pix_baseline\checkpoint_epoch003.pt
+  --device cuda --resume outputs\train_pix2pix_baseline\checkpoint_epoch006.pt
 ```
 
 I checkpoint creati prima di questa modifica contengono solo i pesi: sono
