@@ -9,6 +9,7 @@ from typing import Sequence
 
 import numpy as np
 
+from .evaluation import max_detection_score, topk_detection_score
 from .model import Patch3DModelConfig, build_patch3d_classifier
 from .patches import PatchGrid, reconstruct_heatmap
 from .dataset import load_tiff_stack, normalize_percentile
@@ -125,6 +126,8 @@ def main() -> None:
     args = parse_args()
     detection_threshold = 0.5
     localization_threshold = 0.5
+    detection_score_mode = "max"
+    topk_fraction = None
     threshold_source = "default"
     if args.scores is not None:
         heatmap = reconstruct_from_scores_file(
@@ -153,6 +156,8 @@ def main() -> None:
             try:
                 detection_threshold = float(calibration["classification"]["threshold"])
                 localization_threshold = float(calibration["localization"]["threshold"])
+                detection_score_mode = str(calibration["classification"].get("score_mode", "max"))
+                topk_fraction = calibration["classification"].get("topk_fraction")
             except (KeyError, TypeError, ValueError) as exc:
                 raise SystemExit(f"Invalid calibration file: {calibration_path}") from exc
             threshold_source = str(calibration_path)
@@ -181,9 +186,14 @@ def main() -> None:
             aggregation=args.aggregation,
             device=args.device,
         )
-        score = float(heatmap.max())
+        score = (
+            topk_detection_score(heatmap, float(topk_fraction))
+            if detection_score_mode == "topk_mean" and topk_fraction is not None
+            else max_detection_score(heatmap)
+        )
         print(
-            f"detection_score={score:.6f}, detection_threshold={detection_threshold:.6f}, "
+            f"detection_score={score:.6f}, detection_score_mode={detection_score_mode}, "
+            f"detection_threshold={detection_threshold:.6f}, "
             f"predicted_manipulated={score >= detection_threshold}, threshold_source={threshold_source}"
         )
     out = Path(args.out)

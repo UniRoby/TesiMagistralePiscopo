@@ -8,6 +8,7 @@ from tesi_m3d.evaluation import (
     best_threshold_by_balanced_accuracy,
     binary_localization_metrics,
     topk_detection_score,
+    volume_detection_scores,
     volume_auc_ba,
     voxel_auc_ap,
 )
@@ -51,6 +52,18 @@ class EvaluationTests(unittest.TestCase):
         score = topk_detection_score(heatmap, fraction=0.1)
 
         self.assertAlmostEqual(score, float(np.mean(np.arange(90, 100))))
+
+    def test_topk_volume_score_ignores_single_voxel_spike(self):
+        clean = np.zeros((10, 10), dtype=np.float32)
+        clean[0, 0] = 1.0
+        coherent = np.zeros((10, 10), dtype=np.float32)
+        coherent[:2, :5] = 0.8
+
+        max_scores = volume_detection_scores([clean, coherent], mode="max")
+        topk_scores = volume_detection_scores([clean, coherent], mode="topk_mean", topk_fraction=0.1)
+
+        self.assertGreater(max_scores[0], max_scores[1])
+        self.assertLess(topk_scores[0], topk_scores[1])
 
     def test_calibrates_highest_balanced_accuracy_tie_threshold(self):
         truth = np.array([0, 1, 0, 1], dtype=bool)

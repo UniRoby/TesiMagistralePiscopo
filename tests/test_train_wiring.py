@@ -72,6 +72,8 @@ class TestBaselineAndResume(unittest.TestCase):
         self.assertEqual(config["training"]["batch_size"], 32)
         self.assertEqual(config["training"]["max_patches_per_epoch"], 4096)
         self.assertEqual(config["patches"]["inference_stride"], [16, 16, 16])
+        self.assertAlmostEqual(config["patches"]["positive_volume_fraction"], 0.67)
+        self.assertEqual(config["evaluation"]["detection_score"], "auto")
 
     def test_checkpoint_restores_model_optimizer_and_epoch(self) -> None:
         try:

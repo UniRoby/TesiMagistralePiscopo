@@ -407,3 +407,19 @@ training:
 model:
   base_channels: 8
 ```
+### Baseline con campionamento e score volume migliorati
+
+La configurazione `train_pix2pix_baseline.yaml` seleziona il 67% dei volumi di
+ogni epoca tra quelli manipolati, senza duplicare patch nello stesso batch. Il
+dry-run riporta anche `positive_volumes_per_epoch`,
+`positive_patches_per_epoch` e `positive_patch_fraction`.
+
+La calibrazione confronta `max` con le medie top-k configurate e salva tutti i
+risultati in `calibration.json > classification > candidates`; lo score con
+AUC validation migliore viene usato dall'inferenza. In
+`outputs\train_pix2pix_baseline\validation_report` vengono inoltre salvati due
+esempi TP, FP, TN e FN con pannelli CT, heatmap, mask reale e predizione.
+
+Prima di una nuova run cancellare o rinominare esclusivamente la vecchia
+cartella `outputs\train_pix2pix_baseline`, quindi eseguire prima il dry-run e
+poi il training senza `--resume`.

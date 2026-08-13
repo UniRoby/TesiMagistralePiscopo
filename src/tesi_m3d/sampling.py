@@ -39,6 +39,7 @@ class VolumeGroupedBatchSampler:
         max_positives_per_volume: int | None = None,
         max_patches_per_epoch: int | None = None,
         max_volumes_per_epoch: int | None = None,
+        positive_volume_fraction: float | None = None,
         seed: int = 0,
         drop_last: bool = True,
     ) -> None:
@@ -58,6 +59,11 @@ class VolumeGroupedBatchSampler:
         self.max_positives_per_volume = max_positives_per_volume
         self.max_patches_per_epoch = max_patches_per_epoch
         self.max_volumes_per_epoch = max_volumes_per_epoch
+        self.positive_volume_fraction = (
+            None if positive_volume_fraction is None else float(positive_volume_fraction)
+        )
+        if self.positive_volume_fraction is not None and not 0.0 <= self.positive_volume_fraction <= 1.0:
+            raise ValueError("positive_volume_fraction must be in [0, 1]")
         self.seed = int(seed)
         self.drop_last = bool(drop_last)
         self._epoch = 0
@@ -88,6 +94,32 @@ class VolumeGroupedBatchSampler:
 
         self._n_volumes = len(self._positives)
         self._batches_per_epoch = self._compute_batches_per_epoch()
+
+    def _selected_volumes(self, rng: np.random.Generator) -> np.ndarray:
+        """Select volumes, optionally stratifying manipulated versus real scans."""
+
+        batches_per_volume = self.patches_per_volume // self.batch_size
+        needed = min(
+            self._volumes_this_epoch(),
+            int(np.ceil(self._batches_per_epoch / batches_per_volume)),
+        )
+        if self.positive_volume_fraction is None:
+            return rng.permutation(self._n_volumes)[:needed]
+
+        positive = np.flatnonzero([len(items) > 0 for items in self._positives])
+        negative = np.flatnonzero([len(items) == 0 for items in self._positives])
+        n_positive = min(int(round(needed * self.positive_volume_fraction)), len(positive))
+        n_negative = min(needed - n_positive, len(negative))
+        remaining = needed - n_positive - n_negative
+        if remaining:
+            extra_positive = min(remaining, len(positive) - n_positive)
+            n_positive += extra_positive
+            n_negative += remaining - extra_positive
+        selected = np.concatenate(
+            [rng.choice(positive, n_positive, replace=False), rng.choice(negative, n_negative, replace=False)]
+        ).astype(np.int64)
+        rng.shuffle(selected)
+        return selected
 
     @property
     def n_volumes(self) -> int:
@@ -157,7 +189,7 @@ class VolumeGroupedBatchSampler:
         """Yield one epoch of single-volume batches."""
 
         rng = np.random.default_rng([self.seed, self._epoch])
-        volume_order = rng.permutation(self._n_volumes)[: self._volumes_this_epoch()]
+        volume_order = self._selected_volumes(rng)
 
         emitted = 0
         for volume in volume_order:
@@ -184,6 +216,9 @@ class VolumeGroupedBatchSampler:
         positives_per_volume = np.asarray([len(p) for p in self._positives], dtype=np.float64)
         max_pos_by_ratio = int(self.patches_per_volume / (1.0 + self.neg_per_pos))
         effective = np.minimum(positives_per_volume, max_pos_by_ratio)
+        selected = self._selected_volumes(np.random.default_rng([self.seed, 0]))
+        selected_positive = positives_per_volume[selected] > 0
+        positive_patches = float(effective[selected].sum())
         return {
             "n_volumes": float(self._n_volumes),
             "n_volumes_per_epoch": float(self._volumes_this_epoch()),
@@ -192,8 +227,12 @@ class VolumeGroupedBatchSampler:
             "volumes_with_positives": float(np.count_nonzero(positives_per_volume)),
             "mean_positives_per_volume": float(positives_per_volume.mean()),
             "mean_positives_per_batch": float(
-                effective.mean() * self.batch_size / self.patches_per_volume
+                positive_patches / max(self._batches_per_epoch, 1)
             ),
+            "positive_volumes_per_epoch": float(np.count_nonzero(selected_positive)),
+            "negative_volumes_per_epoch": float(len(selected) - np.count_nonzero(selected_positive)),
+            "positive_patches_per_epoch": positive_patches,
+            "positive_patch_fraction": positive_patches / max(self._batches_per_epoch * self.batch_size, 1),
         }
 
 

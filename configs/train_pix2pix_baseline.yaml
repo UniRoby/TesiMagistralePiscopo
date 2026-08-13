@@ -27,6 +27,8 @@ patches:
   positive_overlap_fraction: 0.05
   max_patches_per_volume: 32
   neg_per_pos: 5.0
+  # Prefer manipulated scans while keeping every batch within one cached volume.
+  positive_volume_fraction: 0.67
   max_valid_patches_per_volume: 64
 
 model:
@@ -55,7 +57,9 @@ training:
 
 evaluation:
   threshold_source: validation
-  detection_score: max_heatmap
+  detection_score: auto
+  topk_fractions: [0.0001, 0.0005, 0.001, 0.005, 0.01]
+  report_examples_per_class: 2
   heatmap_aggregation: average
   calibration_batch_size: 32
   calibration_threshold_steps: 99

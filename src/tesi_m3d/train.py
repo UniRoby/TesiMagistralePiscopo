@@ -17,6 +17,8 @@ from .dataset import M3DSynthPatchDataset, cross_generator_records, label_dir, r
 from .evaluation import (
     BinaryLocalizationMetrics,
     best_threshold_by_balanced_accuracy,
+    max_detection_score,
+    topk_detection_score,
     volume_auc_ba,
     voxel_auc_ap,
 )
@@ -288,6 +290,7 @@ def build_loaders(
         max_positives_per_volume=patch_cfg.get("max_positives_per_volume"),
         max_patches_per_epoch=training_cfg.get("max_patches_per_epoch"),
         max_volumes_per_epoch=training_cfg.get("max_volumes_per_epoch"),
+        positive_volume_fraction=patch_cfg.get("positive_volume_fraction"),
         seed=int(training_cfg.get("seed", 21)),
     )
     pin_memory = str(device).startswith("cuda") and torch.cuda.is_available()
@@ -611,6 +614,103 @@ def _best_localization_from_counts(
     return float(thresholds[index]), metrics
 
 
+def _detection_candidates(heatmap: np.ndarray, fractions: list[float]) -> dict[str, float]:
+    """Return max and top-k volume scores from one heatmap."""
+
+    scores = {"max": max_detection_score(heatmap)}
+    scores.update({f"topk_{fraction:g}": topk_detection_score(heatmap, fraction) for fraction in fractions})
+    return scores
+
+
+def _render_validation_example(
+    path: Path,
+    scan: np.ndarray,
+    heatmap: np.ndarray,
+    truth: np.ndarray,
+    localization_threshold: float,
+    title: str,
+) -> None:
+    """Save the most suspicious axial slice as scan/heatmap/truth/prediction panels."""
+
+    from PIL import Image, ImageDraw
+
+    z = int(np.argmax(np.max(heatmap, axis=(1, 2))))
+    gray = np.clip(scan[z] * 255.0, 0, 255).astype(np.uint8)
+    base = np.repeat(gray[..., None], 3, axis=2)
+    heat = np.clip(heatmap[z], 0.0, 1.0)
+
+    heat_overlay = base.astype(np.float32)
+    heat_overlay[..., 0] = np.maximum(heat_overlay[..., 0], heat * 255.0)
+    heat_overlay = np.clip(heat_overlay, 0, 255).astype(np.uint8)
+
+    truth_overlay = base.copy()
+    truth_overlay[truth[z].astype(bool)] = (0, 255, 0)
+    prediction_overlay = base.copy()
+    prediction_overlay[heatmap[z] >= localization_threshold] = (255, 0, 0)
+
+    panels = [base, heat_overlay, truth_overlay, prediction_overlay]
+    labels = ["CT", "heatmap", "ground truth", "prediction"]
+    height, width = gray.shape
+    canvas = Image.new("RGB", (width * 4, height + 42), "white")
+    draw = ImageDraw.Draw(canvas)
+    draw.text((4, 2), title, fill="black")
+    for index, (panel, label) in enumerate(zip(panels, labels)):
+        canvas.paste(Image.fromarray(panel), (index * width, 42))
+        draw.text((index * width + 4, 22), label, fill="black")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+
+
+def _save_validation_report(
+    report_dir: Path,
+    records,
+    labels: np.ndarray,
+    scores: np.ndarray,
+    threshold: float,
+    localization_threshold: float,
+    valid_dataset: M3DSynthPatchDataset,
+    model,
+    patch_shape,
+    stride,
+    batch_size: int,
+    aggregation: str,
+    device: str,
+    examples_per_class: int,
+) -> None:
+    """Save representative TP/FP/TN/FN heatmap overlays and a CSV index."""
+
+    predictions = scores >= threshold
+    categories = np.where(labels, np.where(predictions, "TP", "FN"), np.where(predictions, "FP", "TN"))
+    rows = []
+    for category in ("TP", "FP", "TN", "FN"):
+        indices = np.flatnonzero(categories == category)
+        if not len(indices):
+            continue
+        order = indices[np.argsort(scores[indices])]
+        chosen = order[-examples_per_class:] if category in {"TP", "FP"} else order[:examples_per_class]
+        for index in chosen:
+            record = records[int(index)]
+            scan = load_normalized_scan(valid_dataset.data_root, record)
+            heatmap = infer_heatmap(
+                model, scan, patch_shape=patch_shape, stride=stride,
+                batch_size=batch_size, aggregation=aggregation, device=device,
+            )
+            truth = np.zeros(scan.shape, dtype=bool) if record.is_real else align_mask_to_scan(
+                load_label_mask(label_dir(valid_dataset.data_root, record)), scan.shape, img_id=record.img_id
+            )
+            filename = f"{category}_{record.img_id}_{int(index):03d}.png".replace("/", "_").replace("\\", "_")
+            _render_validation_example(
+                report_dir / filename, scan, heatmap, truth, localization_threshold,
+                f"{category} | {record.img_id} | score={scores[index]:.4f} | threshold={threshold:.4f}",
+            )
+            rows.append({"category": category, "img_id": record.img_id, "score": float(scores[index]), "file": filename})
+    report_dir.mkdir(parents=True, exist_ok=True)
+    with (report_dir / "index.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["category", "img_id", "score", "file"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def calibrate_best_checkpoint(
     best_path: Path,
     valid_dataset: M3DSynthPatchDataset,
@@ -648,7 +748,9 @@ def calibrate_best_checkpoint(
     fp = np.zeros(len(thresholds), dtype=np.float64)
     fn = np.zeros(len(thresholds), dtype=np.float64)
     volume_labels: list[bool] = []
-    volume_scores: list[float] = []
+    topk_fractions = [float(value) for value in evaluation_cfg.get("topk_fractions", [0.001, 0.01])]
+    volume_scores: dict[str, list[float]] = {"max": []}
+    volume_scores.update({f"topk_{fraction:g}": [] for fraction in topk_fractions})
     voxel_auc: list[float] = []
     voxel_ap: list[float] = []
 
@@ -675,15 +777,45 @@ def calibrate_best_checkpoint(
             voxel_auc.append(auc)
             voxel_ap.append(ap)
         volume_labels.append(record.is_manipulated)
-        volume_scores.append(float(np.max(heatmap)))
+        for name, score in _detection_candidates(heatmap, topk_fractions).items():
+            volume_scores[name].append(score)
 
     volume_labels_array = np.asarray(volume_labels, dtype=bool)
-    volume_scores_array = np.asarray(volume_scores, dtype=np.float32)
-    detection_threshold, detection_ba = best_threshold_by_balanced_accuracy(
-        volume_labels_array, volume_scores_array
-    )
-    detection_auc, _ = volume_auc_ba(volume_labels_array, volume_scores_array, detection_threshold)
+    candidate_metrics = {}
+    for name, values in volume_scores.items():
+        scores_array = np.asarray(values, dtype=np.float32)
+        candidate_threshold, candidate_ba = best_threshold_by_balanced_accuracy(volume_labels_array, scores_array)
+        candidate_auc, _ = volume_auc_ba(volume_labels_array, scores_array, candidate_threshold)
+        candidate_metrics[name] = {
+            "threshold": candidate_threshold,
+            "balanced_accuracy": candidate_ba,
+            "auc": candidate_auc,
+        }
+    requested_score = str(evaluation_cfg.get("detection_score", "max_heatmap"))
+    if requested_score == "auto":
+        selected_name = max(candidate_metrics, key=lambda name: (candidate_metrics[name]["auc"], candidate_metrics[name]["balanced_accuracy"]))
+    elif requested_score in {"max", "max_heatmap"}:
+        selected_name = "max"
+    elif requested_score == "topk_mean":
+        selected_name = f"topk_{float(evaluation_cfg.get('topk_fraction', 0.01)):g}"
+        if selected_name not in candidate_metrics:
+            raise ValueError(f"topk_fraction is not present in topk_fractions: {selected_name}")
+    else:
+        raise ValueError("evaluation.detection_score must be auto, max_heatmap, or topk_mean")
+    selected_scores = np.asarray(volume_scores[selected_name], dtype=np.float32)
+    selected_metrics = candidate_metrics[selected_name]
+    detection_threshold = float(selected_metrics["threshold"])
+    detection_ba = float(selected_metrics["balanced_accuracy"])
+    detection_auc = float(selected_metrics["auc"])
     localization_threshold, localization_metrics = _best_localization_from_counts(thresholds, tp, fp, fn)
+    examples_per_class = int(evaluation_cfg.get("report_examples_per_class", 0))
+    if examples_per_class > 0:
+        _save_validation_report(
+            best_path.parent / "validation_report", records, volume_labels_array, selected_scores,
+            detection_threshold, localization_threshold, valid_dataset, model, patch_shape, stride,
+            batch_size, aggregation, device, examples_per_class,
+        )
+    selected_fraction = float(selected_name.removeprefix("topk_")) if selected_name.startswith("topk_") else None
     return {
         "format_version": 1,
         "checkpoint": best_path.name,
@@ -693,11 +825,14 @@ def calibrate_best_checkpoint(
             "aggregation": aggregation,
         },
         "classification": {
+            "score_mode": "topk_mean" if selected_fraction is not None else "max",
+            "topk_fraction": selected_fraction,
             "threshold": detection_threshold,
             "balanced_accuracy": detection_ba,
             "auc": detection_auc,
             "n_volumes": int(len(records)),
             "n_positive_volumes": int(np.count_nonzero(volume_labels_array)),
+            "candidates": candidate_metrics,
         },
         "localization": {
             "threshold": localization_threshold,
@@ -854,6 +989,7 @@ def main() -> None:
         calibration_path.write_text(json.dumps(calibration, indent=2) + "\n")
         print(
             "Calibrated validation thresholds: "
+            f"detection_score={calibration['classification']['score_mode']}, "
             f"detection={calibration['classification']['threshold']:.6f}, "
             f"localization={calibration['localization']['threshold']:.6f}"
         )

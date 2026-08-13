@@ -64,6 +64,21 @@ class TestClassBalance(unittest.TestCase):
         self.assertGreater(len(batches), 0)
         self.assertTrue(any(labels[b].sum() == 0 for b in batches))
 
+    def test_stratifies_positive_volumes_without_duplicate_patches(self) -> None:
+        keys = []
+        labels = []
+        for volume in range(10):
+            keys.extend([str(volume)] * 40)
+            labels.extend(([1] * 4 + [0] * 36) if volume < 5 else [0] * 40)
+        labels = np.asarray(labels, dtype=np.uint8)
+        sampler = VolumeGroupedBatchSampler(
+            keys, labels, batch_size=16, max_patches_per_epoch=64,
+            positive_volume_fraction=0.75, seed=2,
+        )
+        batches = list(sampler)
+        self.assertEqual(sum(int(labels[batch].sum() > 0) for batch in batches), 3)
+        self.assertTrue(all(len(batch) == len(set(batch)) for batch in batches))
+
 
 class TestReproducibility(unittest.TestCase):
     def test_same_seed_and_epoch_give_same_batches(self) -> None:
