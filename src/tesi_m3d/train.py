@@ -288,6 +288,7 @@ def build_loaders(
         patches_per_volume=patch_cfg.get("max_patches_per_volume"),
         neg_per_pos=float(patch_cfg.get("neg_per_pos", 5.0)),
         max_positives_per_volume=patch_cfg.get("max_positives_per_volume"),
+        positive_patches_per_volume=patch_cfg.get("positive_patches_per_volume"),
         max_patches_per_epoch=training_cfg.get("max_patches_per_epoch"),
         max_volumes_per_epoch=training_cfg.get("max_volumes_per_epoch"),
         positive_volume_fraction=patch_cfg.get("positive_volume_fraction"),

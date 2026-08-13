@@ -37,6 +37,7 @@ class VolumeGroupedBatchSampler:
         patches_per_volume: int | None = None,
         neg_per_pos: float = 5.0,
         max_positives_per_volume: int | None = None,
+        positive_patches_per_volume: int | None = None,
         max_patches_per_epoch: int | None = None,
         max_volumes_per_epoch: int | None = None,
         positive_volume_fraction: float | None = None,
@@ -57,6 +58,7 @@ class VolumeGroupedBatchSampler:
         self.patches_per_volume = int(patches_per_volume or batch_size)
         self.neg_per_pos = float(neg_per_pos)
         self.max_positives_per_volume = max_positives_per_volume
+        self.positive_patches_per_volume = positive_patches_per_volume
         self.max_patches_per_epoch = max_patches_per_epoch
         self.max_volumes_per_epoch = max_volumes_per_epoch
         self.positive_volume_fraction = (
@@ -73,6 +75,8 @@ class VolumeGroupedBatchSampler:
                 f"patches_per_volume ({self.patches_per_volume}) must be a multiple of "
                 f"batch_size ({self.batch_size}) so no batch spans two volumes"
             )
+        if self.positive_patches_per_volume is not None and not 0 <= int(self.positive_patches_per_volume) <= self.patches_per_volume:
+            raise ValueError("positive_patches_per_volume must be between 0 and patches_per_volume")
 
         # Group once. Storing plain ints and numpy arrays keeps the sampler
         # trivially picklable for spawned DataLoader workers on Windows.
@@ -158,15 +162,10 @@ class VolumeGroupedBatchSampler:
         positives = self._positives[volume]
         negatives = self._negatives[volume]
 
-        n_pos = len(positives)
-        if self.max_positives_per_volume is not None:
-            n_pos = min(n_pos, int(self.max_positives_per_volume))
-        # Cap positives so negatives never get squeezed out entirely.
-        max_pos_by_ratio = int(self.patches_per_volume / (1.0 + self.neg_per_pos))
-        n_pos = min(n_pos, max(max_pos_by_ratio, 0), self.patches_per_volume)
+        n_pos = self._positive_samples_for_volume(volume)
 
         chosen_pos = (
-            rng.choice(positives, size=n_pos, replace=False)
+            rng.choice(positives, size=n_pos, replace=n_pos > len(positives))
             if n_pos > 0
             else np.empty(0, dtype=np.int64)
         )
@@ -184,6 +183,20 @@ class VolumeGroupedBatchSampler:
         selected = np.concatenate([chosen_pos, chosen_neg]).astype(np.int64)
         rng.shuffle(selected)
         return selected
+
+    def _positive_samples_for_volume(self, volume: int) -> int:
+        """Return the requested positive count, allowing controlled reuse when needed."""
+
+        available = len(self._positives[volume])
+        if available == 0:
+            return 0
+        if self.positive_patches_per_volume is not None:
+            requested = int(self.positive_patches_per_volume)
+        else:
+            requested = min(available, int(self.patches_per_volume / (1.0 + self.neg_per_pos)))
+        if self.max_positives_per_volume is not None:
+            requested = min(requested, int(self.max_positives_per_volume))
+        return min(requested, self.patches_per_volume)
 
     def __iter__(self) -> Iterator[list[int]]:
         """Yield one epoch of single-volume batches."""
@@ -214,11 +227,9 @@ class VolumeGroupedBatchSampler:
         """Return sampler statistics for logging and ``--dry-run``."""
 
         positives_per_volume = np.asarray([len(p) for p in self._positives], dtype=np.float64)
-        max_pos_by_ratio = int(self.patches_per_volume / (1.0 + self.neg_per_pos))
-        effective = np.minimum(positives_per_volume, max_pos_by_ratio)
         selected = self._selected_volumes(np.random.default_rng([self.seed, 0]))
         selected_positive = positives_per_volume[selected] > 0
-        positive_patches = float(effective[selected].sum())
+        positive_patches = float(sum(self._positive_samples_for_volume(int(volume)) for volume in selected))
         return {
             "n_volumes": float(self._n_volumes),
             "n_volumes_per_epoch": float(self._volumes_this_epoch()),

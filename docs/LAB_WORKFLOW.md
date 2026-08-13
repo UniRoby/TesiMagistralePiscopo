@@ -423,3 +423,26 @@ esempi TP, FP, TN e FN con pannelli CT, heatmap, mask reale e predizione.
 Prima di una nuova run cancellare o rinominare esclusivamente la vecchia
 cartella `outputs\train_pix2pix_baseline`, quindi eseguire prima il dry-run e
 poi il training senza `--resume`.
+
+### Esperimento: patch positive bilanciate
+
+`configs\train_pix2pix_balanced_patches.yaml` confronta la baseline con batch
+di volumi manipolati composti da 8 patch positive e 24 negative. Quando un
+volume ha meno di 8 patch positive, il sampler riusa solo quelle positive per
+raggiungere il target; le negative restano distinte. L'80% dei volumi per epoca
+è manipolato, per ottenere circa il 20% di patch positive sull'intera epoca.
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda --dry-run
+
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+```
+
+L'output è `outputs\train_pix2pix_balanced_patches`; non usare `--resume` e
+non cancellare la baseline precedente, perché le due run vanno confrontate.

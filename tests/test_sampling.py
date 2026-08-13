@@ -79,6 +79,16 @@ class TestClassBalance(unittest.TestCase):
         self.assertEqual(sum(int(labels[batch].sum() > 0) for batch in batches), 3)
         self.assertTrue(all(len(batch) == len(set(batch)) for batch in batches))
 
+    def test_reuses_positive_patches_only_when_target_requires_it(self) -> None:
+        keys, labels = make_keys_and_labels(n_volumes=1, per_volume=40, n_pos=3)
+        sampler = VolumeGroupedBatchSampler(
+            keys, labels, batch_size=32, positive_patches_per_volume=8, seed=5,
+        )
+        batch = next(iter(sampler))
+        self.assertEqual(int(labels[batch].sum()), 8)
+        self.assertEqual(len(batch), 32)
+        self.assertEqual(len(set(batch)), 27)  # five controlled positive reuses
+
 
 class TestReproducibility(unittest.TestCase):
     def test_same_seed_and_epoch_give_same_batches(self) -> None:
