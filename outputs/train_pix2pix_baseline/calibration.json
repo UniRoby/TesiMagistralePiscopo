@@ -1,0 +1,35 @@
+{
+  "format_version": 1,
+  "checkpoint": "best.pt",
+  "inference": {
+    "patch_shape": [
+      32,
+      32,
+      32
+    ],
+    "stride": [
+      16,
+      16,
+      16
+    ],
+    "aggregation": "average"
+  },
+  "classification": {
+    "threshold": 0.4329057037830353,
+    "balanced_accuracy": 0.5452380952380952,
+    "auc": 0.4291666666666667,
+    "n_volumes": 58,
+    "n_positive_volumes": 30
+  },
+  "localization": {
+    "threshold": 0.39,
+    "precision": 0.003847646409211738,
+    "recall": 0.08046436240648672,
+    "f1": 0.007344111934507364,
+    "dice": 0.007344111934507364,
+    "iou": 0.0036855896587529545,
+    "mean_voxel_auc_on_positive_volumes": 0.8861420324718922,
+    "mean_voxel_ap_on_positive_volumes": 0.013021730960841877,
+    "n_positive_volumes": 30
+  }
+}
