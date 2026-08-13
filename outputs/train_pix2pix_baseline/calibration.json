@@ -15,21 +15,55 @@
     "aggregation": "average"
   },
   "classification": {
-    "threshold": 0.4329057037830353,
-    "balanced_accuracy": 0.5452380952380952,
-    "auc": 0.4291666666666667,
+    "score_mode": "max",
+    "topk_fraction": null,
+    "threshold": 0.4835638701915741,
+    "balanced_accuracy": 0.5488095238095239,
+    "auc": 0.3892857142857143,
     "n_volumes": 58,
-    "n_positive_volumes": 30
+    "n_positive_volumes": 30,
+    "candidates": {
+      "max": {
+        "threshold": 0.4835638701915741,
+        "balanced_accuracy": 0.5488095238095239,
+        "auc": 0.3892857142857143
+      },
+      "topk_0.0001": {
+        "threshold": 0.48297151923179626,
+        "balanced_accuracy": 0.5488095238095239,
+        "auc": 0.3857142857142857
+      },
+      "topk_0.0005": {
+        "threshold": 0.47453510761260986,
+        "balanced_accuracy": 0.5488095238095239,
+        "auc": 0.37857142857142856
+      },
+      "topk_0.001": {
+        "threshold": 0.46908438205718994,
+        "balanced_accuracy": 0.530952380952381,
+        "auc": 0.3702380952380952
+      },
+      "topk_0.005": {
+        "threshold": 0.48340025544166565,
+        "balanced_accuracy": 0.5166666666666667,
+        "auc": 0.35654761904761906
+      },
+      "topk_0.01": {
+        "threshold": 0.47658127546310425,
+        "balanced_accuracy": 0.5333333333333333,
+        "auc": 0.3595238095238096
+      }
+    }
   },
   "localization": {
-    "threshold": 0.39,
-    "precision": 0.003847646409211738,
-    "recall": 0.08046436240648672,
-    "f1": 0.007344111934507364,
-    "dice": 0.007344111934507364,
-    "iou": 0.0036855896587529545,
-    "mean_voxel_auc_on_positive_volumes": 0.8861420324718922,
-    "mean_voxel_ap_on_positive_volumes": 0.013021730960841877,
+    "threshold": 0.45,
+    "precision": 0.010728513636074338,
+    "recall": 0.030623251615503725,
+    "f1": 0.015890106288767414,
+    "dice": 0.015890106288767414,
+    "iou": 0.00800868255288286,
+    "mean_voxel_auc_on_positive_volumes": 0.8866174379830368,
+    "mean_voxel_ap_on_positive_volumes": 0.01041541811129164,
     "n_positive_volumes": 30
   }
 }
