@@ -631,33 +631,41 @@ def _render_validation_example(
     localization_threshold: float,
     title: str,
 ) -> None:
-    """Save the most suspicious axial slice as scan/heatmap/truth/prediction panels."""
+    """Save suspicious and, when available, ground-truth axial slices."""
 
     from PIL import Image, ImageDraw
 
-    z = int(np.argmax(np.max(heatmap, axis=(1, 2))))
-    gray = np.clip(scan[z] * 255.0, 0, 255).astype(np.uint8)
-    base = np.repeat(gray[..., None], 3, axis=2)
-    heat = np.clip(heatmap[z], 0.0, 1.0)
-
-    heat_overlay = base.astype(np.float32)
-    heat_overlay[..., 0] = np.maximum(heat_overlay[..., 0], heat * 255.0)
-    heat_overlay = np.clip(heat_overlay, 0, 255).astype(np.uint8)
-
-    truth_overlay = base.copy()
-    truth_overlay[truth[z].astype(bool)] = (0, 255, 0)
-    prediction_overlay = base.copy()
-    prediction_overlay[heatmap[z] >= localization_threshold] = (255, 0, 0)
-
-    panels = [base, heat_overlay, truth_overlay, prediction_overlay]
     labels = ["CT", "heatmap", "ground truth", "prediction"]
-    height, width = gray.shape
-    canvas = Image.new("RGB", (width * 4, height + 42), "white")
+    suspicious_z = int(np.argmax(np.max(heatmap, axis=(1, 2))))
+    rows = [("max-score slice", suspicious_z)]
+    truth_slices = np.flatnonzero(np.any(truth, axis=(1, 2)))
+    if len(truth_slices):
+        truth_z = int(truth_slices[len(truth_slices) // 2])
+        if truth_z != suspicious_z:
+            rows.append(("ground-truth slice", truth_z))
+
+    height, width = scan.shape[1:]
+    header = 42
+    canvas = Image.new("RGB", (width * 4, header + height * len(rows)), "white")
     draw = ImageDraw.Draw(canvas)
     draw.text((4, 2), title, fill="black")
-    for index, (panel, label) in enumerate(zip(panels, labels)):
-        canvas.paste(Image.fromarray(panel), (index * width, 42))
+    for index, label in enumerate(labels):
         draw.text((index * width + 4, 22), label, fill="black")
+    for row_index, (row_name, z) in enumerate(rows):
+        gray = np.clip(scan[z] * 255.0, 0, 255).astype(np.uint8)
+        base = np.repeat(gray[..., None], 3, axis=2)
+        heat = np.clip(heatmap[z], 0.0, 1.0)
+        heat_overlay = base.astype(np.float32)
+        heat_overlay[..., 0] = np.maximum(heat_overlay[..., 0], heat * 255.0)
+        truth_overlay = base.copy()
+        truth_overlay[truth[z].astype(bool)] = (0, 255, 0)
+        prediction_overlay = base.copy()
+        prediction_overlay[heatmap[z] >= localization_threshold] = (255, 0, 0)
+        panels = [base, np.clip(heat_overlay, 0, 255).astype(np.uint8), truth_overlay, prediction_overlay]
+        y = header + row_index * height
+        for column, panel in enumerate(panels):
+            canvas.paste(Image.fromarray(panel), (column * width, y))
+        draw.text((4, y + 4), f"{row_name} z={z}", fill="white", stroke_width=1, stroke_fill="black")
     path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(path)
 
@@ -812,7 +820,7 @@ def calibrate_best_checkpoint(
     examples_per_class = int(evaluation_cfg.get("report_examples_per_class", 0))
     if examples_per_class > 0:
         _save_validation_report(
-            best_path.parent / "validation_report", records, volume_labels_array, selected_scores,
+            best_path.parent / f"validation_report_{aggregation}", records, volume_labels_array, selected_scores,
             detection_threshold, localization_threshold, valid_dataset, model, patch_shape, stride,
             batch_size, aggregation, device, examples_per_class,
         )

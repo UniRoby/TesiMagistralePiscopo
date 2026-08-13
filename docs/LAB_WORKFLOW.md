@@ -446,3 +446,19 @@ python -m tesi_m3d.train `
 
 L'output è `outputs\train_pix2pix_balanced_patches`; non usare `--resume` e
 non cancellare la baseline precedente, perché le due run vanno confrontate.
+
+Per confrontare `average` e `gaussian` sul medesimo `best.pt`, senza nuovo
+training, eseguire:
+
+```powershell
+python -m tesi_m3d.compare_aggregations `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+```
+
+Il comando crea `aggregation_comparison.json`, i due file
+`calibration_average.json` e `calibration_gaussian.json`, e report visuali
+separati. Nei volumi manipolati il report mostra sia la slice col massimo score
+sia quella centrale della mask reale.

@@ -11,7 +11,14 @@ import numpy as np
 from tesi_m3d.dataset import M3DSynthPatchDataset, M3DSynthRecord
 from tesi_m3d.patch_index import build_patch_index
 from tesi_m3d.model import Patch3DModelConfig, build_patch3d_classifier
-from tesi_m3d.train import _checkpoint_payload, _load_checkpoint, load_yaml_config, set_global_seed, subset_records
+from tesi_m3d.train import (
+    _checkpoint_payload,
+    _load_checkpoint,
+    _render_validation_example,
+    load_yaml_config,
+    set_global_seed,
+    subset_records,
+)
 
 from _tiff_fixtures import make_fake_corpus
 
@@ -104,6 +111,21 @@ class TestBaselineAndResume(unittest.TestCase):
         self.assertEqual(without_improvement, 0)
         for expected, actual in zip(source.model.parameters(), target.model.parameters()):
             self.assertTrue(torch.equal(expected, actual))
+
+    def test_report_includes_ground_truth_slice(self) -> None:
+        from pathlib import Path
+        from PIL import Image
+
+        scan = np.zeros((4, 8, 8), dtype=np.float32)
+        heatmap = np.zeros_like(scan)
+        heatmap[0] = 0.9
+        truth = np.zeros_like(scan, dtype=bool)
+        truth[3, 2:4, 2:4] = True
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "report.png"
+            _render_validation_example(path, scan, heatmap, truth, 0.5, "case")
+            with Image.open(path) as image:
+                self.assertEqual(image.size, (32, 58))
 
 
 class TestDatasetContract(unittest.TestCase):
