@@ -49,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root")
     parser.add_argument("--out", required=True, help="Destination .npz PatchIndex.")
     parser.add_argument("--negatives-per-volume", type=int, default=64)
+    parser.add_argument("--random-negatives-per-volume", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
@@ -72,7 +73,8 @@ def main() -> None:
     stride = tuple(config.get("hard_negative_mining", {}).get("mining_stride", (16, 16, 16)))
     model = _load_model(Path(args.checkpoint), args.device)
 
-    record_parts, coord_parts, label_parts, soft_parts, score_parts = [], [], [], [], []
+    record_parts, coord_parts, label_parts, soft_parts, flag_parts, score_parts = [], [], [], [], [], []
+    rng = np.random.default_rng(int(config.get("training", {}).get("seed", 21)))
     for record_index, record in tqdm(list(enumerate(records)), desc="mining hard negatives", unit="vol"):
         positives = np.flatnonzero((source.record_index == record_index) & (source.label == 1))
         if positives.size:
@@ -80,6 +82,7 @@ def main() -> None:
             coord_parts.append(source.coord[positives])
             label_parts.append(source.label[positives])
             soft_parts.append(source.soft_score[positives])
+            flag_parts.append(np.zeros(positives.size, dtype=bool))
 
         scan = load_normalized_scan(data_root, record)
         mask = np.zeros(scan.shape, dtype=bool) if record.is_real else align_mask_to_scan(
@@ -90,10 +93,19 @@ def main() -> None:
         scores = _scores_for_coords(model, scan, coords, patch_shape, args.batch_size, args.device)
         overlaps = patch_overlap_fractions(mask, grid)
         selected = select_hard_negative_indices(scores, overlaps, args.negatives_per_volume)
-        record_parts.append(np.full(selected.size, record_index, dtype=np.int32))
-        coord_parts.append(coords[selected])
-        label_parts.append(np.zeros(selected.size, dtype=np.uint8))
-        soft_parts.append(np.zeros(selected.size, dtype=np.float32))
+        clean = np.flatnonzero(overlaps == 0.0)
+        remaining = np.setdiff1d(clean, selected, assume_unique=True)
+        random_selected = rng.choice(
+            remaining,
+            size=min(args.random_negatives_per_volume, remaining.size),
+            replace=False,
+        )
+        negatives = np.concatenate([selected, random_selected])
+        record_parts.append(np.full(negatives.size, record_index, dtype=np.int32))
+        coord_parts.append(coords[negatives])
+        label_parts.append(np.zeros(negatives.size, dtype=np.uint8))
+        soft_parts.append(np.zeros(negatives.size, dtype=np.float32))
+        flag_parts.append(np.r_[np.ones(selected.size, dtype=bool), np.zeros(random_selected.size, dtype=bool)])
         score_parts.append(scores[selected])
 
     mined = PatchIndex(
@@ -102,10 +114,16 @@ def main() -> None:
     )
     out = Path(args.out)
     mined.save(out)
+    flags_path = out.with_name(f"{out.stem}_flags.npy")
+    np.save(flags_path, np.concatenate(flag_parts))
     report = {
         "checkpoint": str(args.checkpoint), "mining_stride": list(stride),
-        "negatives_per_volume": args.negatives_per_volume, "n_patches": len(mined),
-        "n_positive": mined.n_positive, "n_hard_negative": int(len(mined) - mined.n_positive),
+        "hard_negatives_per_volume": args.negatives_per_volume,
+        "random_negatives_per_volume": args.random_negatives_per_volume,
+        "n_patches": len(mined), "n_positive": mined.n_positive,
+        "n_hard_negative": int(np.count_nonzero(np.concatenate(flag_parts))),
+        "n_random_negative": int(len(mined) - mined.n_positive - np.count_nonzero(np.concatenate(flag_parts))),
+        "flags_path": str(flags_path),
         "hard_negative_score": {
             "min": float(np.min(np.concatenate(score_parts))),
             "median": float(np.median(np.concatenate(score_parts))),

@@ -293,6 +293,15 @@ def build_loaders(
         volume_cache_size=volume_cache_size,
     )
     train_volume_keys = [train_dataset.volume_key(i) for i in range(len(train_dataset))]
+    hard_negative_flags = None
+    flags_path = mining_cfg.get("flags_path")
+    if flags_path:
+        flags_path = Path(flags_path)
+        if not flags_path.is_absolute():
+            flags_path = Path.cwd() / flags_path
+        hard_negative_flags = np.load(flags_path)
+        if len(hard_negative_flags) != len(train_index):
+            raise ValueError(f"hard-negative flags do not match index length: {flags_path}")
     train_sampler = VolumeGroupedBatchSampler(
         train_volume_keys,
         train_dataset.labels,
@@ -304,6 +313,9 @@ def build_loaders(
         max_patches_per_epoch=training_cfg.get("max_patches_per_epoch"),
         max_volumes_per_epoch=training_cfg.get("max_volumes_per_epoch"),
         positive_volume_fraction=patch_cfg.get("positive_volume_fraction"),
+        hard_negative_flags=hard_negative_flags,
+        hard_negatives_per_positive_volume=mining_cfg.get("hard_per_positive_volume"),
+        hard_negatives_per_negative_volume=mining_cfg.get("hard_per_negative_volume"),
         seed=int(training_cfg.get("seed", 21)),
     )
     pin_memory = str(device).startswith("cuda") and torch.cuda.is_available()

@@ -89,6 +89,28 @@ class TestClassBalance(unittest.TestCase):
         self.assertEqual(len(batch), 32)
         self.assertEqual(len(set(batch)), 27)  # five controlled positive reuses
 
+    def test_mixed_replay_uses_exact_hard_and_random_ratios(self) -> None:
+        keys = ["positive"] * 160 + ["negative"] * 160
+        labels = np.zeros(320, dtype=np.uint8)
+        labels[:8] = 1
+        hard = np.zeros(320, dtype=bool)
+        hard[8:72] = True
+        hard[160:224] = True
+        sampler = VolumeGroupedBatchSampler(
+            keys, labels, batch_size=32, positive_patches_per_volume=8,
+            hard_negative_flags=hard,
+            hard_negatives_per_positive_volume=12,
+            hard_negatives_per_negative_volume=16,
+            seed=4,
+        )
+
+        batches = {keys[batch[0]]: batch for batch in sampler}
+        positive_batch = batches["positive"]
+        negative_batch = batches["negative"]
+        self.assertEqual(int(labels[positive_batch].sum()), 8)
+        self.assertEqual(int(hard[positive_batch].sum()), 12)
+        self.assertEqual(int(hard[negative_batch].sum()), 16)
+
 
 class TestReproducibility(unittest.TestCase):
     def test_same_seed_and_epoch_give_same_batches(self) -> None:

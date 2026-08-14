@@ -514,3 +514,46 @@ python -m tesi_m3d.train `
   --device cuda `
   --init-checkpoint outputs\train_pix2pix_balanced_patches\best.pt
 ```
+
+Il test con sole hard negative e' conservato per riproducibilita'. Il test
+successivo usa mixed replay, evitando di dimenticare le negative normali. Il
+miner salva 64 hard negative e 64 negative casuali per volume:
+
+```powershell
+python -m tesi_m3d.mine_hard_negatives `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --out outputs\train_pix2pix_mixed_hard_negative\mixed_negative_index.npz `
+  --negatives-per-volume 64 `
+  --random-negatives-per-volume 64 `
+  --device cuda
+```
+
+Il sampler usa esattamente 8 positive, 12 hard e 12 casuali nei volumi
+manipolati; nei volumi reali usa 16 hard e 16 casuali. Eseguire prima il
+dry-run, poi quattro epoche al learning rate `3e-5` partendo dai soli pesi
+balanced:
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_mixed_hard_negative.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda --dry-run
+
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_mixed_hard_negative.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda `
+  --init-checkpoint outputs\train_pix2pix_balanced_patches\best.pt
+```
+
+Valutare infine il nuovo checkpoint sulla stessa griglia densa:
+
+```powershell
+python -m tesi_m3d.evaluate_patch_level `
+  --config configs\train_pix2pix_mixed_hard_negative.yaml `
+  --checkpoint outputs\train_pix2pix_mixed_hard_negative\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+```

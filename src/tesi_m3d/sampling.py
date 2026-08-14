@@ -41,6 +41,9 @@ class VolumeGroupedBatchSampler:
         max_patches_per_epoch: int | None = None,
         max_volumes_per_epoch: int | None = None,
         positive_volume_fraction: float | None = None,
+        hard_negative_flags: np.ndarray | None = None,
+        hard_negatives_per_positive_volume: int | None = None,
+        hard_negatives_per_negative_volume: int | None = None,
         seed: int = 0,
         drop_last: bool = True,
     ) -> None:
@@ -64,6 +67,14 @@ class VolumeGroupedBatchSampler:
         self.positive_volume_fraction = (
             None if positive_volume_fraction is None else float(positive_volume_fraction)
         )
+        self.hard_negatives_per_positive_volume = hard_negatives_per_positive_volume
+        self.hard_negatives_per_negative_volume = hard_negatives_per_negative_volume
+        if hard_negative_flags is not None:
+            hard_negative_flags = np.asarray(hard_negative_flags, dtype=bool)
+            if hard_negative_flags.shape != labels.shape:
+                raise ValueError("hard_negative_flags and labels must have the same shape")
+            if np.any(np.logical_and(hard_negative_flags, labels > 0)):
+                raise ValueError("positive patches cannot be marked as hard negatives")
         if self.positive_volume_fraction is not None and not 0.0 <= self.positive_volume_fraction <= 1.0:
             raise ValueError("positive_volume_fraction must be in [0, 1]")
         self.seed = int(seed)
@@ -90,11 +101,18 @@ class VolumeGroupedBatchSampler:
 
         self._positives: list[np.ndarray] = []
         self._negatives: list[np.ndarray] = []
+        self._hard_negatives: list[np.ndarray] | None = [] if hard_negative_flags is not None else None
+        self._random_negatives: list[np.ndarray] | None = [] if hard_negative_flags is not None else None
         for start, stop in zip(boundaries[:-1], boundaries[1:]):
             member_indices = order[start:stop]
             member_labels = labels[member_indices]
             self._positives.append(member_indices[member_labels > 0].astype(np.int64))
             self._negatives.append(member_indices[member_labels == 0].astype(np.int64))
+            if hard_negative_flags is not None:
+                member_hard = hard_negative_flags[member_indices]
+                assert self._hard_negatives is not None and self._random_negatives is not None
+                self._hard_negatives.append(member_indices[np.logical_and(member_labels == 0, member_hard)].astype(np.int64))
+                self._random_negatives.append(member_indices[np.logical_and(member_labels == 0, ~member_hard)].astype(np.int64))
 
         self._n_volumes = len(self._positives)
         self._batches_per_epoch = self._compute_batches_per_epoch()
@@ -171,6 +189,8 @@ class VolumeGroupedBatchSampler:
         )
 
         n_neg = self.patches_per_volume - n_pos
+        if n_neg > 0 and self._hard_negatives is not None:
+            return self._sample_mixed_volume(volume, chosen_pos, n_neg, rng)
         if n_neg > 0 and len(negatives) == 0:
             # A volume that is entirely positive cannot contribute negatives;
             # top up with positives rather than emitting a short batch.
@@ -181,6 +201,39 @@ class VolumeGroupedBatchSampler:
             chosen_neg = np.empty(0, dtype=np.int64)
 
         selected = np.concatenate([chosen_pos, chosen_neg]).astype(np.int64)
+        rng.shuffle(selected)
+        return selected
+
+    def _sample_mixed_volume(
+        self, volume: int, chosen_pos: np.ndarray, n_neg: int, rng: np.random.Generator
+    ) -> np.ndarray:
+        """Mix configured hard and random negatives, filling shortages safely."""
+
+        assert self._hard_negatives is not None and self._random_negatives is not None
+        hard = self._hard_negatives[volume]
+        random_neg = self._random_negatives[volume]
+        requested = (
+            self.hard_negatives_per_positive_volume
+            if len(self._positives[volume]) > 0
+            else self.hard_negatives_per_negative_volume
+        )
+        n_hard = min(n_neg, int(requested if requested is not None else n_neg // 2))
+        n_random = n_neg - n_hard
+        if len(hard) < n_hard:
+            n_random += n_hard - len(hard)
+            n_hard = len(hard)
+        if len(random_neg) < n_random:
+            n_hard += n_random - len(random_neg)
+            n_random = len(random_neg)
+        chosen_hard = rng.choice(hard, n_hard, replace=n_hard > len(hard)) if n_hard else np.empty(0, dtype=np.int64)
+        chosen_random = rng.choice(random_neg, n_random, replace=n_random > len(random_neg)) if n_random else np.empty(0, dtype=np.int64)
+        selected = np.concatenate([chosen_pos, chosen_hard, chosen_random]).astype(np.int64)
+        if len(selected) < self.patches_per_volume:
+            pool = np.concatenate([hard, random_neg])
+            selected = np.concatenate([
+                selected,
+                rng.choice(pool, self.patches_per_volume - len(selected), replace=True),
+            ])
         rng.shuffle(selected)
         return selected
 
@@ -230,6 +283,18 @@ class VolumeGroupedBatchSampler:
         selected = self._selected_volumes(np.random.default_rng([self.seed, 0]))
         selected_positive = positives_per_volume[selected] > 0
         positive_patches = float(sum(self._positive_samples_for_volume(int(volume)) for volume in selected))
+        hard_patches = 0.0
+        if self._hard_negatives is not None:
+            for volume in selected:
+                n_pos = self._positive_samples_for_volume(int(volume))
+                requested = (
+                    self.hard_negatives_per_positive_volume if n_pos else self.hard_negatives_per_negative_volume
+                )
+                hard_patches += min(
+                    self.patches_per_volume - n_pos,
+                    int(requested if requested is not None else (self.patches_per_volume - n_pos) // 2),
+                    len(self._hard_negatives[int(volume)]),
+                )
         return {
             "n_volumes": float(self._n_volumes),
             "n_volumes_per_epoch": float(self._volumes_this_epoch()),
@@ -244,6 +309,8 @@ class VolumeGroupedBatchSampler:
             "negative_volumes_per_epoch": float(len(selected) - np.count_nonzero(selected_positive)),
             "positive_patches_per_epoch": positive_patches,
             "positive_patch_fraction": positive_patches / max(self._batches_per_epoch * self.batch_size, 1),
+            "hard_negative_patches_per_epoch": hard_patches,
+            "hard_negative_patch_fraction": hard_patches / max(self._batches_per_epoch * self.batch_size, 1),
         }
 
 
