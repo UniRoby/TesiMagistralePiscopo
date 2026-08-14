@@ -1,0 +1,69 @@
+{
+  "format_version": 1,
+  "checkpoint": "best.pt",
+  "inference": {
+    "patch_shape": [
+      32,
+      32,
+      32
+    ],
+    "stride": [
+      16,
+      16,
+      16
+    ],
+    "aggregation": "average"
+  },
+  "classification": {
+    "score_mode": "max",
+    "topk_fraction": null,
+    "threshold": 0.8315228819847107,
+    "balanced_accuracy": 0.5797619047619048,
+    "auc": 0.5125,
+    "n_volumes": 58,
+    "n_positive_volumes": 30,
+    "candidates": {
+      "max": {
+        "threshold": 0.8315228819847107,
+        "balanced_accuracy": 0.5797619047619048,
+        "auc": 0.5125
+      },
+      "topk_0.0001": {
+        "threshold": 0.829850435256958,
+        "balanced_accuracy": 0.5797619047619048,
+        "auc": 0.5089285714285714
+      },
+      "topk_0.0005": {
+        "threshold": 0.828758716583252,
+        "balanced_accuracy": 0.5642857142857143,
+        "auc": 0.4875
+      },
+      "topk_0.001": {
+        "threshold": 0.8239995837211609,
+        "balanced_accuracy": 0.5619047619047619,
+        "auc": 0.4910714285714286
+      },
+      "topk_0.005": {
+        "threshold": 0.8288439512252808,
+        "balanced_accuracy": 0.55,
+        "auc": 0.4630952380952381
+      },
+      "topk_0.01": {
+        "threshold": 0.8136745095252991,
+        "balanced_accuracy": 0.5619047619047619,
+        "auc": 0.46071428571428574
+      }
+    }
+  },
+  "localization": {
+    "threshold": 0.060000000000000005,
+    "precision": 0.0006506960745007227,
+    "recall": 0.9695981571974186,
+    "f1": 0.0013005193721258165,
+    "dice": 0.0013005193721258165,
+    "iou": 0.0006506827988554185,
+    "mean_voxel_auc_on_positive_volumes": 0.5289761997716144,
+    "mean_voxel_ap_on_positive_volumes": 0.0008496818116712941,
+    "n_positive_volumes": 30
+  }
+}
