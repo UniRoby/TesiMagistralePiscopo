@@ -1,0 +1,69 @@
+{
+  "format_version": 1,
+  "checkpoint": "best.pt",
+  "inference": {
+    "patch_shape": [
+      32,
+      32,
+      32
+    ],
+    "stride": [
+      16,
+      16,
+      16
+    ],
+    "aggregation": "gaussian"
+  },
+  "classification": {
+    "score_mode": "topk_mean",
+    "topk_fraction": 0.01,
+    "threshold": 0.4740866422653198,
+    "balanced_accuracy": 0.5202380952380953,
+    "auc": 0.4309523809523809,
+    "n_volumes": 58,
+    "n_positive_volumes": 30,
+    "candidates": {
+      "max": {
+        "threshold": 0.5141992568969727,
+        "balanced_accuracy": 0.5202380952380953,
+        "auc": 0.40773809523809523
+      },
+      "topk_0.0001": {
+        "threshold": 0.5075937509536743,
+        "balanced_accuracy": 0.5190476190476191,
+        "auc": 0.38928571428571423
+      },
+      "topk_0.0005": {
+        "threshold": 0.504012405872345,
+        "balanced_accuracy": 0.5190476190476191,
+        "auc": 0.3982142857142857
+      },
+      "topk_0.001": {
+        "threshold": 0.5013819336891174,
+        "balanced_accuracy": 0.5202380952380953,
+        "auc": 0.4083333333333333
+      },
+      "topk_0.005": {
+        "threshold": 0.4853571653366089,
+        "balanced_accuracy": 0.5202380952380953,
+        "auc": 0.4220238095238095
+      },
+      "topk_0.01": {
+        "threshold": 0.4740866422653198,
+        "balanced_accuracy": 0.5202380952380953,
+        "auc": 0.4309523809523809
+      }
+    }
+  },
+  "localization": {
+    "threshold": 0.5,
+    "precision": 0.004136040427228464,
+    "recall": 0.06440938489509339,
+    "f1": 0.0077729423536678065,
+    "dice": 0.0077729423536678065,
+    "iou": 0.0039016347679018872,
+    "mean_voxel_auc_on_positive_volumes": 0.9015576048331331,
+    "mean_voxel_ap_on_positive_volumes": 0.008900757801728594,
+    "n_positive_volumes": 30
+  }
+}
