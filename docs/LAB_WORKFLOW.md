@@ -462,3 +462,23 @@ Il comando crea `aggregation_comparison.json`, i due file
 `calibration_average.json` e `calibration_gaussian.json`, e report visuali
 separati. Nei volumi manipolati il report mostra sia la slice col massimo score
 sia quella centrale della mask reale.
+
+### Valutazione coerente con il classificatore patch-wise
+
+Dopo il training balanced, valutare direttamente gli score delle patch del
+`best.pt`, senza ricostruire una heatmap voxel-level:
+
+```powershell
+python -m tesi_m3d.evaluate_patch_level `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+```
+
+Il comando scrive `patch_level_report\metrics.json` con AUC/AP e
+precision/recall/F1 patch-level, hit rate top-1/top-3/top-5, distanza del centro
+della top-1 dalla mask e AUC/accuracy volume-level. `volumes.csv` contiene i
+risultati dei singoli volumi manipolati; `images` contiene una tavola per volume
+con centro della mask e le prime cinque patch. Verde indica la mask, ciano una
+patch che la interseca, rosso/arancio/giallo rispettivamente top-1/top-3/top-5.
