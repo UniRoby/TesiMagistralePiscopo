@@ -25,7 +25,7 @@ from .evaluation import (
 from .inference import infer_heatmap
 from .losses import build_loss
 from .model import Patch3DModelConfig, build_patch3d_classifier
-from .patch_index import load_or_build_patch_index
+from .patch_index import PatchIndex, load_or_build_patch_index
 from .sampling import SequentialVolumeBatchSampler, VolumeGroupedBatchSampler
 from .volume_io import align_mask_to_scan, load_label_mask, load_normalized_scan
 
@@ -254,15 +254,27 @@ def build_loaders(
     batch_size = int(training_cfg.get("batch_size", 8))
     volume_cache_size = int(training_cfg.get("volume_cache_size", 2))
 
-    train_index = load_or_build_patch_index(
-        train_records,
-        data_root,
-        cache_dir,
-        patch_shape=patch_shape,
-        stride=train_stride,
-        positive_overlap_fraction=positive_overlap,
-        rebuild=rebuild_index,
-    )
+    mining_cfg = config.get("hard_negative_mining", {}) or {}
+    mined_index_path = mining_cfg.get("index_path")
+    if mined_index_path:
+        mined_index_path = Path(mined_index_path)
+        if not mined_index_path.is_absolute():
+            mined_index_path = Path.cwd() / mined_index_path
+        train_index = PatchIndex.load(mined_index_path)
+        if len(train_index) == 0 or train_index.n_positive == 0:
+            raise ValueError(f"hard-negative index is empty or contains no positives: {mined_index_path}")
+        if int(train_index.record_index.max()) >= len(train_records):
+            raise ValueError(f"hard-negative index does not match the selected training records: {mined_index_path}")
+    else:
+        train_index = load_or_build_patch_index(
+            train_records,
+            data_root,
+            cache_dir,
+            patch_shape=patch_shape,
+            stride=train_stride,
+            positive_overlap_fraction=positive_overlap,
+            rebuild=rebuild_index,
+        )
     if train_index.n_positive == 0:
         raise ValueError(
             "the training patch index contains zero positive patches. "
@@ -496,6 +508,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--resume",
         help="Resume from a checkpoint saved by this trainer (model, optimizer, AMP scaler, epoch).",
+    )
+    parser.add_argument(
+        "--init-checkpoint",
+        help="Initialize model weights from a checkpoint but start a fresh optimizer at epoch 1.",
     )
     parser.add_argument(
         "--dry-run",
@@ -908,6 +924,11 @@ def main() -> None:
     best_ap = -float("inf")
     epochs_without_improvement = 0
     start_epoch = 0
+    if args.init_checkpoint and args.resume:
+        raise ValueError("--init-checkpoint and --resume are mutually exclusive")
+    if args.init_checkpoint:
+        objects.model.load_state_dict(_load_torch_payload(Path(args.init_checkpoint))["model_state_dict"])
+        print(f"Initialized model weights from {args.init_checkpoint}.")
     if args.resume:
         start_epoch, best_ap, epochs_without_improvement = _load_checkpoint(args.resume, objects)
         if start_epoch >= epochs:

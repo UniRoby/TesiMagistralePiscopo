@@ -8,6 +8,7 @@ from tesi_m3d.evaluate_patch_level import (
     topk_hits,
 )
 from tesi_m3d.patches import PatchGrid
+from tesi_m3d.mine_hard_negatives import select_hard_negative_indices
 
 
 def test_patch_level_ranking_and_threshold_metrics():
@@ -35,3 +36,10 @@ def test_patch_overlap_fractions_match_patch_volume():
     grid = PatchGrid((4, 4, 4), patch_shape=(2, 2, 2), stride=(2, 2, 2))
 
     np.testing.assert_allclose(patch_overlap_fractions(mask, grid), [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+
+def test_hard_negative_mining_keeps_only_clean_highest_scores():
+    scores = np.array([0.2, 0.95, 0.8, 0.9, 0.7], dtype=np.float32)
+    overlaps = np.array([0.0, 0.1, 0.0, 0.0, 0.0], dtype=np.float32)
+
+    np.testing.assert_array_equal(select_hard_negative_indices(scores, overlaps, 3), [3, 2, 4])

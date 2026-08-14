@@ -482,3 +482,35 @@ della top-1 dalla mask e AUC/accuracy volume-level. `volumes.csv` contiene i
 risultati dei singoli volumi manipolati; `images` contiene una tavola per volume
 con centro della mask e le prime cinque patch. Verde indica la mask, ciano una
 patch che la interseca, rosso/arancio/giallo rispettivamente top-1/top-3/top-5.
+
+### Esperimento: hard-negative mining
+
+Generare prima l'indice delle 64 patch pulite con score piu alto per ogni
+volume di training. Questa fase usa la griglia densa stride 16 e puo richiedere
+tempo, ma non modifica il checkpoint di partenza:
+
+```powershell
+python -m tesi_m3d.mine_hard_negatives `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --out outputs\train_pix2pix_hard_negative_mining\hard_negative_index.npz `
+  --device cuda
+```
+
+Controllare `hard_negative_index.json`, poi fare il dry-run e il fine-tuning.
+`--init-checkpoint` carica solo i pesi della run balanced: non riprende epoca,
+optimizer o early stopping della run precedente.
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_hard_negative_mining.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda --dry-run
+
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_hard_negative_mining.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda `
+  --init-checkpoint outputs\train_pix2pix_balanced_patches\best.pt
+```
