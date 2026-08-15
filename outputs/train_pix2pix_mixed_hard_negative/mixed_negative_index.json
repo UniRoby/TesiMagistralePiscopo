@@ -1,0 +1,20 @@
+{
+  "checkpoint": "outputs\\train_pix2pix_balanced_patches\\best.pt",
+  "mining_stride": [
+    16,
+    16,
+    16
+  ],
+  "hard_negatives_per_volume": 64,
+  "random_negatives_per_volume": 64,
+  "n_patches": 33441,
+  "n_positive": 673,
+  "n_hard_negative": 16384,
+  "n_random_negative": 16384,
+  "flags_path": "outputs\\train_pix2pix_mixed_hard_negative\\mixed_negative_index_flags.npy",
+  "hard_negative_score": {
+    "min": 0.37432950735092163,
+    "median": 0.5055665373802185,
+    "max": 0.5578328371047974
+  }
+}
