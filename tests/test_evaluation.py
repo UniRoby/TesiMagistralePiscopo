@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 from tesi_m3d.evaluation import (
+    _max_balanced_accuracy_from_roc,
     balanced_accuracy,
     best_heatmap_threshold_by_f1,
     best_threshold_by_balanced_accuracy,
@@ -11,6 +12,7 @@ from tesi_m3d.evaluation import (
     volume_detection_scores,
     volume_auc_ba,
     voxel_auc_ap,
+    voxel_auc_max_balanced_accuracy,
 )
 from tesi_m3d.patches import binary_cube_mask
 
@@ -35,6 +37,31 @@ class EvaluationTests(unittest.TestCase):
 
         self.assertAlmostEqual(auc, 1.0)
         self.assertAlmostEqual(ap, 1.0)
+
+    def test_per_volume_auc_and_max_ba(self):
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            self.skipTest("scikit-learn not installed")
+        mask = np.array([0, 0, 1, 1], dtype=bool)
+
+        auc, max_ba, threshold = voxel_auc_max_balanced_accuracy(
+            mask, np.array([0.1, 0.2, 0.8, 0.9], dtype=np.float32)
+        )
+
+        self.assertAlmostEqual(auc, 1.0)
+        self.assertAlmostEqual(max_ba, 1.0)
+        self.assertAlmostEqual(threshold, 0.8)
+
+    def test_max_ba_from_roc_prefers_highest_tied_threshold(self):
+        max_ba, threshold = _max_balanced_accuracy_from_roc(
+            np.array([0.0, 0.0, 0.5, 1.0]),
+            np.array([0.0, 0.5, 1.0, 1.0]),
+            np.array([np.inf, 0.8, 0.4, 0.1]),
+        )
+
+        self.assertAlmostEqual(max_ba, 0.75)
+        self.assertAlmostEqual(threshold, 0.8)
 
     def test_volume_scores_and_balanced_accuracy(self):
         y_true = np.array([0, 0, 1, 1], dtype=bool)

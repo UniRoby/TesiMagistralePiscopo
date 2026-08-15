@@ -72,6 +72,52 @@ def voxel_auc_ap(mask: np.ndarray, heatmap: np.ndarray) -> tuple[float, float]:
     return float(roc_auc_score(mask_flat, scores_flat)), float(average_precision_score(mask_flat, scores_flat))
 
 
+def voxel_auc_max_balanced_accuracy(
+    mask: np.ndarray,
+    heatmap: np.ndarray,
+) -> tuple[float, float, float]:
+    """Return per-volume voxel ROC-AUC, maximum BA, and its threshold."""
+
+    truth = np.asarray(mask, dtype=bool).reshape(-1)
+    scores = np.asarray(heatmap, dtype=np.float32).reshape(-1)
+    if truth.shape != scores.shape:
+        raise ValueError("mask and heatmap must have the same number of voxels")
+    if np.unique(truth).size != 2:
+        raise ValueError("voxel AUC and maximum BA require positive and negative voxels")
+    try:
+        from sklearn.metrics import auc, roc_curve
+    except ImportError as exc:  # pragma: no cover - depends on optional env
+        raise RuntimeError("scikit-learn is required for voxel_auc_max_balanced_accuracy") from exc
+    false_positive_rate, true_positive_rate, thresholds = roc_curve(truth, scores)
+    max_ba, threshold = _max_balanced_accuracy_from_roc(
+        false_positive_rate, true_positive_rate, thresholds
+    )
+    return (
+        float(auc(false_positive_rate, true_positive_rate)),
+        max_ba,
+        threshold,
+    )
+
+
+def _max_balanced_accuracy_from_roc(
+    false_positive_rate: np.ndarray,
+    true_positive_rate: np.ndarray,
+    thresholds: np.ndarray,
+) -> tuple[float, float]:
+    """Select maximum BA from ROC points, preferring the highest threshold."""
+
+    false_positive_rate = np.asarray(false_positive_rate, dtype=np.float64)
+    true_positive_rate = np.asarray(true_positive_rate, dtype=np.float64)
+    thresholds = np.asarray(thresholds, dtype=np.float64)
+    if not (false_positive_rate.shape == true_positive_rate.shape == thresholds.shape):
+        raise ValueError("ROC arrays must have the same shape")
+    balanced_accuracies = (true_positive_rate + 1.0 - false_positive_rate) / 2.0
+    best_value = float(np.max(balanced_accuracies))
+    tied = np.flatnonzero(np.isclose(balanced_accuracies, best_value))
+    best = int(tied[np.argmax(thresholds[tied])])
+    return best_value, float(thresholds[best])
+
+
 def max_detection_score(heatmap: np.ndarray) -> float:
     """Return volume-level detection score as maximum heatmap value."""
 

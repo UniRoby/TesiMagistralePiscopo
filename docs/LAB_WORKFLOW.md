@@ -476,6 +476,56 @@ python -m tesi_m3d.evaluate_patch_level `
   --device cuda
 ```
 
+### Metriche macro compatibili con il protocollo del paper
+
+Per ogni volume manipolato, il comando seguente confronta la heatmap 3D con la
+mask e calcola ROC-AUC voxel-wise e massima balanced accuracy. Il report contiene
+una riga per volume e media/deviazione standard complessive e per generatore.
+
+Sulla validation pix2pix corrente:
+
+```powershell
+python -m tesi_m3d.evaluate_paper_protocol `
+  --config configs\train_pix2pix_mixed_hard_negative.yaml `
+  --checkpoint outputs\train_pix2pix_mixed_hard_negative\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --split valid --mods pix2pix `
+  --device cuda
+```
+
+Per il test cross-generator completo, quando i TIFF cycle e diffusion sono
+disponibili:
+
+```powershell
+python -m tesi_m3d.evaluate_paper_protocol `
+  --config configs\train_pix2pix_mixed_hard_negative.yaml `
+  --checkpoint outputs\train_pix2pix_mixed_hard_negative\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --split test --mods cycle diffusion `
+  --device cuda
+```
+
+Gli output sono `paper_protocol_<split>\per_volume.csv` e `summary.json`.
+I volumi reali sono esclusi perché una mask senza voxel positivi non definisce
+una ROC-AUC di localizzazione.
+
+### Audit della spaziatura fisica
+
+Prima di un nuovo training, verificare quanto una patch `32x32x32` voxel si
+discosta dal cubo fisico di lato 32 mm usato da M3Dsynth:
+
+```powershell
+python -m tesi_m3d.audit_spacing `
+  --metadata-dir metadata\m3dsynth `
+  --patch-shape 32 32 32 `
+  --target-mm 32 `
+  --out-dir outputs\spacing_audit
+```
+
+`records.csv` riporta spacing, dimensioni fisiche della patch e dimensioni in
+voxel corrispondenti a 32 mm per ogni record. `summary.json` aggrega i risultati
+complessivamente e per split/generatore. L'audit non modifica TIFF o mask.
+
 Il comando scrive `patch_level_report\metrics.json` con AUC/AP e
 precision/recall/F1 patch-level, hit rate top-1/top-3/top-5, distanza del centro
 della top-1 dalla mask e AUC/accuracy volume-level. `volumes.csv` contiene i
