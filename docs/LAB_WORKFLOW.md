@@ -509,6 +509,25 @@ Gli output sono `paper_protocol_<split>\per_volume.csv` e `summary.json`.
 I volumi reali sono esclusi perché una mask senza voxel positivi non definisce
 una ROC-AUC di localizzazione.
 
+### Test Pix2Pix → Diffusion con dataset esterno
+
+I metadata in `metadata\m3dsynth` restano quelli locali: identificano i record
+Diffusion dello split test; dal dataset esterno vengono letti solo scan e mask.
+
+```powershell
+python -m tesi_m3d.evaluate_paper_protocol `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches\patch3d_classifier.pt `
+  --data-root "D:\Dataset Tesi Piscopo" `
+  --split test --mods diffusion `
+  --device cuda `
+  --out-dir outputs\train_pix2pix_balanced_patches\paper_protocol_test_diffusion
+```
+
+Questo test misura la localizzazione voxel-wise (AUC e Max BA) sulle sole TAC
+manipolate. Per AUC/accuracy volume-level servono anche TAC reali dello stesso
+split, che non sono incluse nel download diffusion indicato sopra.
+
 ### Audit della spaziatura fisica
 
 Prima di un nuovo training, verificare quanto una patch `32x32x32` voxel si
