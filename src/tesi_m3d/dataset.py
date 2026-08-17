@@ -201,7 +201,11 @@ def assert_no_orig_id_leakage(groups: dict[str, Sequence[M3DSynthRecord]]) -> No
                 )
 
 
-def scan_dir(data_root: str | Path, record: M3DSynthRecord) -> Path:
+def scan_dir(
+    data_root: str | Path,
+    record: M3DSynthRecord,
+    real_scan_root: str | Path | None = None,
+) -> Path:
     """Return the TIFF directory for a manipulated or real CT record.
 
     Official M3Dsynth data use ``real/scan/<img_id>`` and symbolic links for
@@ -211,7 +215,7 @@ def scan_dir(data_root: str | Path, record: M3DSynthRecord) -> Path:
     official layout remains the first choice when it is present.
     """
 
-    root = Path(data_root) / record.mod / "scan"
+    root = Path(real_scan_root) if record.is_real and real_scan_root is not None else Path(data_root) / record.mod / "scan"
     official_path = root / record.img_id
     if record.is_real and not official_path.exists():
         return root / f"{record.orig_id}__{record.sdir_id}"

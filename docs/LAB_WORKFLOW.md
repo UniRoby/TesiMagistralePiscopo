@@ -528,6 +528,26 @@ Questo test misura la localizzazione voxel-wise (AUC e Max BA) sulle sole TAC
 manipolate. Per AUC/accuracy volume-level servono anche TAC reali dello stesso
 split, che non sono incluse nel download diffusion indicato sopra.
 
+Per il report patch-level con immagini e metriche volume-level, usare i TIFF
+reali convertiti in `C:\Tesi Magistrale Piscopo\real\scan` (non i DICOM in
+`Reale\lidc_idri`):
+
+```powershell
+python -m tesi_m3d.evaluate_patch_level `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches\patch3d_classifier.pt `
+  --data-root "D:\Dataset Tesi Piscopo" `
+  --real-scan-root "C:\Tesi Magistrale Piscopo\real\scan" `
+  --split test --mods diffusion `
+  --device cuda `
+  --max-report-images 20 `
+  --out-dir outputs\train_pix2pix_balanced_patches\patch_level_report_test_diffusion
+```
+
+Il comando valuta tutti i volumi test Diffusion e i reali corrispondenti; salva
+20 pannelli rappresentativi in `images`. Aumentare `--max-report-images` solo
+se lo spazio libero Ã¨ sufficiente.
+
 ### Audit della spaziatura fisica
 
 Prima di un nuovo training, verificare quanto una patch `32x32x32` voxel si

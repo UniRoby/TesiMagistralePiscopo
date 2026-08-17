@@ -120,7 +120,11 @@ def align_mask_to_scan(
     return np.pad(mask, ((0, padding), (0, 0), (0, 0)), mode="constant", constant_values=False)
 
 
-def load_normalized_scan(data_root: str | Path, record) -> np.ndarray:
+def load_normalized_scan(
+    data_root: str | Path,
+    record,
+    real_scan_root: str | Path | None = None,
+) -> np.ndarray:
     """Load one scan as a percentile-normalized float32 volume.
 
     Imported lazily from ``dataset`` to keep this module free of a circular
@@ -129,7 +133,7 @@ def load_normalized_scan(data_root: str | Path, record) -> np.ndarray:
 
     from .dataset import load_tiff_stack, normalize_percentile, scan_dir
 
-    return normalize_percentile(load_tiff_stack(scan_dir(data_root, record)))
+    return normalize_percentile(load_tiff_stack(scan_dir(data_root, record, real_scan_root)))
 
 
 class VolumeCache:

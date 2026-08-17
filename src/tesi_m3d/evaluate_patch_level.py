@@ -108,16 +108,22 @@ def patch_overlap_fractions(mask: np.ndarray, grid: PatchGrid) -> np.ndarray:
     return np.asarray(counts, dtype=np.float32) / float(np.prod(grid.patch_shape))
 
 
-def _unique_records(records, data_root: Path):
+def _unique_records(records, data_root: Path, real_scan_root: Path | None = None):
     from .dataset import scan_dir
 
     unique = {}
     for record in records:
-        unique.setdefault(str(scan_dir(data_root, record).resolve()), record)
+        unique.setdefault(str(scan_dir(data_root, record, real_scan_root).resolve()), record)
     return list(unique.values())
 
 
-def _load_validation_records(config: dict, data_root: Path):
+def _load_validation_records(
+    config: dict,
+    data_root: Path,
+    split_name: str = "valid",
+    mods: list[str] | None = None,
+    real_scan_root: Path | None = None,
+):
     from .dataset import cross_generator_records, read_records
     from .train import subset_records
 
@@ -138,8 +144,26 @@ def _load_validation_records(config: dict, data_root: Path):
         include_real=bool(split.get("include_real", True)),
     )
     seed = int(data.get("record_subset_seed", training.get("seed", 21)))
-    records = subset_records(groups["valid"], data.get("max_valid_records"), seed)
-    return _unique_records(records, data_root)
+    records = groups[split_name]
+    if mods is not None:
+        wanted_mods = set(mods)
+        records = [record for record in records if record.is_real or record.mod in wanted_mods]
+    limit = data.get("max_valid_records") if split_name == "valid" else None
+    return _unique_records(subset_records(records, limit, seed), data_root, real_scan_root)
+
+
+def _report_image_ids(records, max_images: int) -> set[str]:
+    """Select evenly spaced manipulated volumes for compact visual reports."""
+
+    manipulated = [record for record in records if record.is_manipulated]
+    if max_images < 0:
+        raise ValueError("max_images must be non-negative")
+    if max_images == 0:
+        return set()
+    if len(manipulated) <= max_images:
+        return {record.img_id for record in manipulated}
+    indices = np.linspace(0, len(manipulated) - 1, num=max_images, dtype=int)
+    return {manipulated[index].img_id for index in indices}
 
 
 def _load_model(checkpoint: Path, device: str):
@@ -218,6 +242,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--data-root")
+    parser.add_argument("--real-scan-root", help="TIFF directory containing converted real CT series.")
+    parser.add_argument("--split", choices=("train", "valid", "test"), default="valid")
+    parser.add_argument("--mods", nargs="+", help="Manipulation generators; defaults to the selected config split.")
+    parser.add_argument("--max-report-images", type=int, default=20)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--out-dir")
@@ -225,6 +253,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    args = parse_args()
+
     from sklearn.metrics import average_precision_score, roc_auc_score
     from tqdm import tqdm
 
@@ -234,10 +264,10 @@ def main() -> None:
     from .train import load_yaml_config
     from .volume_io import align_mask_to_scan, load_label_mask, load_normalized_scan
 
-    args = parse_args()
     config = load_yaml_config(args.config)
     checkpoint = Path(args.checkpoint)
     data_root = Path(args.data_root or config.get("data_root", "data/M3Dsynth"))
+    real_scan_root = Path(args.real_scan_root) if args.real_scan_root else None
     output_dir = Path(args.out_dir) if args.out_dir else checkpoint.parent / "patch_level_report"
     output_dir.mkdir(parents=True, exist_ok=True)
     patch_cfg = config.get("patches", {})
@@ -245,13 +275,16 @@ def main() -> None:
     stride = tuple(patch_cfg.get("inference_stride", (16, 16, 16)))
     positive_fraction = float(patch_cfg.get("positive_overlap_fraction", 0.05))
     batch_size = int(args.batch_size or config.get("evaluation", {}).get("calibration_batch_size", 32))
-    records = _load_validation_records(config, data_root)
+    split_cfg = config.get("split", {})
+    mods = args.mods or list(split_cfg.get(f"{args.split}_mods", split_cfg.get("valid_mods", [])))
+    records = _load_validation_records(config, data_root, args.split, mods, real_scan_root)
+    report_image_ids = _report_image_ids(records, args.max_report_images)
     model = _load_model(checkpoint, args.device)
 
     patch_truth, patch_scores = [], []
     volume_rows, candidate_scores = [], {name: [] for name in ("max", "top3_mean", "top5_mean")}
     for record in tqdm(records, desc="patch-level validation", unit="vol"):
-        scan = load_normalized_scan(data_root, record)
+        scan = load_normalized_scan(data_root, record, real_scan_root)
         mask = np.zeros(scan.shape, dtype=bool) if record.is_real else align_mask_to_scan(
             load_label_mask(label_dir(data_root, record)), scan.shape, record.img_id
         )
@@ -272,7 +305,8 @@ def main() -> None:
             mask_center = np.mean(np.argwhere(mask), axis=0)
             distance = float(np.linalg.norm(patch_center(slices[top_index]) - mask_center))
             image_name = f"{record.img_id}.png"
-            _draw_report(scan, mask, slices, scores, overlaps, output_dir / "images" / image_name)
+            if record.img_id in report_image_ids:
+                _draw_report(scan, mask, slices, scores, overlaps, output_dir / "images" / image_name)
             volume_rows.append({
                 "img_id": record.img_id,
                 "top1_hit": int(hits[1]), "top3_hit": int(hits[3]), "top5_hit": int(hits[5]),
@@ -297,7 +331,8 @@ def main() -> None:
     selected_volume_score = max(volume_results, key=lambda name: (volume_results[name]["auc"], volume_results[name]["balanced_accuracy"]))
     distances = np.asarray([row["top1_center_distance_voxels"] for row in volume_rows])
     report = {
-        "checkpoint": str(checkpoint), "n_validation_volumes": len(records),
+        "checkpoint": str(checkpoint), "split": args.split, "mods": mods,
+        "n_validation_volumes": len(records), "n_report_images": len(report_image_ids),
         "patch_definition": {"positive_overlap_fraction": positive_fraction, "ambiguous_patches_excluded": True},
         "patch_classification": {
             "n_patches": int(truth.size), "n_positive": int(truth.sum()),

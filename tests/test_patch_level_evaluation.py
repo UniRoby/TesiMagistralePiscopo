@@ -5,6 +5,7 @@ from tesi_m3d.evaluate_patch_level import (
     binary_counts,
     patch_center,
     patch_overlap_fractions,
+    _report_image_ids,
     topk_hits,
 )
 from tesi_m3d.patches import PatchGrid
@@ -43,3 +44,15 @@ def test_hard_negative_mining_keeps_only_clean_highest_scores():
     overlaps = np.array([0.0, 0.1, 0.0, 0.0, 0.0], dtype=np.float32)
 
     np.testing.assert_array_equal(select_hard_negative_indices(scores, overlaps, 3), [3, 2, 4])
+
+
+def test_report_image_selection_is_bounded_and_spread_across_manipulations():
+    class Record:
+        def __init__(self, img_id, manipulated=True):
+            self.img_id = img_id
+            self.is_manipulated = manipulated
+
+    records = [Record(f"inj_{index}") for index in range(10)] + [Record("real", False)]
+
+    assert _report_image_ids(records, 3) == {"inj_0", "inj_4", "inj_9"}
+    assert _report_image_ids(records, 0) == set()
