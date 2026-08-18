@@ -432,6 +432,11 @@ volume ha meno di 8 patch positive, il sampler riusa solo quelle positive per
 raggiungere il target; le negative restano distinte. L'80% dei volumi per epoca
 è manipolato, per ottenere circa il 20% di patch positive sull'intera epoca.
 
+La variante isotropica `configs\train_pix2pix_balanced_isotropic.yaml` con patch 32³ realmente corrispondenti a 32 mm³, mantiene
+lo stesso protocollo e lo stesso sottoinsieme deterministico della balanced
+voxel-native: massimo 256 record di training, 64 di validation e seed 21, con
+un limite di 4096 patch per epoca. 
+
 ```powershell
 python -m tesi_m3d.train `
   --config configs\train_pix2pix_balanced_patches.yaml `
