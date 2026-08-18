@@ -34,6 +34,13 @@ def scale_coordinate(value: str, spacing: float, target_mm: float) -> str:
     return str(int(round(float(value) * spacing / target_mm)))
 
 
+def select_records(records, mods: set[str] | None, limit: int | None):
+    """Apply the optional generator filter before the debug record limit."""
+
+    selected = [record for record in records if mods is None or record.mod in mods]
+    return selected if limit is None else selected[:limit]
+
+
 def _read_rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         return list(csv.DictReader(handle))
@@ -47,7 +54,15 @@ def _write_rows(path: Path, rows: list[dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
-def convert_corpus(source_root: Path, output_root: Path, metadata_dir: Path, output_metadata_dir: Path, target_mm: float = 1.0, limit: int | None = None) -> None:
+def convert_corpus(
+    source_root: Path,
+    output_root: Path,
+    metadata_dir: Path,
+    output_metadata_dir: Path,
+    target_mm: float = 1.0,
+    limit: int | None = None,
+    mods: set[str] | None = None,
+) -> None:
     """Resample unique scans, labels, and all voxel-coordinate metadata."""
 
     if source_root.resolve() == output_root.resolve():
@@ -57,9 +72,9 @@ def convert_corpus(source_root: Path, output_root: Path, metadata_dir: Path, out
         (row["orig_id"], row["sdir_id"]): tuple(float(row[f"spacing_{axis}"]) for axis in "zyx")
         for row in lidc_rows
     }
-    records = read_records(metadata_dir)
-    if limit is not None:
-        records = records[:limit]
+    records = select_records(read_records(metadata_dir), mods, limit)
+    if not records:
+        raise ValueError("no records selected for conversion")
 
     completed: set[Path] = set()
     for index, record in enumerate(records, 1):
@@ -87,14 +102,21 @@ def convert_corpus(source_root: Path, output_root: Path, metadata_dir: Path, out
                 save_tiff_stack(destination_label, resample_volume(mask, current, target_mm, 0))
         print(f"[{index}/{len(records)}] {record.mod}/{record.img_id}")
 
-    data_rows = _read_rows(metadata_dir / "data.csv")
+    selected = {(record.mod, record.img_id) for record in records}
+    data_rows = [
+        row for row in _read_rows(metadata_dir / "data.csv")
+        if (row["mod"], row["img_id"]) in selected
+    ]
     for row in data_rows:
         current = spacing[(row["orig_id"], row["sdir_id"])]
         for axis, value in zip("zyx", current):
             row[f"coord_{axis}"] = scale_coordinate(row[f"coord_{axis}"], value, target_mm)
     _write_rows(output_metadata_dir / "data.csv", data_rows)
 
-    centers = _read_rows(metadata_dir / "centers.csv")
+    centers = [
+        row for row in _read_rows(metadata_dir / "centers.csv")
+        if (row["mod"], row["img_id"]) in selected
+    ]
     by_img = {row["img_id"]: spacing[(row["orig_id"], row["sdir_id"])] for row in data_rows}
     for row in centers:
         for axis, value in zip("zyx", by_img[row["img_id"]]):
@@ -116,8 +138,13 @@ def main() -> None:
     parser.add_argument("--output-metadata-dir", required=True)
     parser.add_argument("--target-mm", type=float, default=1.0)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--mods", nargs="+", help="Only convert these generators, for example pix2pix real.")
     args = parser.parse_args()
-    convert_corpus(Path(args.source_root), Path(args.output_root), Path(args.metadata_dir), Path(args.output_metadata_dir), args.target_mm, args.limit)
+    convert_corpus(
+        Path(args.source_root), Path(args.output_root), Path(args.metadata_dir),
+        Path(args.output_metadata_dir), args.target_mm, args.limit,
+        set(args.mods) if args.mods else None,
+    )
 
 
 if __name__ == "__main__":

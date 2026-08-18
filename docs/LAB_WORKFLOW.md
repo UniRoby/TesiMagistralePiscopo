@@ -437,6 +437,31 @@ lo stesso protocollo e lo stesso sottoinsieme deterministico della balanced
 voxel-native: massimo 256 record di training, 64 di validation e seed 21, con
 un limite di 4096 patch per epoca. 
 
+Per costruire il corpus isotropico a 1 mm, convertire insieme scansioni e mask.
+Sul PC del laboratorio, se sono disponibili solo Pix2Pix e reali, usare
+`--mods pix2pix real`: CycleGAN e Diffusion non sono necessari al training e
+non devono essere richiesti al converter.
+
+```powershell
+python -m tesi_m3d.isotropic `
+  --source-root "C:\Tesi Magistrale Piscopo" `
+  --output-root "D:\Dataset Tesi Piscopo\M3Dsynth_isotropic_1mm" `
+  --metadata-dir metadata\m3dsynth `
+  --output-metadata-dir metadata\m3dsynth_isotropic_1mm `
+  --target-mm 1.0 `
+  --mods pix2pix real
+```
+
+Dopo una conversione completata senza errori, avviare una nuova baseline da
+zero senza `--resume`:
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_balanced_isotropic.yaml `
+  --data-root "D:\Dataset Tesi Piscopo\M3Dsynth_isotropic_1mm" `
+  --device cuda
+```
+
 ```powershell
 python -m tesi_m3d.train `
   --config configs\train_pix2pix_balanced_patches.yaml `
