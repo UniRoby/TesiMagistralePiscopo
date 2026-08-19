@@ -462,6 +462,21 @@ python -m tesi_m3d.train `
   --device cuda
 ```
 
+Se la conversione viene interrotta, non avviare il training con i metadata
+completi: scrivere prima metadata limitati alle directory con marker
+`.complete`, poi eseguire il dry-run.
+
+```powershell
+python -m tesi_m3d.isotropic `
+  --source-root "C:\Tesi Magistrale Piscopo" `
+  --output-root "D:\Dataset Tesi Piscopo\M3Dsynth_isotropic_1mm" `
+  --metadata-dir metadata\m3dsynth `
+  --output-metadata-dir metadata\m3dsynth_isotropic_1mm `
+  --target-mm 1.0 `
+  --mods pix2pix real `
+  --metadata-only
+```
+
 ```powershell
 python -m tesi_m3d.train `
   --config configs\train_pix2pix_balanced_patches.yaml `

@@ -41,6 +41,16 @@ def select_records(records, mods: set[str] | None, limit: int | None):
     return selected if limit is None else selected[:limit]
 
 
+def completed_records(records, output_root: Path):
+    """Keep only records whose scan and, when needed, label were fully written."""
+
+    return [
+        record for record in records
+        if (scan_dir(output_root, record) / ".complete").exists()
+        and (record.is_real or (label_dir(output_root, record) / ".complete").exists())
+    ]
+
+
 def _read_rows(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         return list(csv.DictReader(handle))
@@ -52,6 +62,45 @@ def _write_rows(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_metadata(records, metadata_dir: Path, output_metadata_dir: Path, target_mm: float) -> None:
+    """Write transformed metadata for exactly the materialized records."""
+
+    lidc_rows = _read_rows(metadata_dir / "LIDC.csv")
+    spacing = {
+        (row["orig_id"], row["sdir_id"]): tuple(float(row[f"spacing_{axis}"]) for axis in "zyx")
+        for row in lidc_rows
+    }
+    selected = {(record.mod, record.img_id) for record in records}
+    data_rows = [
+        row for row in _read_rows(metadata_dir / "data.csv")
+        if (row["mod"], row["img_id"]) in selected
+    ]
+    for row in data_rows:
+        current = spacing[(row["orig_id"], row["sdir_id"])]
+        for axis, value in zip("zyx", current):
+            row[f"coord_{axis}"] = scale_coordinate(row[f"coord_{axis}"], value, target_mm)
+    _write_rows(output_metadata_dir / "data.csv", data_rows)
+
+    centers = [
+        row for row in _read_rows(metadata_dir / "centers.csv")
+        if (row["mod"], row["img_id"]) in selected
+    ]
+    by_record = {
+        (row["mod"], row["img_id"]): spacing[(row["orig_id"], row["sdir_id"])]
+        for row in data_rows
+    }
+    for row in centers:
+        for axis, value in zip("zyx", by_record[(row["mod"], row["img_id"])]):
+            row[f"center_test_{axis}"] = scale_coordinate(row[f"center_test_{axis}"], value, target_mm)
+    _write_rows(output_metadata_dir / "centers.csv", centers)
+
+    for row in lidc_rows:
+        for axis in "zyx":
+            row[f"spacing_{axis}"] = str(float(target_mm))
+    _write_rows(output_metadata_dir / "LIDC.csv", lidc_rows)
+    shutil.copy2(metadata_dir / "sets.csv", output_metadata_dir / "sets.csv")
 
 
 def convert_corpus(
@@ -102,32 +151,7 @@ def convert_corpus(
                 save_tiff_stack(destination_label, resample_volume(mask, current, target_mm, 0))
         print(f"[{index}/{len(records)}] {record.mod}/{record.img_id}")
 
-    selected = {(record.mod, record.img_id) for record in records}
-    data_rows = [
-        row for row in _read_rows(metadata_dir / "data.csv")
-        if (row["mod"], row["img_id"]) in selected
-    ]
-    for row in data_rows:
-        current = spacing[(row["orig_id"], row["sdir_id"])]
-        for axis, value in zip("zyx", current):
-            row[f"coord_{axis}"] = scale_coordinate(row[f"coord_{axis}"], value, target_mm)
-    _write_rows(output_metadata_dir / "data.csv", data_rows)
-
-    centers = [
-        row for row in _read_rows(metadata_dir / "centers.csv")
-        if (row["mod"], row["img_id"]) in selected
-    ]
-    by_img = {row["img_id"]: spacing[(row["orig_id"], row["sdir_id"])] for row in data_rows}
-    for row in centers:
-        for axis, value in zip("zyx", by_img[row["img_id"]]):
-            row[f"center_test_{axis}"] = scale_coordinate(row[f"center_test_{axis}"], value, target_mm)
-    _write_rows(output_metadata_dir / "centers.csv", centers)
-
-    for row in lidc_rows:
-        for axis in "zyx":
-            row[f"spacing_{axis}"] = str(float(target_mm))
-    _write_rows(output_metadata_dir / "LIDC.csv", lidc_rows)
-    shutil.copy2(metadata_dir / "sets.csv", output_metadata_dir / "sets.csv")
+    write_metadata(records, metadata_dir, output_metadata_dir, target_mm)
 
 
 def main() -> None:
@@ -139,11 +163,20 @@ def main() -> None:
     parser.add_argument("--target-mm", type=float, default=1.0)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--mods", nargs="+", help="Only convert these generators, for example pix2pix real.")
+    parser.add_argument("--metadata-only", action="store_true", help="Write metadata for completed output directories only.")
     args = parser.parse_args()
+    mods = set(args.mods) if args.mods else None
+    if args.metadata_only:
+        records = completed_records(select_records(read_records(args.metadata_dir), mods, args.limit), Path(args.output_root))
+        if not records:
+            raise ValueError("no completed records found in output-root")
+        write_metadata(records, Path(args.metadata_dir), Path(args.output_metadata_dir), args.target_mm)
+        print(f"Wrote metadata for {len(records)} completed records")
+        return
     convert_corpus(
         Path(args.source_root), Path(args.output_root), Path(args.metadata_dir),
         Path(args.output_metadata_dir), args.target_mm, args.limit,
-        set(args.mods) if args.mods else None,
+        mods,
     )
 
 
