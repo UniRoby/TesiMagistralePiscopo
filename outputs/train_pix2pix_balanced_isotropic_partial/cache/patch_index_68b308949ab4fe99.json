@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "key": "68b308949ab4fe99",
+  "data_root": "D:\\Dataset Tesi Piscopo\\M3Dsynth_isotropic_1mm",
+  "patch_shape": [
+    32,
+    32,
+    32
+  ],
+  "stride": [
+    32,
+    32,
+    32
+  ],
+  "positive_overlap_fraction": 0.05,
+  "n_records": 256,
+  "n_patches": 457738,
+  "n_positive": 428
+}

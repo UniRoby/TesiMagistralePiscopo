@@ -1,0 +1,19 @@
+{
+  "n_volumes": 228.0,
+  "n_volumes_per_epoch": 228.0,
+  "batches_per_epoch": 128.0,
+  "patches_per_epoch": 4096.0,
+  "volumes_with_positives": 94.0,
+  "mean_positives_per_volume": 1.8771929824561404,
+  "mean_positives_per_batch": 5.875,
+  "positive_volumes_per_epoch": 94.0,
+  "negative_volumes_per_epoch": 34.0,
+  "positive_patches_per_epoch": 752.0,
+  "positive_patch_fraction": 0.18359375,
+  "hard_negative_patches_per_epoch": 0.0,
+  "hard_negative_patch_fraction": 0.0,
+  "train_patches_indexed": 457738.0,
+  "train_positives_indexed": 428.0,
+  "valid_patches_indexed": 109865.0,
+  "amp": 1.0
+}
