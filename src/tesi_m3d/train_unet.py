@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import numpy as np
+from tqdm import tqdm
 
 from .dataset import M3DSynthSegmentationPatchDataset, cross_generator_records, read_records
 from .losses import SegmentationBCEDiceLoss
@@ -161,7 +162,7 @@ def train_one_epoch(objects: UNetTrainingObjects, device: str) -> float:
 
     objects.model.train()
     losses: list[float] = []
-    for batch in objects.train_loader:
+    for batch in tqdm(objects.train_loader, desc="    train", unit="batch", leave=False):
         image = batch["image"].to(device, non_blocking=True)
         target = batch["mask"].to(device, non_blocking=True)
         objects.optimizer.zero_grad(set_to_none=True)
@@ -187,7 +188,7 @@ def evaluate(objects: UNetTrainingObjects, device: str) -> dict[str, float]:
     losses: list[float] = []
     tp = fp = fn = 0
     with torch.no_grad():
-        for batch in objects.valid_loader:
+        for batch in tqdm(objects.valid_loader, desc="    valid", unit="batch", leave=False):
             image = batch["image"].to(device, non_blocking=True)
             target = batch["mask"].to(device, non_blocking=True)
             with torch.autocast("cuda", dtype=objects.amp_dtype, enabled=objects.use_amp):
