@@ -1,0 +1,43 @@
+{
+  "protocol": {
+    "unit": "3D manipulated volume",
+    "aggregation": "macro mean of per-volume metrics",
+    "std": "sample standard deviation (ddof=1)",
+    "split": "valid",
+    "patch_shape": [
+      32,
+      32,
+      32
+    ],
+    "stride": [
+      16,
+      16,
+      16
+    ],
+    "heatmap_aggregation": "average"
+  },
+  "overall": {
+    "n_volumes": 243,
+    "voxel_auc": {
+      "mean": 0.9109043185967466,
+      "std": 0.05694083290851797
+    },
+    "max_balanced_accuracy": {
+      "mean": 0.9039360027165755,
+      "std": 0.04833539137513418
+    }
+  },
+  "by_generator": {
+    "pix2pix": {
+      "n_volumes": 243,
+      "voxel_auc": {
+        "mean": 0.9109043185967466,
+        "std": 0.05694083290851797
+      },
+      "max_balanced_accuracy": {
+        "mean": 0.9039360027165755,
+        "std": 0.04833539137513418
+      }
+    }
+  }
+}
