@@ -20,6 +20,15 @@ class Patch3DModelConfig:
     dropout: float = 0.2
 
 
+@dataclass(frozen=True)
+class UNet3DModelConfig:
+    """Configuration for the minimal voxel-level 3D U-Net."""
+
+    in_channels: int = 1
+    out_channels: int = 1
+    base_channels: int = 16
+
+
 class TorchDependencyError(RuntimeError):
     """Raised when PyTorch-dependent code runs without PyTorch installed."""
 
@@ -78,3 +87,60 @@ def build_patch3d_classifier(config: Patch3DModelConfig | None = None):
             return self.classifier(self.features(x))
 
     return Simple3DCNN()
+
+
+def build_unet3d(config: UNet3DModelConfig | None = None):
+    """Build a three-level 3D U-Net returning voxel probabilities."""
+
+    config = config or UNet3DModelConfig()
+    try:
+        import torch
+        from torch import nn
+    except ImportError as exc:  # pragma: no cover - depends on training env
+        raise TorchDependencyError(
+            "PyTorch is required to build the 3D U-Net. Install with `pip install -e '.[train]'`."
+        ) from exc
+
+    def block(in_channels: int, out_channels: int):
+        return nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+
+    class UNet3D(nn.Module):
+        """Minimal encoder-decoder with three skip connections."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            c = config.base_channels
+            self.enc1 = block(config.in_channels, c)
+            self.enc2 = block(c, c * 2)
+            self.enc3 = block(c * 2, c * 4)
+            self.bottleneck = block(c * 4, c * 8)
+            self.pool = nn.MaxPool3d(2)
+            self.up3 = nn.ConvTranspose3d(c * 8, c * 4, kernel_size=2, stride=2)
+            self.dec3 = block(c * 8, c * 4)
+            self.up2 = nn.ConvTranspose3d(c * 4, c * 2, kernel_size=2, stride=2)
+            self.dec2 = block(c * 4, c * 2)
+            self.up1 = nn.ConvTranspose3d(c * 2, c, kernel_size=2, stride=2)
+            self.dec1 = block(c * 2, c)
+            self.output = nn.Sequential(
+                nn.Conv3d(c, config.out_channels, kernel_size=1),
+                nn.Sigmoid(),
+            )
+
+        def forward(self, x):
+            if any(size % 8 for size in x.shape[-3:]):
+                raise ValueError("3D U-Net input dimensions must be divisible by 8")
+            e1 = self.enc1(x)
+            e2 = self.enc2(self.pool(e1))
+            e3 = self.enc3(self.pool(e2))
+            center = self.bottleneck(self.pool(e3))
+            d3 = self.dec3(torch.cat((self.up3(center), e3), dim=1))
+            d2 = self.dec2(torch.cat((self.up2(d3), e2), dim=1))
+            d1 = self.dec1(torch.cat((self.up1(d2), e1), dim=1))
+            return self.output(d1)
+
+    return UNet3D()

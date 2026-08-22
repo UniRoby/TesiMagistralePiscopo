@@ -1,0 +1,49 @@
+experiment_name: train_pix2pix_unet_baseline
+data_root: data/M3Dsynth
+metadata_dir: metadata/m3dsynth
+output_dir: outputs/train_pix2pix_unet_baseline
+
+split:
+  train_set: train
+  valid_set: valid
+  test_set: test
+  train_mods: [pix2pix]
+  valid_mods: [pix2pix]
+  test_mods: [cycle, diffusion]
+  include_real: true
+
+data:
+  max_train_records: 256
+  max_valid_records: 64
+  record_subset_seed: 21
+
+patches:
+  patch_shape: [64, 64, 64]
+  train_stride: [32, 32, 32]
+  positive_overlap_fraction: 0.000001
+  max_patches_per_volume: 8
+  positive_patches_per_volume: 4
+  positive_volume_fraction: 0.80
+  max_valid_patches_per_volume: 32
+
+model:
+  name: unet3d
+  in_channels: 1
+  out_channels: 1
+  base_channels: 16
+
+training:
+  epochs: 100
+  batch_size: 2
+  max_patches_per_epoch: 512
+  volume_cache_size: 1
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  mixed_precision: true
+  amp_dtype: bfloat16
+  num_workers: 2
+  persistent_workers: true
+  prefetch_factor: 1
+  pin_memory: true
+  early_stopping_patience: 5
+  seed: 21

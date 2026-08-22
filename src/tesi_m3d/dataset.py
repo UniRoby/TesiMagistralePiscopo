@@ -500,6 +500,51 @@ class M3DSynthPatchDataset:
         return state
 
 
+class M3DSynthSegmentationPatchDataset(M3DSynthPatchDataset):
+    """Patch dataset that adds the aligned voxel mask as ``sample["mask"]``."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        volume_cache_size = int(kwargs.get("volume_cache_size", 2))
+        super().__init__(*args, **kwargs)
+        self._mask_cache = VolumeCache(maxsize=volume_cache_size)
+
+    def __getitem__(self, index: int) -> dict[str, object]:
+        sample = super().__getitem__(index)
+        try:
+            import torch
+        except ImportError as exc:  # pragma: no cover - depends on train env
+            raise RuntimeError("PyTorch is required to use M3DSynthSegmentationPatchDataset") from exc
+
+        record_index = int(self._index.record_index[index])
+        record = self.records[record_index]
+        z, y, x = (int(v) for v in self._index.coord[index])
+        dz, dy, dx = self.patch_shape
+        if record.is_real:
+            target = np.zeros(self.patch_shape, dtype=np.float32)
+        else:
+            key = self.volume_key(index)
+            scan = self._volume_cache.get(
+                key,
+                lambda: load_normalized_scan(self.data_root, record),
+            )
+            mask = self._mask_cache.get(
+                key,
+                lambda: align_mask_to_scan(
+                    load_label_mask(label_dir(self.data_root, record)),
+                    scan.shape,
+                    img_id=record.img_id,
+                ),
+            )
+            target = np.ascontiguousarray(mask[z : z + dz, y : y + dy, x : x + dx][None], dtype=np.float32)
+        sample["mask"] = torch.from_numpy(target if target.ndim == 4 else target[None])
+        return sample
+
+    def __getstate__(self) -> dict:
+        state = super().__getstate__()
+        state["_mask_cache"] = VolumeCache(maxsize=self._mask_cache.maxsize)
+        return state
+
+
 def _index_from_examples(examples: "Sequence[PatchExample]") -> "PatchIndex":
     """Convert a legacy ``PatchExample`` sequence into a :class:`PatchIndex`."""
 

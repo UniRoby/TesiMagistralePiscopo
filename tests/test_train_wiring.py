@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-from tesi_m3d.dataset import M3DSynthPatchDataset, M3DSynthRecord
+from tesi_m3d.dataset import M3DSynthPatchDataset, M3DSynthRecord, M3DSynthSegmentationPatchDataset
 from tesi_m3d.patch_index import build_patch_index
 from tesi_m3d.model import Patch3DModelConfig, build_patch3d_classifier
 from tesi_m3d.train import (
@@ -81,6 +81,16 @@ class TestBaselineAndResume(unittest.TestCase):
         self.assertEqual(config["patches"]["inference_stride"], [16, 16, 16])
         self.assertAlmostEqual(config["patches"]["positive_volume_fraction"], 0.67)
         self.assertEqual(config["evaluation"]["detection_score"], "auto")
+
+    def test_unet_baseline_config_is_pix2pix_only_and_uses_patience_five(self) -> None:
+        config = load_yaml_config("configs/train_pix2pix_unet_baseline.yaml")
+        self.assertEqual(config["metadata_dir"], "metadata/m3dsynth")
+        self.assertEqual(config["split"]["train_mods"], ["pix2pix"])
+        self.assertEqual(config["split"]["valid_mods"], ["pix2pix"])
+        self.assertEqual(config["model"]["base_channels"], 16)
+        self.assertEqual(config["patches"]["patch_shape"], [64, 64, 64])
+        self.assertEqual(config["training"]["batch_size"], 2)
+        self.assertEqual(config["training"]["early_stopping_patience"], 5)
 
     def test_checkpoint_restores_model_optimizer_and_epoch(self) -> None:
         try:
@@ -188,6 +198,24 @@ class TestDatasetContract(unittest.TestCase):
             self.assertGreater(len(dataset._volume_cache), 0)
             restored = pickle.loads(pickle.dumps(dataset))
             self.assertEqual(len(restored._volume_cache), 0)
+
+    def test_segmentation_dataset_returns_voxel_mask(self) -> None:
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            self.skipTest("torch not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            root, records = make_fake_corpus(tmp, n_records=1, scan_z=40, shape=(48, 48))
+            index = build_patch_index(
+                records, root, patch_shape=(16, 16, 16), stride=(16, 16, 16), progress=False
+            )
+            dataset = M3DSynthSegmentationPatchDataset(
+                records, data_root=root, examples=index,
+                patch_shape=(16, 16, 16), stride=(16, 16, 16),
+            )
+            sample = dataset[int(np.flatnonzero(dataset.labels)[0])]
+            self.assertEqual(tuple(sample["mask"].shape), (1, 16, 16, 16))
+            self.assertGreater(float(sample["mask"].sum()), 0.0)
             self.assertEqual(len(restored), len(dataset))
 
     def test_volume_cache_prevents_reloading(self) -> None:

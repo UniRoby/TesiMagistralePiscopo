@@ -43,6 +43,30 @@ def build_loss(name: str = "focal", *, alpha: float = 0.25, gamma: float = 2.0):
     raise ValueError("loss name must be 'bce' or 'focal'")
 
 
+class SegmentationBCEDiceLoss(_torch_modules()[1].Module):
+    """Equal-weighted BCE and soft Dice loss for voxel probabilities."""
+
+    def __init__(self, smooth: float = 1e-6) -> None:
+        super().__init__()
+        self.smooth = float(smooth)
+
+    def forward(self, probabilities, targets):
+        """Return BCE+Dice loss for tensors shaped ``(B, 1, D, H, W)``."""
+
+        torch, _, functional = _torch_modules()
+        # BCE on post-sigmoid probabilities is intentionally computed in float32:
+        # PyTorch rejects this operation inside CUDA autocast.
+        with torch.autocast(probabilities.device.type, enabled=False):
+            probabilities = probabilities.float()
+            targets = targets.float()
+            bce = functional.binary_cross_entropy(probabilities, targets)
+            dimensions = tuple(range(1, probabilities.ndim))
+            intersection = torch.sum(probabilities * targets, dim=dimensions)
+            denominator = torch.sum(probabilities, dim=dimensions) + torch.sum(targets, dim=dimensions)
+            dice_loss = 1.0 - ((2.0 * intersection + self.smooth) / (denominator + self.smooth)).mean()
+        return 0.5 * bce + 0.5 * dice_loss
+
+
 class BinaryFocalLoss(_torch_modules()[1].Module):
     """Binary focal loss for imbalanced patch labels.
 
