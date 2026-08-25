@@ -6,8 +6,8 @@ import unittest
 
 import numpy as np
 
-from tesi_m3d.inference import infer_heatmap, predict_patch_scores
-from tesi_m3d.model import Patch3DModelConfig, build_patch3d_classifier
+from tesi_m3d.inference import infer_heatmap, infer_segmentation_heatmap, predict_patch_scores
+from tesi_m3d.model import Patch3DModelConfig, UNet3DModelConfig, build_patch3d_classifier, build_unet3d
 from tesi_m3d.patches import PatchGrid
 
 
@@ -27,6 +27,19 @@ class InferenceTests(unittest.TestCase):
         )
 
         self.assertEqual(scores.shape, (27,))
+        self.assertEqual(heatmap.shape, volume.shape)
+        self.assertTrue(np.isfinite(heatmap).all())
+
+    def test_segmentation_sliding_window_is_finite_and_full_size(self) -> None:
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            self.skipTest("torch not installed")
+        model = build_unet3d(UNet3DModelConfig(base_channels=2, input_mode="ct_highpass"))
+        volume = np.zeros((24, 24, 24), dtype=np.float32)
+        heatmap = infer_segmentation_heatmap(
+            model, volume, patch_shape=(16, 16, 16), stride=(8, 8, 8), batch_size=2, device="cpu"
+        )
         self.assertEqual(heatmap.shape, volume.shape)
         self.assertTrue(np.isfinite(heatmap).all())
 

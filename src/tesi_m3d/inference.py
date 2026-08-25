@@ -11,7 +11,7 @@ import numpy as np
 
 from .evaluation import max_detection_score, topk_detection_score
 from .model import Patch3DModelConfig, build_patch3d_classifier
-from .patches import PatchGrid, reconstruct_heatmap
+from .patches import PatchGrid, gaussian_patch_weights, reconstruct_heatmap
 from .dataset import load_tiff_stack, normalize_percentile
 
 
@@ -84,6 +84,43 @@ def infer_heatmap(
     grid = PatchGrid(tuple(volume.shape), tuple(patch_shape), tuple(stride))
     scores = predict_patch_scores(model, volume, grid, batch_size=batch_size, device=device)
     return reconstruct_heatmap(scores, grid, mode=aggregation)
+
+
+def infer_segmentation_heatmap(
+    model,
+    volume: np.ndarray,
+    patch_shape: Sequence[int] = (64, 64, 64),
+    stride: Sequence[int] = (32, 32, 32),
+    batch_size: int = 2,
+    device: str | None = None,
+) -> np.ndarray:
+    """Run a voxel-level model with Gaussian sliding-window blending."""
+
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - depends on train env
+        raise RuntimeError("PyTorch is required for model inference") from exc
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    volume = np.asarray(volume, dtype=np.float32)
+    grid = PatchGrid(tuple(volume.shape), tuple(patch_shape), tuple(stride))
+    weights = gaussian_patch_weights(grid.patch_shape)
+    heatmap = np.zeros(grid.volume_shape, dtype=np.float32)
+    normalizer = np.zeros(grid.volume_shape, dtype=np.float32)
+    target_device = torch.device(device) if device is not None else next(model.parameters()).device
+    slices = list(grid.iter_slices())
+    model.eval()
+    with torch.no_grad():
+        for start in range(0, len(slices), batch_size):
+            current = slices[start : start + batch_size]
+            patches = np.stack([volume[slc] for slc in current])[:, None]
+            probabilities = model(torch.from_numpy(patches).to(target_device)).detach().cpu().numpy()[:, 0]
+            for probability, slc in zip(probabilities, current):
+                heatmap[slc] += probability * weights
+                normalizer[slc] += weights
+    if np.any(normalizer == 0):
+        raise RuntimeError("segmentation sliding window left uncovered voxels")
+    return heatmap / normalizer
 
 
 def reconstruct_from_scores_file(

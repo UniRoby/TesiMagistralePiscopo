@@ -1,4 +1,4 @@
-# Baseline di segmentazione 3D U-Net su pix2pix
+# Baseline di segmentazione 3D U-Net e tracce CT-GAN su pix2pix
 
 Questa pipeline affianca, senza sostituirla, la baseline patch-wise. Il classificatore assegna uno score a ogni patch; la 3D U-Net produce invece una probabilità per ogni voxel della patch e viene supervisionata direttamente dalle mask M3Dsynth.
 
@@ -12,6 +12,19 @@ Questa pipeline affianca, senza sostituirla, la baseline patch-wise. Il classifi
 
 La configurazione è in `configs/train_pix2pix_unet_baseline.yaml`.
 
+Questa prima configurazione e il relativo risultato con Dice nullo sono mantenuti come controllo negativo **R0**. I nuovi esperimenti sono:
+
+- **R1**, `configs/train_pix2pix_unet_ct.yaml`: CT normalizzata;
+- **R2**, `configs/train_pix2pix_unet_highpass.yaml`: CT normalizzata più residuo high-pass 3D.
+
+Il corpus resta quello pix2pix originale completo. Non viene usato il corpus isotropico parziale.
+
+## Relazione con CT-GAN
+
+Il ramo pix2pix di M3Dsynth usa [CT-GAN](https://arxiv.org/abs/1901.03597): un cubo fisico di lato 32 mm viene ricampionato a `32³`, la regione centrale viene rigenerata e il risultato subisce inverse scaling, aggiunta di rumore e blending. Le 100 TAC mostrate nell'esperimento CT-GAN appartengono alla valutazione clinica (80 blind e 20 open), non al training del generatore. I due GAN furono addestrati su cubi estratti da 888 TAC LIDC-IDRI. Il [repository ufficiale](https://github.com/ymirsky/CT-GAN) documenta il preprocessing e il touch-up; il [paper M3Dsynth](https://arxiv.org/abs/2309.07973) conferma il riuso di CT-GAN per pix2pix.
+
+Il codice CT-GAN non viene copiato né eseguito. Viene usato soltanto per formulare l'ipotesi forense che interpolazione, touch-up e fusione lascino tracce locali ad alta frequenza.
+
 ## Dati e sampling
 
 Il flusso riusa l'indice patch, l'allineamento scan/mask e la cache TIFF della pipeline esistente. Ogni elemento contiene:
@@ -20,7 +33,7 @@ Il flusso riusa l'indice patch, l'allineamento scan/mask e la cache TIFF della p
 - `mask`: target binario allineato, stessa forma;
 - i metadati patch già usati dal classificatore.
 
-Le patch con almeno un voxel manipolato sono considerate positive per il sampling. Un batch proviene da un solo volume, evitando di decodificare ripetutamente TIFF molto grandi. La baseline usa patch `64³`, stride `32³`, batch size `2`, quattro patch positive su otto patch selezionate per volume e 512 patch al massimo per epoca.
+R0 considera positiva una patch con almeno un voxel manipolato. R1/R2 richiedono invece un overlap minimo di `0.001`, scartando le patch marginali ambigue. Un batch proviene da un solo volume, evitando di decodificare ripetutamente TIFF molto grandi. La baseline usa patch `64³`, stride `32³`, batch size `2`, quattro patch positive su otto patch selezionate per volume e 512 patch al massimo per epoca.
 
 ## Modello
 
@@ -37,36 +50,68 @@ Non sono presenti attention, residual block, deep supervision, dropout o normali
 
 ## Loss, validation ed early stopping
 
-La loss è la media pesata in parti uguali di binary cross-entropy e soft Dice loss. La BCE viene calcolata in float32 anche quando il resto del forward usa mixed precision, perché riceve probabilità già passate dalla sigmoide.
+R0 usa la loss originale BCE più soft-Dice. R1 e R2 usano `0.5 × focal(alpha=0.75, gamma=2) + 0.5 × soft-Dice`, per ridurre il collasso sul background dovuto allo sbilanciamento voxel-level. R2 concatena internamente alla CT il residuo `CT - media locale 3×3×3`, calcolato su GPU con padding riflesso.
 
-A ogni epoca la validation riporta loss, Dice, IoU, precision e recall voxel-level, aggregati sulle patch selezionate. `best.pt` viene aggiornato quando migliora il Dice. Il training termina obbligatoriamente dopo cinque epoche consecutive senza miglioramento; `epochs: 100` è soltanto il limite massimo.
+A ogni epoca la validation riporta loss, soft-Dice, Dice a soglia 0.5, IoU, precision, recall e probabilità media sui voxel positivi e negativi. Per R1/R2 `best.pt` viene aggiornato sul soft-Dice, evitando che una soglia non calibrata nasconda l'apprendimento. Il training termina dopo cinque epoche consecutive senza miglioramento.
 
-## Esecuzione
+## Audit delle tracce
 
-Verifica iniziale di dataset, indice e sampling senza training:
+Prima del nuovo training confrontare 50 injection e 50 removal con le TAC pristine associate:
+
+```powershell
+python -m tesi_m3d.audit_ctgan_traces `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --mod pix2pix `
+  --max-records 100 `
+  --output-dir outputs\ctgan_trace_audit
+```
+
+L'audit produce `summary.json`, `records.csv` e sei pannelli ortogonali. Riporta energia e percentuale dei residui dentro la mask, nei gusci esterni e nel background, differenza high-pass, distanza tra coordinate metadata e centro mask, spacing e disallineamenti geometrici. Le mask non vengono ampliate.
+
+## Esecuzione R1/R2
+
+Eseguire il dry-run per entrambe le configurazioni e verificare che record, patch e quantili di overlap coincidano:
 
 ```powershell
 python -m tesi_m3d.train_unet `
-  --config configs\train_pix2pix_unet_baseline.yaml `
+  --config configs\train_pix2pix_unet_ct.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda `
+  --dry-run
+
+python -m tesi_m3d.train_unet `
+  --config configs\train_pix2pix_unet_highpass.yaml `
   --data-root "C:\Tesi Magistrale Piscopo" `
   --device cuda `
   --dry-run
 ```
 
-Training:
+Prima delle run complete, ogni modello deve superare il micro-overfit su due patch positive con Dice maggiore di 0.90:
+
+```powershell
+python -m tesi_m3d.train_unet --config configs\train_pix2pix_unet_ct.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda --micro-overfit
+python -m tesi_m3d.train_unet --config configs\train_pix2pix_unet_highpass.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda --micro-overfit
+```
+
+Training R1 e R2:
 
 ```powershell
 python -m tesi_m3d.train_unet `
-  --config configs\train_pix2pix_unet_baseline.yaml `
+  --config configs\train_pix2pix_unet_ct.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+
+python -m tesi_m3d.train_unet `
+  --config configs\train_pix2pix_unet_highpass.yaml `
   --data-root "C:\Tesi Magistrale Piscopo" `
   --device cuda
 ```
 
-Output principali in `outputs/train_pix2pix_unet_baseline`:
+Output principali nelle directory definite dalle singole configurazioni:
 
 - `dry_run_stats.json`: numerosità degli indici;
 - `metrics.csv`: andamento per epoca;
-- `best.pt`: checkpoint con miglior Dice validation;
+- `best.pt`: checkpoint con miglior Dice per R0 o soft-Dice per R1/R2;
 - `unet3d_last.pt`: stato dell'ultima epoca eseguita.
 
 ## Controlli prima della run completa
@@ -76,6 +121,26 @@ Output principali in `outputs/train_pix2pix_unet_baseline`:
 3. Se `64³ × batch 2` causa out-of-memory, ridurre soltanto il batch a 1; mantenere inizialmente patch e architettura invariati.
 4. Controllare che Dice e recall non rimangano a zero e ispezionare visivamente alcune predizioni prima della run lunga.
 
-## Limiti intenzionali della prima baseline
+## Valutazione full-volume
 
-La validation corrente è patch-level e usa soglia fissa 0.5. Sliding-window su volume completo, blending delle sovrapposizioni, calibrazione della soglia, metriche per volume/componente e test cross-generator saranno aggiunti dopo aver verificato che questa baseline apprenda mask pix2pix non banali.
+Dopo il micro-overfit e il training, eseguire la sliding-window `64³` con stride `32³` e blending gaussiano:
+
+```powershell
+python -m tesi_m3d.evaluate_unet `
+  --checkpoint outputs\train_pix2pix_unet_ct\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda `
+  --batch-size 2 `
+  --output-dir outputs\train_pix2pix_unet_ct\full_volume_validation
+
+python -m tesi_m3d.evaluate_unet `
+  --checkpoint outputs\train_pix2pix_unet_highpass\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda `
+  --batch-size 2 `
+  --output-dir outputs\train_pix2pix_unet_highpass\full_volume_validation
+```
+
+La soglia è calibrata esclusivamente sulla validation. `summary.json` riporta Dice/IoU/precision/recall macro, voxel AUC/AP approssimate con 1000 bin, risultati injection/removal e false-positive rate sulle TAC reali; `volumes.csv` conserva i risultati per volume.
+
+Confrontare R0, R1 e R2 usando gli stessi 64 record di validation. Se R2 supera R1 di almeno 0.02 Dice macro senza peggiorare il false-positive rate, ripetere R1/R2 con tre seed e riportare media e deviazione standard. CycleGAN e Diffusion restano esclusi da questa fase.

@@ -92,6 +92,16 @@ class TestBaselineAndResume(unittest.TestCase):
         self.assertEqual(config["training"]["batch_size"], 2)
         self.assertEqual(config["training"]["early_stopping_patience"], 5)
 
+    def test_corrected_unet_configs_differ_only_by_input_mode_and_output_identity(self) -> None:
+        ct = load_yaml_config("configs/train_pix2pix_unet_ct.yaml")
+        highpass = load_yaml_config("configs/train_pix2pix_unet_highpass.yaml")
+        self.assertEqual(ct["model"]["input_mode"], "ct")
+        self.assertEqual(highpass["model"]["input_mode"], "ct_highpass")
+        self.assertEqual(ct["training"]["loss"], "focal_dice")
+        self.assertEqual(ct["patches"]["positive_overlap_fraction"], 0.001)
+        for key in ("split", "data", "patches", "training"):
+            self.assertEqual(ct[key], highpass[key])
+
     def test_checkpoint_restores_model_optimizer_and_epoch(self) -> None:
         try:
             import torch

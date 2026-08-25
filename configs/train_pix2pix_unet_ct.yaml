@@ -1,7 +1,7 @@
-experiment_name: train_pix2pix_unet_baseline
+experiment_name: train_pix2pix_unet_ct
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/train_pix2pix_unet_baseline
+output_dir: outputs/train_pix2pix_unet_ct
 
 split:
   train_set: train
@@ -20,7 +20,7 @@ data:
 patches:
   patch_shape: [64, 64, 64]
   train_stride: [32, 32, 32]
-  positive_overlap_fraction: 0.000001
+  positive_overlap_fraction: 0.001
   max_patches_per_volume: 8
   positive_patches_per_volume: 4
   positive_volume_fraction: 0.80
@@ -34,7 +34,7 @@ model:
   input_mode: ct
 
 training:
-  loss: bce_dice
+  loss: focal_dice
   epochs: 100
   batch_size: 2
   max_patches_per_epoch: 512

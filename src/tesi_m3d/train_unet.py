@@ -11,7 +11,7 @@ import numpy as np
 from tqdm import tqdm
 
 from .dataset import M3DSynthSegmentationPatchDataset, cross_generator_records, read_records
-from .losses import SegmentationBCEDiceLoss
+from .losses import SegmentationBCEDiceLoss, SegmentationFocalDiceLoss
 from .model import UNet3DModelConfig, build_unet3d
 from .patch_index import load_or_build_patch_index
 from .sampling import SequentialVolumeBatchSampler, VolumeGroupedBatchSampler
@@ -140,9 +140,16 @@ def build_unet_loaders(
             in_channels=int(model_cfg.get("in_channels", 1)),
             out_channels=int(model_cfg.get("out_channels", 1)),
             base_channels=int(model_cfg.get("base_channels", 16)),
+            input_mode=str(model_cfg.get("input_mode", "ct")),
         )
     )
-    loss = SegmentationBCEDiceLoss()
+    loss_name = str(training_cfg.get("loss", "bce_dice"))
+    if loss_name == "bce_dice":
+        loss = SegmentationBCEDiceLoss()
+    elif loss_name == "focal_dice":
+        loss = SegmentationFocalDiceLoss(alpha=0.75, gamma=2.0)
+    else:
+        raise ValueError("training.loss must be 'bce_dice' or 'focal_dice'")
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=float(training_cfg.get("learning_rate", 1e-4)),
@@ -187,6 +194,9 @@ def evaluate(objects: UNetTrainingObjects, device: str) -> dict[str, float]:
     objects.model.eval()
     losses: list[float] = []
     tp = fp = fn = 0
+    soft_intersection = soft_denominator = 0.0
+    positive_probability_sum = negative_probability_sum = 0.0
+    positive_voxels = negative_voxels = 0
     with torch.no_grad():
         for batch in tqdm(objects.valid_loader, desc="    valid", unit="batch", leave=False):
             image = batch["image"].to(device, non_blocking=True)
@@ -199,6 +209,12 @@ def evaluate(objects: UNetTrainingObjects, device: str) -> dict[str, float]:
             tp += int(torch.logical_and(prediction, truth).sum())
             fp += int(torch.logical_and(prediction, ~truth).sum())
             fn += int(torch.logical_and(~prediction, truth).sum())
+            soft_intersection += float((probabilities * target).sum())
+            soft_denominator += float(probabilities.sum() + target.sum())
+            positive_probability_sum += float(probabilities[truth].sum())
+            negative_probability_sum += float(probabilities[~truth].sum())
+            positive_voxels += int(truth.sum())
+            negative_voxels += int((~truth).sum())
             losses.append(float(loss.detach().cpu()))
     dice_denominator = 2 * tp + fp + fn
     iou_denominator = tp + fp + fn
@@ -208,10 +224,13 @@ def evaluate(objects: UNetTrainingObjects, device: str) -> dict[str, float]:
         "iou": 1.0 if iou_denominator == 0 else tp / iou_denominator,
         "precision": 1.0 if tp + fp == 0 else tp / (tp + fp),
         "recall": 1.0 if tp + fn == 0 else tp / (tp + fn),
+        "soft_dice": (2.0 * soft_intersection + 1e-6) / (soft_denominator + 1e-6),
+        "mean_positive_probability": positive_probability_sum / max(positive_voxels, 1),
+        "mean_negative_probability": negative_probability_sum / max(negative_voxels, 1),
     }
 
 
-def checkpoint_payload(objects: UNetTrainingObjects, config: dict[str, Any], epoch: int, best_dice: float, stale_epochs: int):
+def checkpoint_payload(objects: UNetTrainingObjects, config: dict[str, Any], epoch: int, best_score: float, stale_epochs: int, selection_metric: str):
     """Return model and training state for one checkpoint."""
 
     return {
@@ -220,7 +239,8 @@ def checkpoint_payload(objects: UNetTrainingObjects, config: dict[str, Any], epo
         "scaler_state_dict": objects.scaler.state_dict(),
         "config": config,
         "epoch": epoch,
-        "best_dice": best_dice,
+        "best_score": best_score,
+        "selection_metric": selection_metric,
         "epochs_without_improvement": stale_epochs,
     }
 
@@ -233,12 +253,46 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-dir")
     parser.add_argument("--rebuild-index", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--micro-overfit", action="store_true", help="Overfit two positive patches and exit.")
     parser.add_argument("--device", default="cpu")
     return parser.parse_args()
 
 
+def micro_overfit(objects: UNetTrainingObjects, device: str, max_steps: int = 300) -> float:
+    """Overfit two positive patches; return fixed-threshold Dice."""
+
+    import torch
+
+    positive = np.flatnonzero(objects.train_dataset.labels)
+    if len(positive) < 2:
+        raise ValueError("micro-overfit requires at least two positive patches")
+    positive = positive[np.argsort(objects.train_dataset.examples.soft_score[positive])[-2:]]
+    samples = [objects.train_dataset[int(index)] for index in positive]
+    image = torch.stack([sample["image"] for sample in samples]).to(device)
+    target = torch.stack([sample["mask"] for sample in samples]).to(device)
+    dice = 0.0
+    for group in objects.optimizer.param_groups:
+        group["lr"] = max(float(group["lr"]), 1e-3)
+    objects.model.train()
+    for _ in tqdm(range(max_steps), desc="micro-overfit", unit="step"):
+        objects.optimizer.zero_grad(set_to_none=True)
+        probabilities = objects.model(image)
+        loss = objects.loss(probabilities, target)
+        loss.backward()
+        objects.optimizer.step()
+        prediction = probabilities.detach() >= 0.5
+        truth = target >= 0.5
+        tp = int(torch.logical_and(prediction, truth).sum())
+        fp = int(torch.logical_and(prediction, ~truth).sum())
+        fn = int(torch.logical_and(~prediction, truth).sum())
+        dice = 2.0 * tp / max(2 * tp + fp + fn, 1)
+        if dice > 0.90:
+            break
+    return dice
+
+
 def main() -> None:
-    """Train, validate and stop after five stale validation Dice epochs."""
+    """Train, validate and stop after five stale selection-metric epochs."""
 
     import torch
 
@@ -262,13 +316,27 @@ def main() -> None:
         "valid_patches": len(objects.valid_dataset),
         "valid_positive_patches": objects.valid_dataset.examples.n_positive,
     }
+    positive_overlap = objects.train_dataset.examples.soft_score[objects.train_dataset.examples.label > 0]
+    stats["train_positive_overlap_fraction"] = {
+        name: float(value) for name, value in zip(
+            ("min", "p25", "median", "p75", "max"),
+            np.quantile(positive_overlap, (0.0, 0.25, 0.5, 0.75, 1.0)),
+        )
+    }
     stats.update(objects.train_sampler.describe())
     print(json.dumps(stats, indent=2))
     if args.dry_run:
         (output_dir / "dry_run_stats.json").write_text(json.dumps(stats, indent=2) + "\n")
         return
+    if args.micro_overfit:
+        dice = micro_overfit(objects, args.device)
+        print(f"micro_overfit_dice={dice:.4f}")
+        if dice <= 0.90:
+            raise SystemExit("Micro-overfit failed: Dice did not exceed 0.90; do not start full training.")
+        return
 
-    best_dice = -1.0
+    selection_metric = "soft_dice" if training_cfg.get("loss") == "focal_dice" else "dice"
+    best_score = -1.0
     stale_epochs = 0
     last_epoch = 0
     for epoch in range(int(training_cfg.get("epochs", 100))):
@@ -280,20 +348,23 @@ def main() -> None:
             output_dir / "metrics.csv",
             {"epoch": last_epoch, "train_loss": train_loss, **{f"valid_{key}": value for key, value in metrics.items()}},
         )
-        improved = metrics["dice"] > best_dice
+        improved = metrics[selection_metric] > best_score
         if improved:
-            best_dice = metrics["dice"]
+            best_score = metrics[selection_metric]
             stale_epochs = 0
-            torch.save(checkpoint_payload(objects, config, last_epoch, best_dice, stale_epochs), output_dir / "best.pt")
+            torch.save(checkpoint_payload(objects, config, last_epoch, best_score, stale_epochs, selection_metric), output_dir / "best.pt")
         else:
             stale_epochs += 1
-        print(f"epoch={last_epoch} train_loss={train_loss:.6f} valid_dice={metrics['dice']:.4f}")
+        print(
+            f"epoch={last_epoch} train_loss={train_loss:.6f} "
+            f"valid_soft_dice={metrics['soft_dice']:.4f} valid_dice={metrics['dice']:.4f}"
+        )
         if stale_epochs >= EARLY_STOPPING_PATIENCE:
-            print("Early stopping: validation Dice did not improve for 5 epochs.")
+            print(f"Early stopping: validation {selection_metric} did not improve for 5 epochs.")
             break
 
     torch.save(
-        checkpoint_payload(objects, config, last_epoch, best_dice, stale_epochs),
+        checkpoint_payload(objects, config, last_epoch, best_score, stale_epochs, selection_metric),
         output_dir / "unet3d_last.pt",
     )
 

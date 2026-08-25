@@ -27,6 +27,7 @@ class UNet3DModelConfig:
     in_channels: int = 1
     out_channels: int = 1
     base_channels: int = 16
+    input_mode: str = "ct"
 
 
 class TorchDependencyError(RuntimeError):
@@ -101,6 +102,9 @@ def build_unet3d(config: UNet3DModelConfig | None = None):
             "PyTorch is required to build the 3D U-Net. Install with `pip install -e '.[train]'`."
         ) from exc
 
+    if config.input_mode not in {"ct", "ct_highpass"}:
+        raise ValueError("input_mode must be 'ct' or 'ct_highpass'")
+
     def block(in_channels: int, out_channels: int):
         return nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
@@ -115,7 +119,8 @@ def build_unet3d(config: UNet3DModelConfig | None = None):
         def __init__(self) -> None:
             super().__init__()
             c = config.base_channels
-            self.enc1 = block(config.in_channels, c)
+            first_channels = config.in_channels * (2 if config.input_mode == "ct_highpass" else 1)
+            self.enc1 = block(first_channels, c)
             self.enc2 = block(c, c * 2)
             self.enc3 = block(c * 2, c * 4)
             self.bottleneck = block(c * 4, c * 8)
@@ -134,6 +139,8 @@ def build_unet3d(config: UNet3DModelConfig | None = None):
         def forward(self, x):
             if any(size % 8 for size in x.shape[-3:]):
                 raise ValueError("3D U-Net input dimensions must be divisible by 8")
+            if config.input_mode == "ct_highpass":
+                x = torch.cat((x, highpass_residual3d(x)), dim=1)
             e1 = self.enc1(x)
             e2 = self.enc2(self.pool(e1))
             e3 = self.enc3(self.pool(e2))
@@ -144,3 +151,16 @@ def build_unet3d(config: UNet3DModelConfig | None = None):
             return self.output(d1)
 
     return UNet3D()
+
+
+def highpass_residual3d(x):
+    """Return ``x`` minus its local 3x3x3 mean using reflection padding."""
+
+    try:
+        import torch.nn.functional as functional
+    except ImportError as exc:  # pragma: no cover - depends on training env
+        raise TorchDependencyError("PyTorch is required to compute the 3D high-pass channel") from exc
+    if x.ndim != 5 or min(x.shape[-3:]) < 2:
+        raise ValueError("high-pass input must have shape (B, C, D, H, W) with spatial sizes >= 2")
+    local_mean = functional.avg_pool3d(functional.pad(x, (1, 1, 1, 1, 1, 1), mode="reflect"), 3, stride=1)
+    return x - local_mean

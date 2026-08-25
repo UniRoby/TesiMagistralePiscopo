@@ -67,6 +67,39 @@ class SegmentationBCEDiceLoss(_torch_modules()[1].Module):
         return 0.5 * bce + 0.5 * dice_loss
 
 
+class SegmentationFocalDiceLoss(_torch_modules()[1].Module):
+    """Equal-weighted binary focal and soft Dice loss for voxel probabilities."""
+
+    def __init__(self, alpha: float = 0.75, gamma: float = 2.0, smooth: float = 1e-6) -> None:
+        super().__init__()
+        self.alpha = float(alpha)
+        self.gamma = float(gamma)
+        self.smooth = float(smooth)
+
+    def forward(self, probabilities, targets):
+        """Return focal+Dice loss for tensors shaped ``(B, 1, D, H, W)``."""
+
+        torch, _, functional = _torch_modules()
+        with torch.autocast(probabilities.device.type, enabled=False):
+            probabilities = probabilities.float()
+            targets = targets.float()
+            bce = functional.binary_cross_entropy(probabilities, targets, reduction="none")
+            p_t = probabilities * targets + (1.0 - probabilities) * (1.0 - targets)
+            alpha_t = self.alpha * targets + (1.0 - self.alpha) * (1.0 - targets)
+            focal = (alpha_t * ((1.0 - p_t) ** self.gamma) * bce).mean()
+            dimensions = tuple(range(1, probabilities.ndim))
+            intersection = torch.sum(probabilities * targets, dim=dimensions)
+            target_sum = torch.sum(targets, dim=dimensions)
+            denominator = torch.sum(probabilities, dim=dimensions) + target_sum
+            positive_samples = target_sum > 0
+            dice_loss = (
+                1.0 - ((2.0 * intersection[positive_samples] + self.smooth) /
+                       (denominator[positive_samples] + self.smooth)).mean()
+                if torch.any(positive_samples) else probabilities.new_zeros(())
+            )
+        return 0.5 * focal + 0.5 * dice_loss
+
+
 class BinaryFocalLoss(_torch_modules()[1].Module):
     """Binary focal loss for imbalanced patch labels.
 
