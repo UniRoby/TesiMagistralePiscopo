@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "key": "9e7ddfb6f706cc4d",
+  "data_root": "C:\\Tesi Magistrale Piscopo",
+  "patch_shape": [
+    64,
+    64,
+    64
+  ],
+  "stride": [
+    32,
+    32,
+    32
+  ],
+  "positive_overlap_fraction": 0.001,
+  "n_records": 256,
+  "n_patches": 406245,
+  "n_positive": 3449
+}

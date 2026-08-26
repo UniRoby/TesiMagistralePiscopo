@@ -1,0 +1,90 @@
+{
+  "requested_records": 100,
+  "selected_records": 100,
+  "valid_records": 100,
+  "errors": 0,
+  "by_type": {
+    "inj": {
+      "n_records": 50,
+      "inside_rms": 151.1088673740228,
+      "ring_1_rms": 81.79486881968495,
+      "ring_2_5_rms": 81.74426438830025,
+      "background_rms": 71.89806725784119,
+      "inside_changed_fraction": 0.4862124649323168,
+      "outside_changed_fraction": 0.07734398784066655,
+      "highpass_difference_rms": 8.222266089800012
+    },
+    "rem": {
+      "n_records": 50,
+      "inside_rms": 151.63356353945798,
+      "ring_1_rms": 28.70365125385485,
+      "ring_2_5_rms": 29.695395642721714,
+      "background_rms": 18.672427991509405,
+      "inside_changed_fraction": 0.9664419359372958,
+      "outside_changed_fraction": 0.2313455056207807,
+      "highpass_difference_rms": 23.528357620574358
+    }
+  },
+  "by_spacing_z": {
+    "z=0.6": {
+      "n_records": 1,
+      "inside_rms": 119.59098716632035,
+      "ring_1_rms": 7.995294314957749,
+      "ring_2_5_rms": 7.995350933417033,
+      "background_rms": 0.24496589008698078,
+      "inside_changed_fraction": 0.9481966505016394,
+      "outside_changed_fraction": 0.5962217772445477,
+      "highpass_difference_rms": 26.61273670319921
+    },
+    "z=1": {
+      "n_records": 5,
+      "inside_rms": 82.13119840430817,
+      "ring_1_rms": 0.19161166395056634,
+      "ring_2_5_rms": 0.18491931843707227,
+      "background_rms": 0.006771172232631077,
+      "inside_changed_fraction": 0.6894626502917698,
+      "outside_changed_fraction": 0.12919054983873657,
+      "highpass_difference_rms": 13.822583451109427
+    },
+    "z=1.25": {
+      "n_records": 40,
+      "inside_rms": 103.87544204155911,
+      "ring_1_rms": 0.12077790877781669,
+      "ring_2_5_rms": 0.17056255009574756,
+      "background_rms": 0.005010366152258244,
+      "inside_changed_fraction": 0.6595453485287119,
+      "outside_changed_fraction": 0.09012399124468463,
+      "highpass_difference_rms": 16.13332603214806
+    },
+    "z=2": {
+      "n_records": 12,
+      "inside_rms": 108.33316589235392,
+      "ring_1_rms": 23.753349833159742,
+      "ring_2_5_rms": 27.040214150670312,
+      "background_rms": 1.2336288040627026,
+      "inside_changed_fraction": 0.7456794673528863,
+      "outside_changed_fraction": 0.27305964898214724,
+      "highpass_difference_rms": 19.132591256012862
+    },
+    "z=2.5": {
+      "n_records": 42,
+      "inside_rms": 217.90140224084683,
+      "ring_1_rms": 124.43098420698215,
+      "ring_2_5_rms": 124.56566624318148,
+      "background_rms": 107.4581423909866,
+      "inside_changed_fraction": 0.7835057760032624,
+      "outside_changed_fraction": 0.1740624930728805,
+      "highpass_difference_rms": 14.687652266711796
+    }
+  },
+  "overall": {
+    "n_records": 100,
+    "inside_rms": 151.3712154567404,
+    "ring_1_rms": 55.249260036769904,
+    "ring_2_5_rms": 55.719830015510986,
+    "background_rms": 45.2852476246753,
+    "inside_changed_fraction": 0.7263272004348064,
+    "outside_changed_fraction": 0.15434474673072363,
+    "highpass_difference_rms": 15.875311855187185
+  }
+}
