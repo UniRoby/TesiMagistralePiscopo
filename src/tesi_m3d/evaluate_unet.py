@@ -55,7 +55,9 @@ def auc_ap_from_histograms(positive: np.ndarray, negative: np.ndarray) -> tuple[
     recall = tp / n_positive
     false_positive_rate = fp / n_negative
     precision = tp / np.maximum(tp + fp, 1)
-    integrate = getattr(np, "trapezoid", np.trapz)
+    integrate = getattr(np, "trapezoid", None)
+    if integrate is None:  # NumPy < 2.0
+        integrate = np.trapz
     auc = float(integrate(np.r_[0.0, recall], np.r_[0.0, false_positive_rate]))
     ap = float(np.sum(np.diff(np.r_[0.0, recall]) * precision))
     return auc, ap

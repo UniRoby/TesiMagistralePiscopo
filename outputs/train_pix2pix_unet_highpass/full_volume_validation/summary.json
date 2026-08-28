@@ -1,0 +1,40 @@
+{
+  "experiment_name": "train_pix2pix_unet_highpass",
+  "checkpoint": "outputs\\train_pix2pix_unet_highpass\\best.pt",
+  "seed": 21,
+  "input_mode": "ct_highpass",
+  "loss": "focal_dice",
+  "threshold": 0.467,
+  "threshold_bins": 1000,
+  "voxel_auc_ap": "histogram approximation with 1000 fixed bins",
+  "validation_micro_dice": 0.008248419542793343,
+  "n_manipulated": 30,
+  "n_real": 28,
+  "real_volume_false_positive_rate": 1.0,
+  "macro_manipulated": {
+    "dice": 0.009705500383483666,
+    "iou": 0.004918117215922196,
+    "precision": 0.009391894038290272,
+    "recall": 0.03706427113817319,
+    "voxel_auc": 0.8430678810915744,
+    "voxel_ap": 0.007191117796150878
+  },
+  "by_type": {
+    "inj": {
+      "dice": 0.00810431869485633,
+      "iou": 0.004095173018891464,
+      "precision": 0.009059563596204257,
+      "recall": 0.01890828624013642,
+      "voxel_auc": 0.8489022670841126,
+      "voxel_ap": 0.006839715424301271
+    },
+    "rem": {
+      "dice": 0.02011318135956135,
+      "iou": 0.010267254496621962,
+      "precision": 0.011552041911849345,
+      "recall": 0.15507817297541224,
+      "voxel_auc": 0.8051443721400765,
+      "voxel_ap": 0.00947523321317334
+    }
+  }
+}
