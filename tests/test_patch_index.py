@@ -44,6 +44,30 @@ class TestGridUsesScanShape(unittest.TestCase):
             self.assertGreater(len(index) - index.n_positive, 0)
             self.assertTrue(np.all(index.soft_score[index.label == 0] == 0.0))
 
+    def test_centered_positive_crops_are_jittered_and_inside_volume(self) -> None:
+        mask = np.zeros((48, 48, 48), dtype=bool)
+        mask[20:28, 20:28, 20:28] = True
+        coords, softs = patch_index_module._centered_positive_entries(
+            mask, (16, 16, 16), count=8, jitter=4, seed=21,
+            positive_overlap_fraction=0.001,
+        )
+        self.assertEqual(coords[0], (16, 16, 16))
+        self.assertEqual(len(coords), 8)
+        self.assertEqual(len(set(coords)), 8)
+        self.assertTrue(all(0 <= value <= 32 for coord in coords for value in coord))
+        self.assertTrue(all(score >= 0.001 for score in softs))
+
+    def test_centered_mode_replaces_grid_positives(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, records = make_fake_corpus(tmp, n_records=1, scan_z=40)
+            index = build_patch_index(
+                records, root, patch_shape=(16, 16, 16), stride=(8, 8, 8),
+                centered_positive_crops=4, positive_crop_jitter=2,
+                positive_crop_seed=21, progress=False,
+            )
+            self.assertEqual(index.n_positive, 4)
+            self.assertGreater(len(index) - index.n_positive, 0)
+
 
 class TestRealRecords(unittest.TestCase):
     def test_real_records_never_load_a_mask(self) -> None:
@@ -94,6 +118,7 @@ class TestCacheKeyAndPersistence(unittest.TestCase):
             self.assertNotEqual(base, index_cache_key(records, (32, 32, 32), (16, 16, 16), 0.05))
             self.assertNotEqual(base, index_cache_key(records, (32, 32, 32), (32, 32, 32), 0.10))
             self.assertNotEqual(base, index_cache_key(records[:1], (32, 32, 32), (32, 32, 32), 0.05))
+            self.assertNotEqual(base, index_cache_key(records, (32, 32, 32), (32, 32, 32), 0.05, 8, 8, 21))
             self.assertEqual(base, index_cache_key(records, (32, 32, 32), (32, 32, 32), 0.05))
 
     def test_round_trip_preserves_content(self) -> None:

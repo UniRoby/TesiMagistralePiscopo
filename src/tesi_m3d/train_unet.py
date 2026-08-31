@@ -93,7 +93,11 @@ def build_unet_loaders(
 
     train_index = load_or_build_patch_index(
         train_records, data_root, cache_dir, patch_shape=patch_shape, stride=stride,
-        positive_overlap_fraction=overlap, rebuild=rebuild_index,
+        positive_overlap_fraction=overlap,
+        centered_positive_crops=int(patch_cfg.get("centered_positive_crops_per_volume", 0)),
+        positive_crop_jitter=int(patch_cfg.get("positive_crop_jitter", 0)),
+        positive_crop_seed=seed,
+        rebuild=rebuild_index,
     )
     valid_index = load_or_build_patch_index(
         valid_records, data_root, cache_dir, patch_shape=patch_shape, stride=stride,

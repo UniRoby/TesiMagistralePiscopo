@@ -140,6 +140,9 @@ def index_cache_key(
     patch_shape: tuple[int, int, int],
     stride: tuple[int, int, int],
     positive_overlap_fraction: float,
+    centered_positive_crops: int = 0,
+    positive_crop_jitter: int = 0,
+    positive_crop_seed: int = 0,
 ) -> str:
     """Return a stable short hash identifying one index configuration.
 
@@ -154,6 +157,12 @@ def index_cache_key(
         "positive_overlap_fraction": round(float(positive_overlap_fraction), 6),
         "records": [(r.mod, r.img_id, r.orig_id, r.sdir_id) for r in records],
     }
+    if centered_positive_crops:
+        payload.update({
+            "centered_positive_crops": int(centered_positive_crops),
+            "positive_crop_jitter": int(positive_crop_jitter),
+            "positive_crop_seed": int(positive_crop_seed),
+        })
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha1(blob).hexdigest()[:16]
 
@@ -189,6 +198,47 @@ def _grid_entries_for_mask(
     return coords, labels, softs
 
 
+def _centered_positive_entries(
+    mask: np.ndarray,
+    patch_shape: tuple[int, int, int],
+    count: int,
+    jitter: int,
+    seed: int,
+    positive_overlap_fraction: float,
+) -> tuple[list[tuple[int, int, int]], list[float]]:
+    """Return deterministic mask-centred positive crops with bounded jitter."""
+
+    if count < 1 or not np.any(mask):
+        return [], []
+    patch = np.asarray(patch_shape, dtype=np.int64)
+    maximum = np.asarray(mask.shape, dtype=np.int64) - patch
+    if np.any(maximum < 0):
+        raise ValueError(f"patch shape {patch_shape} exceeds mask shape {mask.shape}")
+    center = np.rint(np.argwhere(mask).mean(axis=0)).astype(np.int64)
+    base = center - patch // 2
+    rng = np.random.default_rng(seed)
+    coords: list[tuple[int, int, int]] = []
+    softs: list[float] = []
+    seen: set[tuple[int, int, int]] = set()
+    patch_voxels = int(np.prod(patch))
+    for attempt in range(max(32, count * 20)):
+        offset = np.zeros(3, dtype=np.int64) if attempt == 0 else rng.integers(-jitter, jitter + 1, size=3)
+        coord = tuple(int(v) for v in np.clip(base + offset, 0, maximum))
+        if coord in seen:
+            continue
+        seen.add(coord)
+        z, y, x = coord
+        dz, dy, dx = patch_shape
+        overlap = float(np.count_nonzero(mask[z:z + dz, y:y + dy, x:x + dx]) / patch_voxels)
+        if overlap < positive_overlap_fraction:
+            continue
+        coords.append(coord)
+        softs.append(overlap)
+        if len(coords) == count:
+            break
+    return coords, softs
+
+
 def build_patch_index(
     records: Sequence[M3DSynthRecord],
     data_root: str | Path,
@@ -196,6 +246,10 @@ def build_patch_index(
     stride: tuple[int, int, int] = (32, 32, 32),
     positive_overlap_fraction: float = 0.05,
     progress: bool = True,
+    *,
+    centered_positive_crops: int = 0,
+    positive_crop_jitter: int = 0,
+    positive_crop_seed: int = 0,
 ) -> PatchIndex:
     """Build the patch index without loading a single scan voxel.
 
@@ -211,6 +265,10 @@ def build_patch_index(
     data_root = Path(data_root)
     patch_shape = tuple(int(v) for v in patch_shape)
     stride = tuple(int(v) for v in stride)
+    centered_positive_crops = int(centered_positive_crops)
+    positive_crop_jitter = int(positive_crop_jitter)
+    if centered_positive_crops < 0 or positive_crop_jitter < 0:
+        raise ValueError("centered_positive_crops and positive_crop_jitter must be non-negative")
 
     iterator: Sequence[tuple[int, M3DSynthRecord]] = list(enumerate(records))
     if progress:
@@ -252,6 +310,22 @@ def build_patch_index(
                 img_id=record.img_id,
             )
             coords, labels, softs = _grid_entries_for_mask(mask, grid, positive_overlap_fraction)
+            if centered_positive_crops:
+                negatives = [index for index, label in enumerate(labels) if label == 0]
+                coords = [coords[index] for index in negatives]
+                labels = [0] * len(coords)
+                softs = [softs[index] for index in negatives]
+                positive_coords, positive_softs = _centered_positive_entries(
+                    mask,
+                    patch_shape,
+                    centered_positive_crops,
+                    positive_crop_jitter,
+                    int(positive_crop_seed) + record_index,
+                    positive_overlap_fraction,
+                )
+                coords.extend(positive_coords)
+                labels.extend([1] * len(positive_coords))
+                softs.extend(positive_softs)
 
         if not coords:
             continue
@@ -283,6 +357,9 @@ def load_or_build_patch_index(
     patch_shape: tuple[int, int, int] = (32, 32, 32),
     stride: tuple[int, int, int] = (32, 32, 32),
     positive_overlap_fraction: float = 0.05,
+    centered_positive_crops: int = 0,
+    positive_crop_jitter: int = 0,
+    positive_crop_seed: int = 0,
     rebuild: bool = False,
     progress: bool = True,
 ) -> PatchIndex:
@@ -292,7 +369,10 @@ def load_or_build_patch_index(
     cost should be paid once, not on every restart or failed run.
     """
 
-    key = index_cache_key(records, patch_shape, stride, positive_overlap_fraction)
+    key = index_cache_key(
+        records, patch_shape, stride, positive_overlap_fraction,
+        centered_positive_crops, positive_crop_jitter, positive_crop_seed,
+    )
     if cache_dir is None:
         return build_patch_index(
             records,
@@ -300,6 +380,9 @@ def load_or_build_patch_index(
             patch_shape=patch_shape,
             stride=stride,
             positive_overlap_fraction=positive_overlap_fraction,
+            centered_positive_crops=centered_positive_crops,
+            positive_crop_jitter=positive_crop_jitter,
+            positive_crop_seed=positive_crop_seed,
             progress=progress,
         )
 
@@ -314,6 +397,9 @@ def load_or_build_patch_index(
         patch_shape=patch_shape,
         stride=stride,
         positive_overlap_fraction=positive_overlap_fraction,
+        centered_positive_crops=centered_positive_crops,
+        positive_crop_jitter=positive_crop_jitter,
+        positive_crop_seed=positive_crop_seed,
         progress=progress,
     )
     index.save(index_path)
@@ -325,6 +411,9 @@ def load_or_build_patch_index(
         "patch_shape": [int(v) for v in patch_shape],
         "stride": [int(v) for v in stride],
         "positive_overlap_fraction": float(positive_overlap_fraction),
+        "centered_positive_crops": int(centered_positive_crops),
+        "positive_crop_jitter": int(positive_crop_jitter),
+        "positive_crop_seed": int(positive_crop_seed),
         "n_records": len(records),
         "n_patches": len(index),
         "n_positive": index.n_positive,
