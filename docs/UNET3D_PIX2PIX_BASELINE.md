@@ -17,10 +17,13 @@ Questa prima configurazione e il relativo risultato con Dice nullo sono mantenut
 - **R1**, `configs/train_pix2pix_unet_ct.yaml`: CT normalizzata;
 - **R2**, `configs/train_pix2pix_unet_highpass.yaml`: CT normalizzata più residuo high-pass 3D.
 - **R3**, `configs/train_pix2pix_unet_ct_centered_32.yaml`: CT normalizzata, patch `32³` e crop positivi centrati sulla mask con jitter deterministico ±8 voxel.
+- **R4**, `configs/train_pix2pix_unet_ct_grid_32.yaml`: CT normalizzata e patch `32³` prese soltanto dalla griglia regolare, senza centering o jitter.
 
 Il corpus resta quello pix2pix originale completo. Non viene usato il corpus isotropico parziale.
 
 R3 conserva negativi sulla griglia regolare `32³`/stride `16³`. Per ogni volume manipolato indicizza otto crop positivi attorno al centro della mask; il sampler ne seleziona quattro per batch insieme a quattro negativi. Il crop esattamente centrato è sempre presente e gli altri ricevono jitter riproducibile con seed 21, evitando che la rete veda la manipolazione sempre nella stessa posizione.
+
+R4 mantiene patch, stride, batch, loss, split e seed di R3, ma usa anche per i positivi la griglia regolare. Isola quindi l'effetto della dimensione `32³` da quello dei crop centrati.
 
 ## Relazione con CT-GAN
 
@@ -118,6 +121,14 @@ python -m tesi_m3d.train_unet --config configs\train_pix2pix_unet_ct_centered_32
 python -m tesi_m3d.train_unet --config configs\train_pix2pix_unet_ct_centered_32.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda
 ```
 
+Per R4 usare gli stessi tre controlli:
+
+```powershell
+python -m tesi_m3d.train_unet --config configs\train_pix2pix_unet_ct_grid_32.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda --dry-run
+python -m tesi_m3d.train_unet --config configs\train_pix2pix_unet_ct_grid_32.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda --micro-overfit
+python -m tesi_m3d.train_unet --config configs\train_pix2pix_unet_ct_grid_32.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda
+```
+
 Output principali nelle directory definite dalle singole configurazioni:
 
 - `dry_run_stats.json`: numerosità degli indici;
@@ -158,6 +169,12 @@ R3 usa automaticamente finestre `32³` con stride `16³`, ricavate dal checkpoin
 
 ```powershell
 python -m tesi_m3d.evaluate_unet --checkpoint outputs\train_pix2pix_unet_ct_centered_32\best.pt --data-root "C:\Tesi Magistrale Piscopo" --device cuda --batch-size 8 --output-dir outputs\train_pix2pix_unet_ct_centered_32\full_volume_validation
+```
+
+Evaluation R4:
+
+```powershell
+python -m tesi_m3d.evaluate_unet --checkpoint outputs\train_pix2pix_unet_ct_grid_32\best.pt --data-root "C:\Tesi Magistrale Piscopo" --device cuda --batch-size 8 --output-dir outputs\train_pix2pix_unet_ct_grid_32\full_volume_validation
 ```
 
 Confrontare R0, R1 e R2 usando gli stessi 64 record di validation. Se R2 supera R1 di almeno 0.02 Dice macro senza peggiorare il false-positive rate, ripetere R1/R2 con tre seed e riportare media e deviazione standard. CycleGAN e Diffusion restano esclusi da questa fase.
