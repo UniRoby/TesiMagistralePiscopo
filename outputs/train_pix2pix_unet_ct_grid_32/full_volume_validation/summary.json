@@ -1,0 +1,40 @@
+{
+  "experiment_name": "train_pix2pix_unet_ct_grid_32",
+  "checkpoint": "outputs\\train_pix2pix_unet_ct_grid_32\\best.pt",
+  "seed": 21,
+  "input_mode": "ct",
+  "loss": "focal_dice",
+  "threshold": 0.502,
+  "threshold_bins": 1000,
+  "voxel_auc_ap": "histogram approximation with 1000 fixed bins",
+  "validation_micro_dice": 0.0044082470720534965,
+  "n_manipulated": 30,
+  "n_real": 28,
+  "real_volume_false_positive_rate": 1.0,
+  "macro_manipulated": {
+    "dice": 0.008124252127185453,
+    "iou": 0.004084626925600449,
+    "precision": 0.0041121156348529475,
+    "recall": 0.5594770728137777,
+    "voxel_auc": 0.8424106326108842,
+    "voxel_ap": 0.003950876323842842
+  },
+  "by_type": {
+    "inj": {
+      "dice": 0.008616552893876864,
+      "iou": 0.004332692340631125,
+      "precision": 0.004363705816729296,
+      "recall": 0.5746678270416049,
+      "voxel_auc": 0.8411654636715967,
+      "voxel_ap": 0.00399464898969908
+    },
+    "rem": {
+      "dice": 0.004924297143691272,
+      "iou": 0.002472201727901056,
+      "precision": 0.0024767794526566827,
+      "recall": 0.4607371703329009,
+      "voxel_auc": 0.8505042307162534,
+      "voxel_ap": 0.0036663539957772946
+    }
+  }
+}
