@@ -1,8 +1,6 @@
 # Tesi Magistrale Piscopo
 
-Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT,
-ispirata a *Localization of Synthetic Manipulations in Western Blot Images* e
-valutata sul dataset M3Dsynth.
+Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT
 
 ## Struttura
 
@@ -54,8 +52,7 @@ La pipeline distingue due tipi di CSV:
 - `C:\Tesi Magistrale Piscopo\Reale\metadata.csv`: manifest del download IDC;
   serve alla conversione per trovare i DICOM, ma non viene letto dal training.
 
-I quattro CSV ufficiali M3Dsynth sono inclusi nella repo: non è più necessario
-avere `../M3Dsynth/data` durante training e test.
+I quattro CSV ufficiali M3Dsynth sono inclusi nella repo.
 
 ## Dati laboratorio
 
@@ -74,13 +71,10 @@ C:\Tesi Magistrale Piscopo\
   TesiMagistralePiscopo\
 ```
 
-Su Windows `Scan` e `scan` sono equivalenti. Per mantenere portabilità verso
-Linux è comunque consigliato rinominare la cartella pix2pix in `scan`.
 
 ## Conversione LIDC DICOM in TIFF
 
-Non usare `get_M3Dsynth.sh` per questa macchina: scaricherebbe di nuovo tutti i
-generatori e la conversione originale usa primitive Unix. Eseguire prima una
+Eseguire prima una
 sola serie:
 
 ```bat
@@ -112,12 +106,3 @@ python -m tesi_m3d.train ^
   --data-root "C:\Tesi Magistrale Piscopo" ^
   --device cuda
 ```
-
-Il comando attuale allena e salva il checkpoint. La valutazione cross-generator
-scientifica verrà eseguita quando `cycle` e `diffusion` saranno disponibili.
-
-## Preprocessing
-
-Il default v1 è la normalizzazione percentile, coerente con il codice M3Dsynth.
-Il clipping HU fisso `[-1000, 400]` resta sospeso perché i TIFF ufficiali sono
-valori raw convertiti in `uint16`, non HU direttamente garantiti.
