@@ -1,7 +1,7 @@
 # Workflow PC laboratorio Windows
 
-Guida autonoma per configurare la macchina, validare i dati e avviare gli
-esperimenti della tesi.
+Guida  per configurare la macchina, validare i dati e avviare gli
+esperimenti.
 
 ## 1. Ambiente disponibile
 
@@ -17,9 +17,15 @@ Percorsi:
 
 ```text
 C:\Tesi Magistrale Piscopo\Reale\lidc_idri       DICOM LIDC-IDRI
-C:\Tesi Magistrale Piscopo\Reale\metadata.csv   manifest download IDC
+C:\Tesi Magistrale Piscopo\Reale\metadata.csv    manifest download IDC
 C:\Tesi Magistrale Piscopo\pix2pix\Scan          TIFF manipolati
 C:\Tesi Magistrale Piscopo\pix2pix\label         mask TIFF
+```
+
+## Attiva .venv
+
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
 
 ## 3. Environment Conda
@@ -79,20 +85,15 @@ La pipeline usa direttamente `data.csv` e `sets.csv`; la conversione usa
 anche `LIDC.csv`. `centers.csv` resta disponibile per confronti con il protocollo
 ufficiale.
 
-## 7. Perché convertire i reali in TIFF
+## 7. Perché convertire i reali in TIFF?
 
 Il loader di training riceve stack TIFF sia per pix2pix sia per i negativi
-reali. La conversione è quindi necessaria per:
+reali. La conversione serve per:
 
 - fornire esempi reali con lo stesso contenitore dei manipolati;
 - mantenere ordinamento delle slice e conversione `uint16` di M3Dsynth;
 - applicare la stessa normalizzazione percentile a entrambe le classi.
 
-## Attiva .venv
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
 
 ## 8. Smoke conversion di una serie
 
@@ -123,7 +124,7 @@ root risolta:
 Dataset root: C:\Tesi Magistrale Piscopo
 ```
 
-Controllare che sia apparsa una directory simile a:
+Verificare che sia apparsa una directory simile a:
 
 ```text
 C:\Tesi Magistrale Piscopo\real\scan\LIDC-IDRI-0003__3000611\
@@ -158,8 +159,7 @@ dello step 9:
 python scripts\check_real_tiff.py --scan-root "C:\Tesi Magistrale Piscopo\real\scan" --preview-dir outputs\real_check
 ```
 
-L'output completo viene scritto su `outputs/check_real_tiff.log`. Il comando stampa anche il
-percorso del file alla fine per facilitarne la consultazione.
+L'output completo viene scritto su `outputs/check_real_tiff.log`. 
 
 Cosa verifica, per ogni serie:
 
@@ -172,11 +172,10 @@ Cosa verifica, per ogni serie:
   verticale) e aria polmonare massima a metà stack (ordinamento z corretto).
 
 Le soglie sono espresse in HU. L'offset `uint16` non è ricavabile dal TIFF, per
-cui viene stimato dal picco dell'aria polmonare: è quello il modo corretto,
+cui viene stimato dal picco dell'aria polmonare,
 perché `scan_to_uint16` trasla il volume di `-min(scan)` e quel minimo è il
-padding fuori campo, non l'aria. L'offset risulta quindi diverso da serie a
-serie (2048 per `LIDC-IDRI-0003`, 3072 per i TIFF pix2pix). La cosa non è un
-problema: `normalize_percentile` scarta i voxel a zero e riscala tra due
+padding fuori field, non l'aria. L'offset risulta quindi diverso da serie a
+serie (2048 per `LIDC-IDRI-0003`, 3072 per i TIFF pix2pix). Questo viene gestito in quanto: `normalize_percentile` scarta i voxel a zero e riscala tra due
 percentili dei soli voxel non nulli, quindi una traslazione uniforme si
 annulla. 
 
@@ -192,8 +191,7 @@ Output atteso:
 1/1 series passed
 ```
 
-Lo script esce con codice `1` se una serie non passa e stampa una riga `FAIL`
-per ogni controllo fallito. Con `--preview-dir` scrive anche, per ogni serie,
+ Con `--preview-dir` scrive anche, per ogni serie,
 un montaggio di 9 slice assiali più una ricostruzione coronale e una sagittale
 in PNG già finestrate sul polmone: le due ricostruzioni sono il modo più rapido
 per accorgersi di slice duplicate o fuori ordine, che vi appaiono come scalini.
@@ -211,12 +209,9 @@ automaticamente:
 - Se mask è **più corta**: aggiunge padding con zeros alla fine (background)
 - Se y/x non matchano: **errore critico** (non tollerato)
 
-Il dataset originale rimane intatto sul disco. Durante il training puoi vedere
-messaggi di allineamento — questo è **normale e atteso** per i dati reali.
-
 ## 12. Verifica struttura pix2pix
 
-La root dataset è `C:\Tesi Magistrale Piscopo`, non la cartella del progetto.
+La root dataset è `C:\Tesi Magistrale Piscopo`.
 La struttura minima deve essere:
 
 ```text
@@ -242,11 +237,11 @@ Senza ottimizzazione, ogni batch ricarica i TIFF dal disco (88 sec/batch = infat
 - **Normalized paths**: sempre `resolved()` per consistency nel cache key.
 
 Speedup atteso: **~50-100×** (da 88 sec/batch a 0.5-1 sec/batch), rendendo il
-training completabile in **7-15 ore per epoch** (ragionevole).
+training completabile in **7-15 ore per epoch**.
 
 ## 14. Training: pix2pix
 
-### Baseline rapida (consigliata per una sessione di laboratorio)
+### Baseline rapida 
 
 Per ottenere un checkpoint utilizzabile per detection e heatmap senza eseguire
 il protocollo completo da 50 epoche, usare la configurazione limitata a 256
@@ -270,12 +265,7 @@ python -m tesi_m3d.train `
 
 Il dry-run deve riportare fino a 256 record selezionati, circa 128 batch per
 epoca e positivi non nulli. Record reali che condividono la stessa scansione
-vengono raggruppati e possono ridurre leggermente il numero esatto di batch. La
-configurazione parte con `num_workers: 0`; per misurare
-due worker, copiare la config, impostare temporaneamente
-`max_patches_per_epoch: 640` e `num_workers: 2`, poi confrontare i 20 batch con
-la variante a zero worker usando `nvidia-smi` e Gestione attività. Conservare
-la variante più veloce solo se la RAM rimane stabile.
+vengono raggruppati e possono ridurre leggermente il numero esatto di batch. 
 
 Per monitorare il confronto, in un secondo terminale eseguire:
 
@@ -289,11 +279,6 @@ python -m tesi_m3d.train --config configs\train_pix2pix_workers2_benchmark.yaml 
 ```powershell
 nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv -l 1
 ```
-
-In Gestione attivita > Prestazioni > Memoria, la RAM non deve crescere
-continuamente. Conservare `num_workers: 2` solo se termina i 20 batch in meno
-tempo, la GPU resta piu occupata e RAM/VRAM rimangono sotto circa l'85%; in
-caso contrario mantenere `num_workers: 0`.
 
 Ogni checkpoint contiene anche optimizer, AMP scaler ed epoca. Per proseguire
 una run interrotta, aumentare `training.epochs` oltre l'epoca salvata e usare:
@@ -353,60 +338,6 @@ Output:
 outputs\train_pix2pix_test_cycle_diffusion\patch3d_classifier.pt
 ```
 
-Al momento il comando di training non esegue ancora la valutazione finale sui
-due generatori indicati nel nome. Il checkpoint pix2pix serve a validare
-architettura, accesso ai dati, patch extraction e uso GPU. La valutazione
-cross-generator sarà eseguita quando cycle e diffusion saranno presenti.
-
-## 14. Errori comuni
-
-### `metadata directory not found`
-
-Eseguire il comando dalla root `TesiMagistralePiscopo` e verificare:
-
-```powershell
-ls metadata\m3dsynth
-```
-
-Devono esserci `data.csv`, `sets.csv`, `centers.csv`, `LIDC.csv`.
-
-### `DICOM series not found`
-
-Controllare che `--dicom-root` termini con `Reale\lidc_idri` e che
-`--download-metadata` indichi il manifest associato a quel download.
-
-### `does not look like the dataset root: no 'pix2pix' directory here`
-
-`--output-root` punta alla cartella sbagliata, tipicamente quella del progetto.
-Indicare la dataset root, cioè `C:\Tesi Magistrale Piscopo`, oppure omettere il
-parametro e lasciare che venga rilevata. Il flag `--allow-any-root` disattiva il
-controllo, ma le serie convertite fuori dalla dataset root non vengono trovate
-dal training.
-
-### `no TIFF slices found`
-
-Controllare `--data-root`. Deve essere la cartella che contiene direttamente
-`pix2pix` e `real`, quindi `C:\Tesi Magistrale Piscopo`. Se la conversione è
-stata lanciata con un `--output-root` sbagliato, `real\scan` si trova altrove:
-spostarla accanto a `pix2pix` oppure rilanciare la conversione, che salta le
-serie già complete.
-
-### `cuda False`
-
-La build PyTorch installata non usa CUDA oppure il driver è incompatibile.
-Verificare prima `nvidia-smi`, poi reinstallare PyTorch con il comando generato
-dal selettore ufficiale per Windows/CUDA.
-
-### Memoria GPU esaurita
-
-Ridurre in config:
-
-```yaml
-training:
-  batch_size: 4
-model:
-  base_channels: 8
-```
 ### Baseline con campionamento e score volume migliorati
 
 La configurazione `train_pix2pix_baseline.yaml` seleziona il 67% dei volumi di
@@ -420,9 +351,6 @@ AUC validation migliore viene usato dall'inferenza. In
 `outputs\train_pix2pix_baseline\validation_report` vengono inoltre salvati due
 esempi TP, FP, TN e FN con pannelli CT, heatmap, mask reale e predizione.
 
-Prima di una nuova run cancellare o rinominare esclusivamente la vecchia
-cartella `outputs\train_pix2pix_baseline`, quindi eseguire prima il dry-run e
-poi il training senza `--resume`.
 
 ### Esperimento: patch positive bilanciate
 
@@ -438,9 +366,6 @@ voxel-native: massimo 256 record di training, 64 di validation e seed 21, con
 un limite di 4096 patch per epoca. 
 
 Per costruire il corpus isotropico a 1 mm, convertire insieme scansioni e mask.
-Sul PC del laboratorio, se sono disponibili solo Pix2Pix e reali, usare
-`--mods pix2pix real`: CycleGAN e Diffusion non sono necessari al training e
-non devono essere richiesti al converter.
 
 ```powershell
 python -m tesi_m3d.isotropic `
@@ -489,9 +414,6 @@ python -m tesi_m3d.train `
   --device cuda
 ```
 
-L'output è `outputs\train_pix2pix_balanced_patches`; non usare `--resume` e
-non cancellare la baseline precedente, perché le due run vanno confrontate.
-
 Per confrontare `average` e `gaussian` sul medesimo `best.pt`, senza nuovo
 training, eseguire:
 
@@ -538,8 +460,7 @@ python -m tesi_m3d.evaluate_paper_protocol `
   --device cuda
 ```
 
-Per il test cross-generator completo, quando i TIFF cycle e diffusion sono
-disponibili:
+Per il test cross-generator completo, quando i TIFF cycle e diffusion:
 
 ```powershell
 python -m tesi_m3d.evaluate_paper_protocol `
@@ -571,7 +492,7 @@ python -m tesi_m3d.evaluate_paper_protocol `
 
 Questo test misura la localizzazione voxel-wise (AUC e Max BA) sulle sole TAC
 manipolate. Per AUC/accuracy volume-level servono anche TAC reali dello stesso
-split, che non sono incluse nel download diffusion indicato sopra.
+split.
 
 Per il report patch-level con immagini e metriche volume-level, usare i TIFF
 reali convertiti in `C:\Tesi Magistrale Piscopo\real\scan` (non i DICOM in
@@ -591,7 +512,7 @@ python -m tesi_m3d.evaluate_patch_level `
 
 Il comando valuta tutti i volumi test Diffusion e i reali corrispondenti; salva
 20 pannelli rappresentativi in `images`. Aumentare `--max-report-images` solo
-se lo spazio libero Ã¨ sufficiente.
+se lo spazio è libero.
 
 ### Audit della spaziatura fisica
 
@@ -620,8 +541,7 @@ patch che la interseca, rosso/arancio/giallo rispettivamente top-1/top-3/top-5.
 ### Esperimento: hard-negative mining
 
 Generare prima l'indice delle 64 patch pulite con score piu alto per ogni
-volume di training. Questa fase usa la griglia densa stride 16 e puo richiedere
-tempo, ma non modifica il checkpoint di partenza:
+volume di training. Questa fase usa la griglia densa stride 16, ma non modifica il checkpoint di partenza:
 
 ```powershell
 python -m tesi_m3d.mine_hard_negatives `

@@ -29,7 +29,7 @@ R4 mantiene patch, stride, batch, loss, split e seed di R3, ma usa anche per i p
 
 Il ramo pix2pix di M3Dsynth usa [CT-GAN](https://arxiv.org/abs/1901.03597): un cubo fisico di lato 32 mm viene ricampionato a `32³`, la regione centrale viene rigenerata e il risultato subisce inverse scaling, aggiunta di rumore e blending. Le 100 TAC mostrate nell'esperimento CT-GAN appartengono alla valutazione clinica (80 blind e 20 open), non al training del generatore. I due GAN furono addestrati su cubi estratti da 888 TAC LIDC-IDRI. Il [repository ufficiale](https://github.com/ymirsky/CT-GAN) documenta il preprocessing e il touch-up; il [paper M3Dsynth](https://arxiv.org/abs/2309.07973) conferma il riuso di CT-GAN per pix2pix.
 
-Il codice CT-GAN non viene copiato né eseguito. Viene usato soltanto per formulare l'ipotesi forense che interpolazione, touch-up e fusione lascino tracce locali ad alta frequenza.
+Il codice CT-GAN viene usato soltanto per formulare l'ipotesi forense che interpolazione, touch-up e fusione lascino tracce locali ad alta frequenza.
 
 ## Dati e sampling
 
