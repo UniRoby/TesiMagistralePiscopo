@@ -33,10 +33,12 @@ model:
   in_channels: 1
   num_classes: 1
   base_channels: 16
-  dropout: 0.2
+  dropout: 0.2  # Usato per ridurre l'overfitting.
 
 training:
   epochs: 16
+  loss: focal
+  target: label
   batch_size: 32
   max_patches_per_epoch: 4096
   volume_cache_size: 2
@@ -48,17 +50,18 @@ training:
   persistent_workers: true
   prefetch_factor: 1
   pin_memory: true
-  early_stopping_patience: 5
+  early_stopping_patience: 5  # Stop dopo 5 epoche senza miglioramento dell'AP patch campionata.
   seed: 21
   checkpoint_every_epoch: true
 
 evaluation:
-  threshold_source: validation
+  threshold_source: validation  # Mantenuta per compatibilita; la calibrazione usa la validation.
   detection_score: auto
-  topk_fractions: [0.0001, 0.0005, 0.001, 0.005, 0.01]
+  topk_fractions: [0.0001, 0.0005, 0.001, 0.005, 0.01]  # Medie dei voxel con score maggiore.
   report_examples_per_class: 2
-  heatmap_aggregation: average
+  heatmap_aggregation: average  # Distribuisce lo score sui voxel e media le patch sovrapposte.
   calibration_batch_size: 32
   calibration_threshold_steps: 99
   calibrate_best: true
-  localization_metrics: [f1, iou, voxel_auc, ap]
+  lung_metrics: true
+  localization_metrics: [f1, iou, voxel_auc, ap]  # Lista descrittiva; non guida il calcolo.

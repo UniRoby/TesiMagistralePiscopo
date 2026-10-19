@@ -12,6 +12,7 @@ from tesi_m3d.evaluation import (
     volume_detection_scores,
     volume_auc_ba,
     voxel_auc_ap,
+    voxel_auc_ap_in_roi,
     voxel_auc_max_balanced_accuracy,
 )
 from tesi_m3d.patches import binary_cube_mask
@@ -34,6 +35,16 @@ class EvaluationTests(unittest.TestCase):
         heatmap = mask.astype(np.float32)
 
         auc, ap = voxel_auc_ap(mask, heatmap)
+
+        self.assertAlmostEqual(auc, 1.0)
+        self.assertAlmostEqual(ap, 1.0)
+
+    def test_voxel_auc_ap_can_be_restricted_to_roi(self):
+        mask = np.array([1, 0, 0, 0], dtype=bool)
+        heatmap = np.array([0.9, 0.1, 1.0, 1.0], dtype=np.float32)
+        roi = np.array([1, 1, 0, 0], dtype=bool)
+
+        auc, ap = voxel_auc_ap_in_roi(mask, heatmap, roi)
 
         self.assertAlmostEqual(auc, 1.0)
         self.assertAlmostEqual(ap, 1.0)

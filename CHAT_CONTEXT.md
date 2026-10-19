@@ -29,16 +29,7 @@
   - Solution: Robust alignment — trim if longer, pad zeros if shorter
   - Y/X dimension must match exactly (fails with clear error if not)
 
-### 3. **Data Pipeline Optimization**
-- **Original bottleneck**: 88 sec/batch (429k batches = 438 days!)
-  - Root cause: no caching — each batch reloaded TIFF from disk
-- **Solution implemented**: LRU cache on `load_tiff_stack()`
-  - `@lru_cache(maxsize=1000)` — ~75 GB in-memory cache
-  - Same series reused within epoch uses RAM, not disk
-  - Estimated **50-100× speedup** (0.5-1 sec/batch)
-  - Enables training: **~7-15 hours per epoch** (50 epoch = ~15 days)
-
-### 4. **Training Pipeline Improvements**
+### 3. **Training Pipeline Improvements**
 - Added **tqdm progress bars**: epoch + batch level progress visible in terminal
 - Removed non-serializable `M3DSynthRecord` from batch dict (caused PyTorch collate error)
 - Fixed batch dict to only include: `image`, `label`, `soft_score`

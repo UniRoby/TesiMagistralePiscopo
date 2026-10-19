@@ -72,6 +72,23 @@ def voxel_auc_ap(mask: np.ndarray, heatmap: np.ndarray) -> tuple[float, float]:
     return float(roc_auc_score(mask_flat, scores_flat)), float(average_precision_score(mask_flat, scores_flat))
 
 
+def voxel_auc_ap_in_roi(
+    mask: np.ndarray,
+    heatmap: np.ndarray,
+    roi: np.ndarray,
+) -> tuple[float, float]:
+    """Return voxel ROC-AUC and AP using only voxels selected by ``roi``."""
+
+    mask = np.asarray(mask, dtype=bool)
+    heatmap = np.asarray(heatmap, dtype=np.float32)
+    roi = np.asarray(roi, dtype=bool)
+    if not (mask.shape == heatmap.shape == roi.shape):
+        raise ValueError("mask, heatmap and roi must have the same shape")
+    if not np.any(roi):
+        return float("nan"), float("nan")
+    return voxel_auc_ap(mask[roi], heatmap[roi])
+
+
 def voxel_auc_max_balanced_accuracy(
     mask: np.ndarray,
     heatmap: np.ndarray,

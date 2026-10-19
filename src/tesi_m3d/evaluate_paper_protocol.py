@@ -1,4 +1,4 @@
-"""Evaluate 3D heatmaps with per-volume AUC and maximum balanced accuracy."""
+"""Evaluate 3D heatmaps with whole-volume and lung-restricted metrics."""
 
 from __future__ import annotations
 
@@ -15,7 +15,9 @@ def summarize_rows(rows: list[dict]) -> dict:
 
     def metrics(items: list[dict]) -> dict:
         result = {"n_volumes": len(items)}
-        for name in ("voxel_auc", "max_balanced_accuracy"):
+        names = ["voxel_auc", "max_balanced_accuracy"]
+        names.extend(name for name in ("lung_auc", "lung_ap") if name in items[0])
+        for name in names:
             values = np.asarray([item[name] for item in items], dtype=np.float64)
             result[name] = {
                 "mean": float(np.mean(values)),
@@ -75,10 +77,10 @@ def main() -> None:
 
     from .dataset import label_dir
     from .evaluate_patch_level import _load_model
-    from .evaluation import voxel_auc_max_balanced_accuracy
+    from .evaluation import voxel_auc_ap_in_roi, voxel_auc_max_balanced_accuracy
     from .inference import infer_heatmap
     from .train import load_yaml_config
-    from .volume_io import align_mask_to_scan, load_label_mask, load_normalized_scan
+    from .volume_io import align_mask_to_scan, load_label_mask, load_normalized_scan_and_lung_mask
 
     args = parse_args()
     config = load_yaml_config(args.config)
@@ -97,7 +99,7 @@ def main() -> None:
 
     rows = []
     for record in tqdm(records, desc="paper-protocol evaluation", unit="vol"):
-        scan = load_normalized_scan(data_root, record)
+        scan, lung_mask = load_normalized_scan_and_lung_mask(data_root, record)
         mask = align_mask_to_scan(
             load_label_mask(label_dir(data_root, record)), scan.shape, record.img_id
         )
@@ -106,11 +108,17 @@ def main() -> None:
             aggregation=aggregation, device=args.device,
         )
         auc, max_ba, threshold = voxel_auc_max_balanced_accuracy(mask, heatmap)
+        # The union prevents a segmentation miss from silently dropping true positives.
+        lung_auc, lung_ap = voxel_auc_ap_in_roi(mask, heatmap, lung_mask | mask)
+        truth_coverage = float(np.mean(lung_mask[mask]))
         rows.append({
             "img_id": record.img_id, "orig_id": record.orig_id,
             "generator": record.mod, "manipulation": record.ty,
             "voxel_auc": auc, "max_balanced_accuracy": max_ba,
             "max_ba_threshold": threshold,
+            "lung_auc": lung_auc, "lung_ap": lung_ap,
+            "lung_truth_coverage": truth_coverage,
+            "lung_roi_fraction": float(np.mean(lung_mask)),
         })
 
     summary = {
@@ -120,6 +128,7 @@ def main() -> None:
             "std": "sample standard deviation (ddof=1)",
             "split": args.split, "patch_shape": list(patch_shape),
             "stride": list(stride), "heatmap_aggregation": aggregation,
+            "lung_roi": "heuristic lung mask union ground-truth manipulation mask",
         },
         **summarize_rows(rows),
     }

@@ -21,13 +21,19 @@ from .evaluation import (
     topk_detection_score,
     volume_auc_ba,
     voxel_auc_ap,
+    voxel_auc_ap_in_roi,
 )
 from .inference import infer_heatmap
 from .losses import build_loss
 from .model import Patch3DModelConfig, build_patch3d_classifier
 from .patch_index import PatchIndex, load_or_build_patch_index
 from .sampling import SequentialVolumeBatchSampler, VolumeGroupedBatchSampler
-from .volume_io import align_mask_to_scan, load_label_mask, load_normalized_scan
+from .volume_io import (
+    align_mask_to_scan,
+    load_label_mask,
+    load_normalized_scan,
+    load_normalized_scan_and_lung_mask,
+)
 
 KNOWN_MODEL_NAMES = {"simple_3d_cnn"}
 
@@ -408,6 +414,7 @@ def train_one_epoch(
     amp_dtype=None,
     use_amp: bool = False,
     grad_clip_norm: float | None = None,
+    target_key: str = "label",
 ) -> float:
     """Train model for one epoch and return mean training loss."""
 
@@ -426,11 +433,11 @@ def train_one_epoch(
     losses: list[float] = []
     for batch in tqdm(loader, desc="    batch", leave=False, disable=False):
         image = batch["image"].to(device, non_blocking=True)
-        label = batch["label"].to(device, non_blocking=True)
+        target = batch[target_key].to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast("cuda", dtype=amp_dtype, enabled=bool(use_amp)):
             logits = model(image)
-            loss = loss_fn(logits, label)
+            loss = loss_fn(logits, target)
         if scaler is not None and scaler.is_enabled():
             scaler.scale(loss).backward()
             if grad_clip_norm:
@@ -454,6 +461,7 @@ def evaluate_patch_loader(
     device: str = "cpu",
     amp_dtype=None,
     use_amp: bool = False,
+    target_key: str = "label",
 ) -> dict[str, float]:
     """Run one validation pass and return patch-level metrics."""
 
@@ -472,9 +480,10 @@ def evaluate_patch_loader(
         for batch in tqdm(loader, desc="    valid", leave=False, disable=False):
             image = batch["image"].to(device, non_blocking=True)
             label = batch["label"].to(device, non_blocking=True)
+            target = batch[target_key].to(device, non_blocking=True)
             with torch.autocast("cuda", dtype=amp_dtype, enabled=bool(use_amp)):
                 logits = model(image)
-                loss = loss_fn(logits, label)
+                loss = loss_fn(logits, target)
             losses.append(float(loss.detach().cpu()))
             all_scores.append(torch.sigmoid(logits.float()).detach().cpu().numpy().reshape(-1))
             all_labels.append(label.detach().cpu().numpy().reshape(-1))
@@ -790,10 +799,18 @@ def calibrate_best_checkpoint(
     volume_scores.update({f"topk_{fraction:g}": [] for fraction in topk_fractions})
     voxel_auc: list[float] = []
     voxel_ap: list[float] = []
+    lung_auc: list[float] = []
+    lung_ap: list[float] = []
+    lung_truth_coverage: list[float] = []
+    calculate_lung_metrics = bool(evaluation_cfg.get("lung_metrics", False))
 
     records = _unique_validation_records(valid_dataset)
     for record in records:
-        scan = load_normalized_scan(valid_dataset.data_root, record)
+        if calculate_lung_metrics and record.is_manipulated:
+            scan, lung_mask = load_normalized_scan_and_lung_mask(valid_dataset.data_root, record)
+        else:
+            scan = load_normalized_scan(valid_dataset.data_root, record)
+            lung_mask = None
         heatmap = infer_heatmap(
             model, scan, patch_shape=patch_shape, stride=stride,
             batch_size=batch_size, aggregation=aggregation, device=device,
@@ -813,6 +830,11 @@ def calibrate_best_checkpoint(
             auc, ap = voxel_auc_ap(mask, heatmap)
             voxel_auc.append(auc)
             voxel_ap.append(ap)
+            if lung_mask is not None:
+                auc, ap = voxel_auc_ap_in_roi(mask, heatmap, lung_mask | mask)
+                lung_auc.append(auc)
+                lung_ap.append(ap)
+                lung_truth_coverage.append(float(np.mean(lung_mask[mask])))
         volume_labels.append(record.is_manipulated)
         for name, score in _detection_candidates(heatmap, topk_fractions).items():
             volume_scores[name].append(score)
@@ -853,6 +875,20 @@ def calibrate_best_checkpoint(
             batch_size, aggregation, device, examples_per_class,
         )
     selected_fraction = float(selected_name.removeprefix("topk_")) if selected_name.startswith("topk_") else None
+    localization = {
+        "threshold": localization_threshold,
+        **localization_metrics.to_dict(),
+        "mean_voxel_auc_on_positive_volumes": float(np.nanmean(voxel_auc)),
+        "mean_voxel_ap_on_positive_volumes": float(np.nanmean(voxel_ap)),
+        "n_positive_volumes": int(np.count_nonzero(volume_labels_array)),
+    }
+    if calculate_lung_metrics:
+        localization.update({
+            "lung_roi_definition": "heuristic lung mask union ground-truth manipulation mask",
+            "mean_lung_auc_on_positive_volumes": float(np.nanmean(lung_auc)),
+            "mean_lung_ap_on_positive_volumes": float(np.nanmean(lung_ap)),
+            "mean_ground_truth_coverage_by_lung_mask": float(np.mean(lung_truth_coverage)),
+        })
     return {
         "format_version": 1,
         "checkpoint": best_path.name,
@@ -871,13 +907,7 @@ def calibrate_best_checkpoint(
             "n_positive_volumes": int(np.count_nonzero(volume_labels_array)),
             "candidates": candidate_metrics,
         },
-        "localization": {
-            "threshold": localization_threshold,
-            **localization_metrics.to_dict(),
-            "mean_voxel_auc_on_positive_volumes": float(np.nanmean(voxel_auc)),
-            "mean_voxel_ap_on_positive_volumes": float(np.nanmean(voxel_ap)),
-            "n_positive_volumes": int(np.count_nonzero(volume_labels_array)),
-        },
+        "localization": localization,
     }
 
 
@@ -897,6 +927,9 @@ def main() -> None:
     args = parse_args()
     config = load_yaml_config(args.config)
     training_cfg = config.get("training", {})
+    target_key = str(training_cfg.get("target", "label"))
+    if target_key not in {"label", "soft_score"}:
+        raise ValueError("training.target must be 'label' or 'soft_score'")
     seed = int(training_cfg.get("seed", 21))
     set_global_seed(seed)
 
@@ -966,6 +999,7 @@ def main() -> None:
             amp_dtype=objects.amp_dtype,
             use_amp=objects.use_amp,
             grad_clip_norm=grad_clip,
+            target_key=target_key,
         )
         valid_metrics: dict[str, float] = {}
         if objects.valid_loader is not None:
@@ -976,6 +1010,7 @@ def main() -> None:
                 device=args.device,
                 amp_dtype=objects.amp_dtype,
                 use_amp=objects.use_amp,
+                target_key=target_key,
             )
 
         row = {"epoch": epoch + 1, "train_loss": mean_loss}

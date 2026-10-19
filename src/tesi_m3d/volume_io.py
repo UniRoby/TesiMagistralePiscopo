@@ -136,6 +136,20 @@ def load_normalized_scan(
     return normalize_percentile(load_tiff_stack(scan_dir(data_root, record, real_scan_root)))
 
 
+def load_normalized_scan_and_lung_mask(
+    data_root: str | Path,
+    record,
+    real_scan_root: str | Path | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load one scan and derive its lung ROI before intensity normalization."""
+
+    from .dataset import load_tiff_stack, normalize_percentile, scan_dir
+    from .lung import lung_mask_from_ct
+
+    raw = load_tiff_stack(scan_dir(data_root, record, real_scan_root))
+    return normalize_percentile(raw), lung_mask_from_ct(raw)
+
+
 class VolumeCache:
     """Tiny LRU cache of normalized float32 scans, keyed by resolved scan dir.
 

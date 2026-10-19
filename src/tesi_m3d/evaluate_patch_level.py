@@ -79,6 +79,33 @@ def topk_hits(overlap: np.ndarray, scores: np.ndarray, ks: tuple[int, ...] = (1,
     return {k: bool(np.any(overlap[order[: min(k, order.size)]] > 0)) for k in ks}
 
 
+def score_overlap_spearman(scores: np.ndarray, overlaps: np.ndarray) -> float:
+    """Measure whether model ranking increases with manipulated voxel coverage."""
+
+    scores = np.asarray(scores).reshape(-1)
+    overlaps = np.asarray(overlaps).reshape(-1)
+    if scores.size < 2 or scores.shape != overlaps.shape:
+        return float("nan")
+    if np.unique(scores).size < 2 or np.unique(overlaps).size < 2:
+        return float("nan")
+    from scipy.stats import spearmanr
+
+    return float(spearmanr(scores, overlaps).statistic)
+
+
+def highest_coverage_rank(overlaps: np.ndarray, scores: np.ndarray) -> tuple[int, bool]:
+    """Return the best score-rank of a maximally covered patch and top-1 agreement."""
+
+    overlaps = np.asarray(overlaps).reshape(-1)
+    scores = np.asarray(scores).reshape(-1)
+    if overlaps.size == 0 or overlaps.shape != scores.shape:
+        raise ValueError("overlap and scores must be non-empty arrays with the same shape")
+    order = np.argsort(scores, kind="stable")[::-1]
+    best_coverage = np.isclose(overlaps, np.max(overlaps))
+    rank = int(np.flatnonzero(best_coverage[order])[0]) + 1
+    return rank, bool(best_coverage[order[0]])
+
+
 def patch_center(slc: tuple[slice, slice, slice]) -> np.ndarray:
     """Return a patch center in z, y, x voxel coordinates."""
 
@@ -182,11 +209,15 @@ def _load_model(checkpoint: Path, device: str):
     return model.to(device)
 
 
-def _draw_report(scan, mask, slices, scores, overlaps, destination: Path) -> None:
+def _draw_report(
+    scan, mask, slices, scores, overlaps, destination: Path,
+    positive_fraction: float, correlation: float, coverage_rank: int,
+) -> None:
     from PIL import Image, ImageDraw
 
     ranked = np.argsort(scores, kind="stable")[::-1][:5]
-    mask_z = int(np.mean(np.argwhere(mask)[:, 0]))
+    mask_center = np.mean(np.argwhere(mask), axis=0)
+    mask_z = int(mask_center[0])
     panels = [("mask center", mask_z, None)] + [
         (f"top {rank + 1}", int(round(patch_center(slices[index])[0])), int(index))
         for rank, index in enumerate(ranked)
@@ -199,7 +230,7 @@ def _draw_report(scan, mask, slices, scores, overlaps, destination: Path) -> Non
         rgb[mask[z]] = (40, 220, 40)
         image = Image.fromarray(rgb).resize((512, 512))
         draw = ImageDraw.Draw(image)
-        subtitle = title
+        lines = [title]
         if patch_index is not None:
             slc = slices[patch_index]
             intersection = mask[z].copy()
@@ -219,9 +250,20 @@ def _draw_report(scan, mask, slices, scores, overlaps, destination: Path) -> Non
                  (slc[2].stop - 1) * scale_x, (slc[1].stop - 1) * scale_y),
                 outline=color, width=4,
             )
-            subtitle += f" score={scores[patch_index]:.3f} hit={'yes' if overlaps[patch_index] > 0 else 'no'}"
-        draw.rectangle((0, 0, 512, 24), fill=(0, 0, 0))
-        draw.text((6, 5), subtitle, fill=(255, 255, 255))
+            center = patch_center(slc)
+            distance = float(np.linalg.norm(center - mask_center))
+            target = "pos" if overlaps[patch_index] >= positive_fraction else (
+                "boundary" if overlaps[patch_index] > 0 else "neg"
+            )
+            lines[0] += f" score={scores[patch_index]:.3f} soft={overlaps[patch_index]:.3%} target={target}"
+            lines.append(
+                f"zyx={tuple(int(round(value)) for value in center)} dist-mask={distance:.1f} voxel"
+            )
+        else:
+            lines.append(f"Spearman(score, soft)={correlation:.3f} | best-coverage rank={coverage_rank}")
+        draw.rectangle((0, 0, 512, 40), fill=(0, 0, 0))
+        for line_index, line in enumerate(lines):
+            draw.text((6, 4 + 16 * line_index), line, fill=(255, 255, 255))
         rendered.append(image)
     canvas = Image.new("RGB", (1536, 1024), "black")
     for position, image in enumerate(rendered):
@@ -282,6 +324,7 @@ def main() -> None:
     model = _load_model(checkpoint, args.device)
 
     patch_truth, patch_scores = [], []
+    manipulated_scores, manipulated_overlaps = [], []
     volume_rows, candidate_scores = [], {name: [] for name in ("max", "top3_mean", "top5_mean")}
     for record in tqdm(records, desc="patch-level validation", unit="vol"):
         scan = load_normalized_scan(data_root, record, real_scan_root)
@@ -301,17 +344,29 @@ def main() -> None:
 
         if record.is_manipulated:
             hits = topk_hits(overlaps, scores)
+            correlation = score_overlap_spearman(scores, overlaps)
+            coverage_rank, top1_is_max_coverage = highest_coverage_rank(overlaps, scores)
+            manipulated_scores.append(scores)
+            manipulated_overlaps.append(overlaps)
             top_index = int(np.argmax(scores))
             mask_center = np.mean(np.argwhere(mask), axis=0)
             distance = float(np.linalg.norm(patch_center(slices[top_index]) - mask_center))
             image_name = f"{record.img_id}.png"
             if record.img_id in report_image_ids:
-                _draw_report(scan, mask, slices, scores, overlaps, output_dir / "images" / image_name)
+                _draw_report(
+                    scan, mask, slices, scores, overlaps, output_dir / "images" / image_name,
+                    positive_fraction, correlation, coverage_rank,
+                )
             volume_rows.append({
                 "img_id": record.img_id,
                 "top1_hit": int(hits[1]), "top3_hit": int(hits[3]), "top5_hit": int(hits[5]),
                 "top1_center_distance_voxels": distance,
                 "top1_score": float(scores[top_index]), "report_image": f"images/{image_name}",
+                "top1_soft_score": float(overlaps[top_index]),
+                "max_soft_score": float(np.max(overlaps)),
+                "score_soft_spearman": correlation,
+                "best_coverage_patch_rank": coverage_rank,
+                "top1_is_max_coverage": int(top1_is_max_coverage),
             })
 
     truth = np.concatenate(patch_truth)
@@ -330,6 +385,10 @@ def main() -> None:
         }
     selected_volume_score = max(volume_results, key=lambda name: (volume_results[name]["auc"], volume_results[name]["balanced_accuracy"]))
     distances = np.asarray([row["top1_center_distance_voxels"] for row in volume_rows])
+    dense_scores = np.concatenate(manipulated_scores)
+    dense_overlaps = np.concatenate(manipulated_overlaps)
+    positive_overlap = dense_overlaps > 0
+    coverage_ranks = np.asarray([row["best_coverage_patch_rank"] for row in volume_rows])
     report = {
         "checkpoint": str(checkpoint), "split": args.split, "mods": mods,
         "n_validation_volumes": len(records), "n_report_images": len(report_image_ids),
@@ -344,6 +403,17 @@ def main() -> None:
             "definition": "A top-k hit means at least one selected patch has any non-zero mask intersection.",
             **{f"top{k}_hit_rate": float(np.mean([row[f'top{k}_hit'] for row in volume_rows])) for k in (1, 3, 5)},
             "positive_patch_recall": patch_binary["recall"],
+            "score_soft_spearman_all_manipulated_patches": score_overlap_spearman(
+                dense_scores, dense_overlaps
+            ),
+            "score_soft_spearman_intersecting_patches": score_overlap_spearman(
+                dense_scores[positive_overlap], dense_overlaps[positive_overlap]
+            ),
+            "best_coverage_patch_rank": {
+                "mean": float(np.mean(coverage_ranks)),
+                "median": float(np.median(coverage_ranks)),
+                "top1_rate": float(np.mean([row["top1_is_max_coverage"] for row in volume_rows])),
+            },
             "top1_center_distance_voxels": {
                 "mean": float(np.mean(distances)), "median": float(np.median(distances)),
                 "p90": float(np.percentile(distances, 90)),

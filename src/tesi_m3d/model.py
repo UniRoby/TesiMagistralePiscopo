@@ -64,7 +64,7 @@ def build_patch3d_classifier(config: Patch3DModelConfig | None = None):
                 nn.BatchNorm3d(c * 4),
                 nn.ReLU(inplace=True),
                 # Adaptive pooling removes dependence on exact patch size.
-                nn.AdaptiveAvgPool3d(1),
+                nn.AdaptiveAvgPool3d(1),  #tutta la patch viene compressa in un unico vettore
             )
             self.classifier = nn.Sequential(
                 nn.Flatten(),

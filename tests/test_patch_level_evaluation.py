@@ -3,9 +3,11 @@ import numpy as np
 from tesi_m3d.evaluate_patch_level import (
     best_f1_threshold,
     binary_counts,
+    highest_coverage_rank,
     patch_center,
     patch_overlap_fractions,
     _report_image_ids,
+    score_overlap_spearman,
     topk_hits,
 )
 from tesi_m3d.patches import PatchGrid
@@ -29,6 +31,14 @@ def test_topk_hit_uses_any_mask_intersection():
 
     assert topk_hits(overlaps, scores) == {1: False, 3: True, 5: True}
     np.testing.assert_allclose(patch_center((slice(0, 32), slice(16, 48), slice(4, 36))), [15.5, 31.5, 19.5])
+
+
+def test_soft_score_correlation_and_highest_coverage_rank():
+    overlaps = np.array([0.0, 0.1, 0.4, 0.2], dtype=np.float32)
+    scores = np.array([0.1, 0.8, 0.7, 0.6], dtype=np.float32)
+
+    assert score_overlap_spearman(scores, overlaps) > 0
+    assert highest_coverage_rank(overlaps, scores) == (2, False)
 
 
 def test_patch_overlap_fractions_match_patch_volume():

@@ -18,6 +18,7 @@ from tesi_m3d.train import (
     load_yaml_config,
     set_global_seed,
     subset_records,
+    train_one_epoch,
 )
 
 from _tiff_fixtures import make_fake_corpus
@@ -111,6 +112,39 @@ class TestBaselineAndResume(unittest.TestCase):
         self.assertEqual(without_improvement, 0)
         for expected, actual in zip(source.model.parameters(), target.model.parameters()):
             self.assertTrue(torch.equal(expected, actual))
+
+    def test_soft_target_ablation_uses_soft_score_for_loss(self) -> None:
+        try:
+            import torch
+        except ImportError:
+            self.skipTest("torch not installed")
+
+        class CapturingLoss(torch.nn.Module):
+            def forward(self, logits, target):
+                self.target = target.detach().clone()
+                return torch.nn.functional.binary_cross_entropy_with_logits(logits, target)
+
+        model = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(1, 1))
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.0)
+        loss = CapturingLoss()
+        batch = {
+            "image": torch.zeros((2, 1, 1, 1, 1)),
+            "label": torch.tensor([[1.0], [0.0]]),
+            "soft_score": torch.tensor([[0.25], [0.0]]),
+        }
+
+        train_one_epoch(model, [batch], loss, optimizer, target_key="soft_score")
+
+        self.assertTrue(torch.equal(loss.target.cpu(), batch["soft_score"]))
+
+    def test_soft_target_config_changes_only_the_training_target(self) -> None:
+        baseline = load_yaml_config("configs/train_pix2pix_balanced_patches.yaml")
+        soft = load_yaml_config("configs/train_pix2pix_soft_targets.yaml")
+
+        self.assertEqual(baseline["training"]["target"], "label")
+        self.assertEqual(soft["training"]["target"], "soft_score")
+        self.assertEqual(soft["training"]["loss"], baseline["training"]["loss"])
+        self.assertEqual(soft["patches"], baseline["patches"])
 
     def test_report_includes_ground_truth_slice(self) -> None:
         from pathlib import Path

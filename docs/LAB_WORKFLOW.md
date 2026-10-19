@@ -191,6 +191,28 @@ Output atteso:
 1/1 series passed
 ```
 
+### Audit intensità reale vs pix2pix
+
+Prima di attribuire al modello le differenze tra classi, confrontare coppie con
+lo stesso `img_id`, quindi la stessa anatomia sorgente:
+
+```powershell
+python -m tesi_m3d.audit_intensity `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --metadata-dir metadata\m3dsynth `
+  --split train --max-pairs 32 `
+  --out-dir outputs\intensity_audit_train
+```
+
+`volumes.csv` contiene intensità, percentili, offset stimato e statistiche dopo
+la stessa normalizzazione p1-p99 del training. `pairs.csv` mostra le differenze
+caso per caso. `summary.json` confronta le distribuzioni normalizzate tramite
+divergenza Jensen-Shannon, distanza KS e differenza media standardizzata.
+`no_large_shift_detected` permette di scartare una grossa scorciatoia di
+intensità, ma non dimostra che i due domini siano identici. L'offset grezzo può
+essere diverso senza essere un problema: il controllo decisivo è quello dopo
+normalizzazione.
+
  Con `--preview-dir` scrive anche, per ogni serie,
 un montaggio di 9 slice assiali più una ricostruzione coronale e una sagittale
 in PNG già finestrate sul polmone: le due ricostruzioni sono il modo più rapido
@@ -231,13 +253,6 @@ Il nome `label` deve contenere le mask con gli stessi `img_id` di pix2pix.
 Il dataset contiene ~4.2 milioni di patch su 3262 serie TIFF (239 GB totali).
 Senza ottimizzazione, ogni batch ricarica i TIFF dal disco (88 sec/batch = infattibile).
 
-**Ottimizzazioni implementate**:
-- **LRU cache dei TIFF** (`@lru_cache maxsize=1000`): la stessa serie non viene
-  ricaricata dal disco se già in RAM. Cache capace di ~75 GB.
-- **Normalized paths**: sempre `resolved()` per consistency nel cache key.
-
-Speedup atteso: **~50-100×** (da 88 sec/batch a 0.5-1 sec/batch), rendendo il
-training completabile in **7-15 ore per epoch**.
 
 ## 14. Training: pix2pix
 
@@ -328,9 +343,6 @@ Questa run:
 - bilancia classi con `WeightedRandomSampler`;
 - allena il classificatore 3D e salva il checkpoint.
 
-**Progresso e memoria**: Il comando stampa barre di progresso (tqdm). Il primo epoch
-carica le serie in RAM (~75 GB peak). I successivi riutilizzano i dati cachati (molto
-più veloce). Tempo atteso: ~7-15 ore per epoch, ~50 epoch = 350 ore = ~15 giorni.
 
 Output:
 
@@ -364,6 +376,26 @@ La variante isotropica `configs\train_pix2pix_balanced_isotropic.yaml` con patch
 lo stesso protocollo e lo stesso sottoinsieme deterministico della balanced
 voxel-native: massimo 256 record di training, 64 di validation e seed 21, con
 un limite di 4096 patch per epoca. 
+
+### Singola ablation con target soft
+
+La configurazione seguente mantiene dataset, patch, sampler, modello e budget
+della balanced invariati. Cambia soltanto il target della loss da `label`
+binaria a `soft_score`, cioè la frazione dei 32x32x32 voxel della patch coperta
+dalla mask. Le patch con copertura tra 0 e 5% restano escluse: includerle nello
+stesso esperimento confonderebbe l'effetto del target con quello del sampling.
+AP e AUC di validation restano calcolate sulle label hard, così selezione del
+checkpoint e confronto con la baseline rimangono omogenei.
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_soft_targets.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+```
+
+Confrontare poi il suo `best.pt` con la balanced usando esattamente lo stesso
+comando `evaluate_patch_level` descritto sotto.
 
 Per costruire il corpus isotropico a 1 mm, convertire insieme scansioni e mask.
 
@@ -446,8 +478,16 @@ python -m tesi_m3d.evaluate_patch_level `
 ### Metriche macro compatibili con il protocollo del paper
 
 Per ogni volume manipolato, il comando seguente confronta la heatmap 3D con la
-mask e calcola ROC-AUC voxel-wise e massima balanced accuracy. Il report contiene
+mask e calcola ROC-AUC voxel-wise, massima balanced accuracy, lung-AUC e
+lung-AP. Il report contiene
 una riga per volume e media/deviazione standard complessive e per generatore.
+
+La ROI polmonare è stimata dai valori CT grezzi prima della normalizzazione. Per
+non premiare un errore della segmentazione automatica, ai fini della metrica si
+usa `lung_mask OR ground_truth`; `lung_truth_coverage` indica separatamente
+quanta mask era già compresa nella sola ROI stimata. Lung-AUC elimina gran parte
+dei negativi anatomici facili; lung-AP resta informativa quando i voxel
+manipolati sono rari anche dentro il polmone.
 
 Sulla validation pix2pix corrente:
 
@@ -537,6 +577,14 @@ della top-1 dalla mask e AUC/accuracy volume-level. `volumes.csv` contiene i
 risultati dei singoli volumi manipolati; `images` contiene una tavola per volume
 con centro della mask e le prime cinque patch. Verde indica la mask, ciano una
 patch che la interseca, rosso/arancio/giallo rispettivamente top-1/top-3/top-5.
+
+Ogni pannello riporta score del modello, `soft_score` (percentuale di voxel
+manipolati), target hard risultante, coordinate e distanza dal centro della
+mask. `metrics.json` aggiunge la correlazione di Spearman tra score e
+`soft_score`, mentre `volumes.csv` riporta il rank della patch più coperta e se
+essa coincide con la top-1. Se score e ranking sono corretti ma il riquadro è
+lontano dalla mask, il sospetto si sposta sulla ricostruzione/visualizzazione;
+se correlazione e rank sono scarsi, il problema è già nello score del modello.
 
 ### Esperimento: hard-negative mining
 
