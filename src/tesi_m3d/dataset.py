@@ -232,9 +232,9 @@ def _load_tiff_stack_impl(dirname_str: str, dtype_name: str) -> np.ndarray:
     """Load TIFF stack from disk (shared implementation)."""
 
     try:
-        from PIL import Image
+        import tifffile
     except ImportError as exc:  # pragma: no cover - depends on optional env
-        raise RuntimeError("Pillow is required to load M3Dsynth TIFF stacks") from exc
+        raise RuntimeError("tifffile is required to load M3Dsynth TIFF stacks") from exc
 
     target_dtype = np.dtype(dtype_name)
     dirname = Path(dirname_str)
@@ -244,8 +244,7 @@ def _load_tiff_stack_impl(dirname_str: str, dtype_name: str) -> np.ndarray:
         filename = dirname / f"slide{index:04d}.tiff"
         if not filename.exists():
             break
-        with Image.open(filename) as image:
-            slices.append(np.asarray(image))
+        slices.append(tifffile.imread(filename))
         index += 1
     if not slices:
         raise FileNotFoundError(f"no TIFF slices found in {dirname}")

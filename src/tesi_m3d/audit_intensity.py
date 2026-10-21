@@ -9,8 +9,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .dataset import load_tiff_stack, read_records, scan_dir
+from .dataset import read_records, scan_dir
 from .lung import estimate_ct_offset_from_histogram
+from .volume_io import SLICE_TEMPLATE, count_contiguous_slices
 
 
 def _resolve_path(path: str | Path) -> Path:
@@ -33,13 +34,13 @@ def _histogram_percentile(histogram: np.ndarray, percentile: float) -> float:
     return float(np.searchsorted(cumulative, target, side="right"))
 
 
-def _volume_statistics(scan: np.ndarray) -> tuple[dict[str, float | int], np.ndarray]:
-    """Calculate exact uint16 and post-normalization statistics from one histogram."""
+def _statistics_from_histogram(
+    histogram: np.ndarray,
+    shape: tuple[int, int, int],
+) -> tuple[dict[str, float | int], np.ndarray]:
+    """Calculate exact stored-value and post-normalization statistics."""
 
-    scan = np.asarray(scan)
-    if scan.ndim != 3 or not np.issubdtype(scan.dtype, np.integer):
-        raise ValueError("intensity audit requires a 3-D integer TIFF volume")
-    histogram = np.bincount(scan.reshape(-1), minlength=65536).astype(np.float64)
+    histogram = np.asarray(histogram, dtype=np.float64)
     values = np.arange(histogram.size, dtype=np.float64)
     total = float(histogram.sum())
     nonzero_histogram = histogram.copy()
@@ -61,10 +62,11 @@ def _volume_statistics(scan: np.ndarray) -> tuple[dict[str, float | int], np.nda
     raw_mean = float(np.sum(histogram * values) / total)
     raw_variance = float(np.sum(histogram * (values - raw_mean) ** 2) / total)
     offset, air_peak = estimate_ct_offset_from_histogram(histogram)
+    stored_values = np.flatnonzero(histogram)
     nonzero_values = np.flatnonzero(nonzero_histogram)
     stats: dict[str, float | int] = {
-        "depth": int(scan.shape[0]), "height": int(scan.shape[1]), "width": int(scan.shape[2]),
-        "stored_min": int(np.min(scan)), "stored_max": int(np.max(scan)),
+        "depth": int(shape[0]), "height": int(shape[1]), "width": int(shape[2]),
+        "stored_min": int(stored_values[0]), "stored_max": int(stored_values[-1]),
         "stored_mean": raw_mean, "stored_std": float(np.sqrt(raw_variance)),
         "zero_fraction": float(histogram[0] / total),
         "nonzero_min": int(nonzero_values[0]) if nonzero_values.size else 0,
@@ -76,6 +78,50 @@ def _volume_statistics(scan: np.ndarray) -> tuple[dict[str, float | int], np.nda
         "normalized_above_one_fraction": float(histogram[normalized > 1].sum() / total),
     }
     return stats, normalized_histogram
+
+
+def _volume_statistics(scan: np.ndarray) -> tuple[dict[str, float | int], np.ndarray]:
+    """Calculate statistics for a 3-D integer scan (used by small checks)."""
+
+    scan = np.asarray(scan)
+    if scan.ndim != 3 or not np.issubdtype(scan.dtype, np.integer):
+        raise ValueError("intensity audit requires a 3-D integer TIFF volume")
+    if np.any(scan < 0) or np.max(scan) >= 65536:
+        raise ValueError("intensity audit expects stored values in [0, 65535]")
+    histogram = np.bincount(scan.reshape(-1), minlength=65536)
+    return _statistics_from_histogram(histogram, tuple(scan.shape))
+
+
+def _directory_statistics(directory: Path) -> tuple[dict[str, float | int], np.ndarray]:
+    """Read a TIFF stack one slice at a time, keeping only its 16-bit histogram."""
+
+    try:
+        import tifffile
+    except ImportError as exc:  # pragma: no cover - optional runtime
+        raise RuntimeError("tifffile is required to audit TIFF stacks") from exc
+
+    depth = count_contiguous_slices(directory)
+    if depth == 0:
+        raise FileNotFoundError(f"no TIFF slices found in {directory}")
+    print(f"      found {depth} numbered TIFF slices: {directory.name}", flush=True)
+    histogram = np.zeros(65536, dtype=np.uint64)
+    plane_shape = None
+    for index in range(depth):
+        path = directory / SLICE_TEMPLATE.format(index)
+        if index % 32 == 0:
+            print(f"      opening slice {index}/{depth}: {path.name}", flush=True)
+        plane = tifffile.imread(path)
+        if not np.issubdtype(plane.dtype, np.integer) or np.any(plane < 0) or np.max(plane) >= 65536:
+            raise ValueError(f"{path} contains values outside the expected uint16 range")
+        if plane_shape is None:
+            plane_shape = plane.shape
+        elif plane.shape != plane_shape:
+            raise ValueError(f"inconsistent TIFF slice shape in {directory}: {plane.shape} != {plane_shape}")
+        histogram += np.bincount(plane.reshape(-1), minlength=65536).astype(np.uint64)
+        if (index + 1) % 32 == 0 or index + 1 == depth:
+            print(f"      slices {index + 1}/{depth}: {directory.name}", flush=True)
+    assert plane_shape is not None
+    return _statistics_from_histogram(histogram, (depth, *plane_shape))
 
 
 def _jensen_shannon(first: np.ndarray, second: np.ndarray) -> float:
@@ -213,13 +259,13 @@ class IntensityAuditor:
                 pair_stats = {}
                 for domain, record in (("real", real_record), ("pix2pix", fake_record)):
                     directory = scan_dir(self.data_root, record, self.real_scan_root)
+                    print(f"    reading {domain}: {directory}", flush=True)
                     try:
-                        scan = load_tiff_stack(directory)
+                        stats, histogram = _directory_statistics(directory)
                     except Exception as exc:
                         raise RuntimeError(
-                            f"failed loading {domain} TIFF stack for {record.img_id}: {directory}"
+                            f"failed auditing {domain} TIFF stack for {record.img_id}: {directory}"
                         ) from exc
-                    stats, histogram = _volume_statistics(scan)
                     row = {"img_id": record.img_id, "domain": domain, "path": str(directory), **stats}
                     volume_rows.append(row)
                     volume_writer.writerow(row)
