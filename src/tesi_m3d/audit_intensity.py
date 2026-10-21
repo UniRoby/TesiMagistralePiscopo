@@ -13,6 +13,18 @@ from .dataset import load_tiff_stack, read_records, scan_dir
 from .lung import estimate_ct_offset_from_histogram
 
 
+def _resolve_path(path: str | Path) -> Path:
+    """Resolve relative CLI paths from cwd, falling back to the repository root."""
+
+    path = Path(path)
+    if path.is_absolute():
+        return path
+    repository_root = Path(__file__).resolve().parents[2]
+    if Path.cwd().resolve() == repository_root / "src":
+        return repository_root / path
+    return path if path.exists() else repository_root / path
+
+
 def _histogram_percentile(histogram: np.ndarray, percentile: float) -> float:
     cumulative = np.cumsum(histogram, dtype=np.int64)
     if cumulative[-1] == 0:
@@ -87,14 +99,14 @@ class IntensityAuditor:
         seed: int = 21,
         real_scan_root: str | Path | None = None,
     ) -> None:
-        self.data_root = Path(data_root)
-        self.metadata_dir = Path(metadata_dir)
+        self.data_root = _resolve_path(data_root)
+        self.metadata_dir = _resolve_path(metadata_dir)
         self.split = split
         if max_pairs is not None and max_pairs < 1:
             raise ValueError("max_pairs must be at least 1 or None")
         self.max_pairs = max_pairs
         self.seed = int(seed)
-        self.real_scan_root = Path(real_scan_root) if real_scan_root else None
+        self.real_scan_root = _resolve_path(real_scan_root) if real_scan_root else None
 
     def _pairs(self):
         records = read_records(self.metadata_dir)
@@ -163,50 +175,90 @@ class IntensityAuditor:
         }
 
     def run(self, output_dir: str | Path) -> dict:
-        """Run the paired audit and write ``volumes.csv``, ``pairs.csv`` and JSON."""
+        """Run the paired audit, checkpoint CSV rows, then write the summary JSON."""
 
-        output_dir = Path(output_dir)
+        output_dir = _resolve_path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        pairs = self._pairs()
+        print(f"Intensity audit: {len(pairs)} matched pairs; output: {output_dir}", flush=True)
         volume_rows, pair_rows = [], []
         rows_by_domain = {"real": [], "pix2pix": []}
         histograms = {"real": [], "pix2pix": []}
-        for real_record, fake_record in self._pairs():
-            pair_stats = {}
-            for domain, record in (("real", real_record), ("pix2pix", fake_record)):
-                directory = scan_dir(self.data_root, record, self.real_scan_root)
-                stats, histogram = _volume_statistics(load_tiff_stack(directory))
-                row = {"img_id": record.img_id, "domain": domain, "path": str(directory), **stats}
-                volume_rows.append(row)
-                rows_by_domain[domain].append(row)
-                histograms[domain].append(histogram)
-                pair_stats[domain] = stats
-            pair_rows.append({
-                "img_id": real_record.img_id,
-                "shape_match": all(
-                    pair_stats["real"][axis] == pair_stats["pix2pix"][axis]
-                    for axis in ("depth", "height", "width")
-                ),
-                "real_offset": pair_stats["real"]["estimated_offset"],
-                "pix2pix_offset": pair_stats["pix2pix"]["estimated_offset"],
-                "delta_nonzero_p01": (
-                    pair_stats["pix2pix"]["nonzero_p01"] - pair_stats["real"]["nonzero_p01"]
-                ),
-                "delta_nonzero_p50": (
-                    pair_stats["pix2pix"]["nonzero_p50"] - pair_stats["real"]["nonzero_p50"]
-                ),
-                "delta_nonzero_p99": (
-                    pair_stats["pix2pix"]["nonzero_p99"] - pair_stats["real"]["nonzero_p99"]
-                ),
-                "delta_normalized_mean": (
-                    pair_stats["pix2pix"]["normalized_mean"] - pair_stats["real"]["normalized_mean"]
-                ),
-                "delta_normalized_std": (
-                    pair_stats["pix2pix"]["normalized_std"] - pair_stats["real"]["normalized_std"]
-                ),
-                "delta_zero_fraction": (
-                    pair_stats["pix2pix"]["zero_fraction"] - pair_stats["real"]["zero_fraction"]
-                ),
-            })
+        volume_fields = [
+            "img_id", "domain", "path", "depth", "height", "width", "stored_min", "stored_max",
+            "stored_mean", "stored_std", "zero_fraction", "nonzero_min", "nonzero_p01",
+            "nonzero_p50", "nonzero_p99", "estimated_offset", "air_peak_stored",
+            "normalized_mean", "normalized_std", "normalized_below_zero_fraction",
+            "normalized_above_one_fraction",
+        ]
+        pair_fields = [
+            "img_id", "shape_match", "real_offset", "pix2pix_offset", "delta_nonzero_p01",
+            "delta_nonzero_p50", "delta_nonzero_p99", "delta_normalized_mean",
+            "delta_normalized_std", "delta_zero_fraction",
+        ]
+        with (output_dir / "volumes.csv").open("w", newline="", encoding="utf-8") as volume_handle, (
+            output_dir / "pairs.csv"
+        ).open("w", newline="", encoding="utf-8") as pair_handle:
+            volume_writer = csv.DictWriter(volume_handle, fieldnames=volume_fields)
+            pair_writer = csv.DictWriter(pair_handle, fieldnames=pair_fields)
+            volume_writer.writeheader()
+            pair_writer.writeheader()
+            volume_handle.flush()
+            pair_handle.flush()
+            for pair_index, (real_record, fake_record) in enumerate(pairs, start=1):
+                print(
+                    f"[{pair_index}/{len(pairs)}] loading real/pix2pix pair {real_record.img_id}",
+                    flush=True,
+                )
+                pair_stats = {}
+                for domain, record in (("real", real_record), ("pix2pix", fake_record)):
+                    directory = scan_dir(self.data_root, record, self.real_scan_root)
+                    try:
+                        scan = load_tiff_stack(directory)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"failed loading {domain} TIFF stack for {record.img_id}: {directory}"
+                        ) from exc
+                    stats, histogram = _volume_statistics(scan)
+                    row = {"img_id": record.img_id, "domain": domain, "path": str(directory), **stats}
+                    volume_rows.append(row)
+                    volume_writer.writerow(row)
+                    volume_handle.flush()
+                    rows_by_domain[domain].append(row)
+                    histograms[domain].append(histogram)
+                    pair_stats[domain] = stats
+
+                pair_row = {
+                    "img_id": real_record.img_id,
+                    "shape_match": all(
+                        pair_stats["real"][axis] == pair_stats["pix2pix"][axis]
+                        for axis in ("depth", "height", "width")
+                    ),
+                    "real_offset": pair_stats["real"]["estimated_offset"],
+                    "pix2pix_offset": pair_stats["pix2pix"]["estimated_offset"],
+                    "delta_nonzero_p01": (
+                        pair_stats["pix2pix"]["nonzero_p01"] - pair_stats["real"]["nonzero_p01"]
+                    ),
+                    "delta_nonzero_p50": (
+                        pair_stats["pix2pix"]["nonzero_p50"] - pair_stats["real"]["nonzero_p50"]
+                    ),
+                    "delta_nonzero_p99": (
+                        pair_stats["pix2pix"]["nonzero_p99"] - pair_stats["real"]["nonzero_p99"]
+                    ),
+                    "delta_normalized_mean": (
+                        pair_stats["pix2pix"]["normalized_mean"] - pair_stats["real"]["normalized_mean"]
+                    ),
+                    "delta_normalized_std": (
+                        pair_stats["pix2pix"]["normalized_std"] - pair_stats["real"]["normalized_std"]
+                    ),
+                    "delta_zero_fraction": (
+                        pair_stats["pix2pix"]["zero_fraction"] - pair_stats["real"]["zero_fraction"]
+                    ),
+                }
+                pair_rows.append(pair_row)
+                pair_writer.writerow(pair_row)
+                pair_handle.flush()
+                print(f"[{pair_index}/{len(pairs)}] completed {real_record.img_id}", flush=True)
 
         comparison = self._comparison(
             rows_by_domain["real"], rows_by_domain["pix2pix"],
@@ -219,11 +271,6 @@ class IntensityAuditor:
             "comparison": comparison,
             "interpretation": "The heuristic is a screening test, not proof that the domains are indistinguishable.",
         }
-        for filename, rows in (("volumes.csv", volume_rows), ("pairs.csv", pair_rows)):
-            with (output_dir / filename).open("w", newline="", encoding="utf-8") as handle:
-                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-                writer.writeheader()
-                writer.writerows(rows)
         (output_dir / "summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         return report
 
