@@ -1,0 +1,100 @@
+{
+  "n_pairs": 32,
+  "split": "train",
+  "normalization": "same non-zero p01/p99 scaling used by the training dataset",
+  "domains": {
+    "real": {
+      "zero_fraction": {
+        "mean": 0.17855195004609117,
+        "std": 0.07030241227788908
+      },
+      "nonzero_p01": {
+        "mean": 1046.875,
+        "std": 740.2718659275597
+      },
+      "nonzero_p50": {
+        "mean": 1672.375,
+        "std": 735.9199092993923
+      },
+      "nonzero_p99": {
+        "mean": 2578.3125,
+        "std": 735.2905257502401
+      },
+      "estimated_offset": {
+        "mean": 2088.0,
+        "std": 763.557040985616
+      },
+      "normalized_mean": {
+        "mean": 0.17153716060443375,
+        "std": 0.13770234887456972
+      },
+      "normalized_std": {
+        "mean": 0.5331434297313133,
+        "std": 0.16574156304551024
+      },
+      "normalized_below_zero_fraction": {
+        "mean": 0.18257593961641053,
+        "std": 0.06838293948996949
+      },
+      "normalized_above_one_fraction": {
+        "mean": 0.008198043954883865,
+        "std": 0.0006997015652716102
+      }
+    },
+    "pix2pix": {
+      "zero_fraction": {
+        "mean": 0.17855135225976337,
+        "std": 0.07030317750003016
+      },
+      "nonzero_p01": {
+        "mean": 1046.8125,
+        "std": 740.2770814080795
+      },
+      "nonzero_p50": {
+        "mean": 1672.3125,
+        "std": 735.9829257092068
+      },
+      "nonzero_p99": {
+        "mean": 2578.375,
+        "std": 735.2128394926456
+      },
+      "estimated_offset": {
+        "mean": 2088.0,
+        "std": 763.557040985616
+      },
+      "normalized_mean": {
+        "mean": 0.1715623195358934,
+        "std": 0.13770983987463453
+      },
+      "normalized_std": {
+        "mean": 0.5331205524604559,
+        "std": 0.16575290808877438
+      },
+      "normalized_below_zero_fraction": {
+        "mean": 0.18257488568723487,
+        "std": 0.06838366026071067
+      },
+      "normalized_above_one_fraction": {
+        "mean": 0.008197730662679644,
+        "std": 0.0007001970554156709
+      }
+    }
+  },
+  "comparison": {
+    "normalized_histogram_js_divergence": 7.077582085953094e-07,
+    "normalized_histogram_ks_distance": 7.642044662059533e-05,
+    "standardized_mean_difference": {
+      "normalized_mean": 0.00018562359226842782,
+      "normalized_std": -0.00014023359328677157
+    },
+    "offset_match_rate": 1.0,
+    "shape_match_rate": 1.0,
+    "heuristic_result": "no_large_shift_detected",
+    "heuristic_thresholds": {
+      "js_divergence": 0.05,
+      "ks_distance": 0.1,
+      "abs_smd": 0.5
+    }
+  },
+  "interpretation": "The heuristic is a screening test, not proof that the domains are indistinguishable."
+}
