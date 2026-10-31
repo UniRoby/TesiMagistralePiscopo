@@ -2,6 +2,7 @@
 
 __all__ = [
     "audit_intensity",
+    "audit_local_artifacts",
     "dataset",
     "evaluation",
     "inference",

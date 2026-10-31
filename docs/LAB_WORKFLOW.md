@@ -427,6 +427,13 @@ python -m tesi_m3d.train `
 Confrontare poi il suo `best.pt` con la balanced usando esattamente lo stesso
 comando `evaluate_patch_level` descritto sotto.
 
+Per provare separatamente una soglia positiva più permissiva, usare
+[`train_pix2pix_overlap_1pct.yaml`](../configs/train_pix2pix_overlap_1pct.yaml):
+mantiene il target binario e gli altri parametri della balanced, cambiando
+solo la soglia dal 5% all'1%. I comandi dei due training e delle valutazioni
+con una definizione comune delle patch sono nel
+[`registro delle verifiche`](REGISTRO_DIAGNOSI_LOCALIZZAZIONE.md#4-soglia-delle-patch-positive-ranking-e-target-di-training).
+
 Per costruire il corpus isotropico a 1 mm, convertire insieme scansioni e mask.
 
 ```powershell
