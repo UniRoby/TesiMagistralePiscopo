@@ -191,6 +191,12 @@ Output atteso:
 1/1 series passed
 ```
 
+Con `--preview-dir`, il controllo dei TIFF reali scrive anche, per ogni serie,
+un montaggio di 9 slice assiali più una ricostruzione coronale e una sagittale
+in PNG già finestrate sul polmone: le due ricostruzioni aiutano a vedere slice
+duplicate o fuori ordine. Usare `--limit N` per controllare solo le prime N
+serie.
+
 ### Audit intensità reale vs pix2pix
 
 Prima di attribuire al modello le differenze tra classi, confrontare coppie con
@@ -213,11 +219,35 @@ intensità, ma non dimostra che i due domini siano identici. L'offset grezzo pu�
 essere diverso senza essere un problema: il controllo decisivo è quello dopo
 normalizzazione.
 
- Con `--preview-dir` scrive anche, per ogni serie,
-un montaggio di 9 slice assiali più una ricostruzione coronale e una sagittale
-in PNG già finestrate sul polmone: le due ricostruzioni sono il modo più rapido
-per accorgersi di slice duplicate o fuori ordine, che vi appaiono come scalini.
-Usare `--limit N` per controllare solo le prime N serie.
+### Audit locale dentro e fuori dalla mask
+
+Per cercare differenze piccole che l'audit globale può diluire, iniziare con
+una sola coppia e poi usare le stesse 32 coppie (`--seed 21`) dell'audit sopra:
+
+```powershell
+python -m tesi_m3d.audit_local_artifacts `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --metadata-dir metadata\m3dsynth `
+  --split train --max-pairs 1 `
+  --out-dir outputs\local_artifact_audit_smoke
+
+python -m tesi_m3d.audit_local_artifacts `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --metadata-dir metadata\m3dsynth `
+  --split train --max-pairs 32 `
+  --out-dir outputs\local_artifact_audit_train
+```
+
+`regions.csv` contiene, per coppia, le differenze assolute e di gradiente
+sul piano assiale nella mask, nei quattro voxel vicini per asse e lontano da
+essa. Fuori dalla mask si ignorano i voxel zero in uno dei due TIFF.
+`summary.json` riassume le medie delle coppie; `previews/` mostra la slice con
+più voxel annotati e, se diversa, quella con la maggiore differenza totale
+fuori dalla mask, usando la stessa finestra per reale e pix2pix. Il pannello
+delle differenze è riscalato per essere leggibile: usare i valori del CSV per
+confrontare quantitativamente coppie diverse. Differenze fuori dalla mask
+non dimostrano da sole che la rete le stia usando: vanno confrontate con gli
+score delle patch.
 
 ## 11. Allineamento automatico scan/mask z-dimension
 
