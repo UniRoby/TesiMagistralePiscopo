@@ -1,10 +1,10 @@
 # Usable 1–2 hour pix2pix baseline for the laboratory GPU.
 # It reduces records and patches, never the training stride, so positive
 # manipulation patches remain available and inference localization is unchanged.
-experiment_name: train_pix2pix_baseline
+experiment_name: train_pix2pix_baseline_resnet18_medicalnet
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/train_pix2pix_baseline
+output_dir: outputs/train_pix2pix_baseline_resnet18_medicalnet
 
 split:
   train_set: train
@@ -32,10 +32,10 @@ patches:
   max_valid_patches_per_volume: 64
 
 model:
-  name: simple_3d_cnn
+  name: resnet18_medicalnet
   in_channels: 1
   num_classes: 1
-  base_channels: 16
+  medicalnet_weights: checkpoints/medicalnet/resnet_18_23dataset.pth
   dropout: 0.2
 
 training:

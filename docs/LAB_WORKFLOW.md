@@ -3,6 +3,11 @@
 Guida  per configurare la macchina, validare i dati e avviare gli
 esperimenti.
 
+Questo branch sostituisce la CNN compatta con **ResNet-18 3D inizializzata con
+MedicalNet (23 dataset)**. La testa binaria viene addestrata sul task di
+manipolazione; tutto l’encoder viene aggiornato durante il fine-tuning.
+Non esiste un’opzione per avviare ResNet con pesi casuali.
+
 ## 1. Ambiente disponibile
 
 - Windows, esecuzione locale tramite Conda.
@@ -56,21 +61,54 @@ python -c "import torch; print('torch', torch.__version__); print('cuda', torch.
 
 Risultato necessario: `cuda True` e nome RTX 5060 Ti.
 
-## 5. Test del codice senza dataset
+## 5. Pesi MedicalNet e test senza dataset
+
+Dalla root del repository, nell'ambiente Python attivo, installare anche le
+nuove dipendenze se l'ambiente esisteva già:
+
+```powershell
+python -m pip install -e ".[dev,train,conversion]"
+```
+
+Scaricare una sola volta il checkpoint ufficiale (circa 132 MB):
+
+```powershell
+New-Item -ItemType Directory -Force checkpoints\medicalnet | Out-Null
+Invoke-WebRequest `
+  -Uri "https://huggingface.co/TencentMedicalNet/MedicalNet-Resnet18/resolve/758fe28/resnet_18_23dataset.pth" `
+  -OutFile checkpoints\medicalnet\resnet_18_23dataset.pth
+Get-FileHash checkpoints\medicalnet\resnet_18_23dataset.pth -Algorithm SHA256
+```
+
+SHA256 atteso:
+`61224f9317fcce873366deb3703183e92cc47325b726b69691b33536244e10f4`.
+Il codice verifica automaticamente questo hash e carica **tutti** i pesi
+dell'encoder con controllo rigoroso delle chiavi. File assente, corrotto o di
+un'altra versione: errore prima dell'indicizzazione del dataset. Non viene
+avviato un training casuale e non vengono ignorati pesi incompatibili.
+Il percorso si può cambiare in `model.medicalnet_weights` nel file YAML;
+i percorsi relativi sono risolti dalla directory di esecuzione.
+
+Fonti: [MedicalNet](https://github.com/Tencent/MedicalNet),
+[checkpoint ufficiale](https://huggingface.co/TencentMedicalNet/MedicalNet-Resnet18/blob/main/resnet_18_23dataset.pth).
+I blocchi ResNet sono forniti da MONAI; shortcut A, stride iniziale 2 e stadi
+finali con dilatazione 2/4 riproducono l'encoder MedicalNet originale.
 
 ```powershell
 python -m pytest -q -p no:cacheprovider
-python scripts\smoke_synthetic_training.py
+python scripts\smoke_synthetic_training.py --device cuda
 ```
 
-Atteso:
+I test unitari non richiedono dataset esterni o download: usano fixture controllate per
+verificare caricamento, errori e ripristino. Lo smoke usa invece i pesi
+MedicalNet reali, esegue due passi di fine-tuning e produce:
 
-- tutti i test passano;
-- loss numerica, non `nan`;
-- `outputs\synthetic_smoke\synthetic_patch3d.pt`;
-- heatmap con shape `(64, 64, 64)`.
+- loss e gradienti finiti;
+- `outputs\synthetic_smoke_resnet18_medicalnet\synthetic_patch3d.pt`;
+- `outputs\synthetic_smoke_resnet18_medicalnet\synthetic_heatmap.npy`, shape `(64, 64, 64)`.
 
-Questa fase dimostra solo che la pipeline funziona end-to-end.
+Per lo smoke su CPU omettere `--device cuda`. Questa verifica controlla la
+pipeline, non misura la qualità scientifica della localizzazione.
 
 ## 6. Ruolo dei CSV
 
@@ -284,415 +322,193 @@ Il dataset contiene ~4.2 milioni di patch su 3262 serie TIFF (239 GB totali).
 Senza ottimizzazione, ogni batch ricarica i TIFF dal disco (88 sec/batch = infattibile).
 
 
-## 14. Training: pix2pix
+## 14. Esperimento ResNet-18 MedicalNet: pix2pix
 
-### Baseline rapida 
+La configurazione di partenza è
+[`train_pix2pix_balanced_patches.yaml`](../configs/train_pix2pix_balanced_patches.yaml).
+Le patch restano `32x32x32`, stride train 32 e inferenza 16, soglia positiva 5%,
+8 positive e 24 negative nei batch manipolati. Sono mantenuti seed 21, massimo
+256 record train, 64 validation, 4096 patch per epoca e 16 epoche. La loss è
+focal con target binario; il learning rate resta `3e-4`.
 
-Per ottenere un checkpoint utilizzabile per detection e heatmap senza eseguire
-il protocollo completo da 50 epoche, usare la configurazione limitata a 256
-record di training, 64 di validation e 4.096 patch per epoca:
+Il cambio riguarda encoder e inizializzazione. Preprocessing, dati e sampling
+restano quelli della balanced, per evitare di mescolare questa prova con
+resampling isotropico, target soft o hard-negative mining.
+
+```yaml
+model:
+  name: resnet18_medicalnet
+  in_channels: 1
+  num_classes: 1
+  medicalnet_weights: checkpoints/medicalnet/resnet_18_23dataset.pth
+  dropout: 0.2
+```
+
+Tutte le configurazioni del branch usano MedicalNet. Ogni `output_dir` termina
+con `_resnet18_medicalnet`, così i risultati storici della CNN non vengono
+sovrascritti. La run balanced scrive in:
+
+```text
+outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\
+```
+
+### Dry-run e training
 
 ```powershell
 python -m tesi_m3d.train `
-  --config configs\train_pix2pix_baseline.yaml `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda --dry-run
+
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_balanced_patches.yaml `
   --data-root "C:\Tesi Magistrale Piscopo" `
   --device cuda
 ```
 
-Prima eseguire il controllo della dimensione effettiva del sampler:
+Il dry-run carica e verifica MedicalNet, costruisce l'indice e riporta il
+campionamento, ma non esegue forward/backward: lo smoke del punto 5 verifica
+questi ultimi. Avviare la prima run senza `--resume` e senza `--init-checkpoint`.
+La testa finale è nuova; i pesi dell'encoder provengono obbligatoriamente da
+MedicalNet. Non usare i checkpoint della vecchia CNN su questo branch:
+le architetture sono incompatibili. Gli output storici restano consultabili,
+e il vecchio branch consente di riprodurre quella pipeline.
 
-```powershell
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_baseline.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda --dry-run
-```
-
-Il dry-run deve riportare fino a 256 record selezionati, circa 128 batch per
-epoca e positivi non nulli. Record reali che condividono la stessa scansione
-vengono raggruppati e possono ridurre leggermente il numero esatto di batch. 
-
-Per monitorare il confronto, in un secondo terminale eseguire:
-
-Eseguire una configurazione alla volta, senza `--resume`:
-
-```powershell
-python -m tesi_m3d.train --config configs\train_pix2pix_workers0_benchmark.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda
-python -m tesi_m3d.train --config configs\train_pix2pix_workers2_benchmark.yaml --data-root "C:\Tesi Magistrale Piscopo" --device cuda
-```
+Monitorare memoria e utilizzo GPU da un secondo terminale:
 
 ```powershell
 nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv -l 1
 ```
 
-Ogni checkpoint contiene anche optimizer, AMP scaler ed epoca. Per proseguire
-una run interrotta, aumentare `training.epochs` oltre l'epoca salvata e usare:
+ResNet richiede più memoria e tempo della CNN compatta. Il batch iniziale
+resta 32. Se la GPU esaurisce la memoria, ridurre `training.batch_size` a 8
+mantenendo `patches.max_patches_per_volume: 32`; annotare questa variazione
+nel confronto. Per calibrazione e inferenza si può ridurre separatamente
+`evaluation.calibration_batch_size` o passare `--batch-size 8` alle CLI.
+
+### Checkpoint e ripresa
+
+`metrics.csv` contiene loss train/validation e AP/AUC patch campionate.
+`best.pt` è scelto con la migliore `valid_ap`; `patch3d_classifier.pt` è
+l'ultimo checkpoint, che può essere diverso. Usare **best.pt** nelle
+valutazioni successive. La scelta del checkpoint conserva il criterio
+precedente: AP campionata e AP densa misurano distribuzioni diverse.
+
+Per riprendere una run interrotta:
 
 ```powershell
 python -m tesi_m3d.train `
-  --config configs\train_pix2pix_baseline.yaml `
+  --config configs\train_pix2pix_balanced_patches.yaml `
   --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda --resume outputs\train_pix2pix_baseline\checkpoint_epoch006.pt
+  --device cuda `
+  --resume outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\checkpoint_epoch006.pt
 ```
 
-I checkpoint creati prima di questa modifica contengono solo i pesi: sono
-validi per inferenza e possono riprendere il modello, ma l'optimizer verrà
-inizializzato di nuovo.
+La ripresa recupera encoder, testa, optimizer, epoca e AMP scaler. Il
+checkpoint completo contiene tutti i pesi: ripresa, inferenza e valutazione
+non richiedono il file MedicalNet originale. Un training nuovo lo richiede.
+Per proseguire oltre l'ultima epoca configurata, aumentare `training.epochs`.
 
-Il checkpoint migliore (`best.pt`) può produrre direttamente una heatmap e una
-decisione volume-level basata sul massimo della heatmap:
+Con circa 33 milioni di parametri, un checkpoint con stato AdamW occupa circa
+400 MB. Conservare 16 epoche più best e ultimo richiede circa **7 GB**, oltre
+a cache e report. Se C: ha poco spazio, passare al training
+`--output-dir "D:\Esperimenti Tesi\balanced_resnet18_medicalnet"` e usare
+quella directory in tutti i successivi comandi di ripresa e valutazione.
+In alternativa, `training.checkpoint_every_epoch: false` conserva soltanto
+best e ultimo; per riprendere usare `patch3d_classifier.pt` quando disponibile.
+
+## 15. Valutazione della localizzazione sulla validation
+
+Al termine del training, `calibration.json` contiene soglie distinte per
+detection e localizzazione, calibrate sulla validation, e i report visuali
+sono in `validation_report`. Valutare anche gli score sulla griglia densa:
+
+```powershell
+python -m tesi_m3d.evaluate_patch_level `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --split valid --device cuda --batch-size 8
+```
+
+Confrontare con i report storici in `outputs\train_pix2pix_balanced_patches`:
+
+- top-1/top-3/top-5 hit e distanza della top-1 dalla mask;
+- AP, precision e recall patch-level sulla griglia densa;
+- correlazione score/copertura e posizione delle patch più votate nelle immagini;
+- Dice/F1 e IoU della heatmap in `calibration.json`;
+- detection volume-level, distinta dalla localizzazione.
+
+Le immagini in `patch_level_report\images` mostrano centro della mask e
+prime cinque patch. Non considerare sufficiente un aumento della sola AUC.
+Il registro storico della CNN è
+[`REGISTRO_DIAGNOSI_LOCALIZZAZIONE.md`](REGISTRO_DIAGNOSI_LOCALIZZAZIONE.md):
+i suoi numeri non descrivono ResNet.
+
+Per le metriche voxel dell'intero volume e della ROI polmonare:
+
+```powershell
+python -m tesi_m3d.evaluate_paper_protocol `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --checkpoint outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\best.pt `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --split valid --mods pix2pix --device cuda
+```
+
+Questo comando valuta tutte le scansioni manipolate dello split richiesto;
+la calibrazione e il report patch usano invece il sottoinsieme di validation
+configurato. Confrontare risultati ottenuti sugli stessi insiemi. La massima
+balanced accuracy per volume è una misura con soglia ottimizzata sulla sua
+mask, non una soglia operativa da usare su nuove scansioni.
+
+## 16. Inferenza su una CT
 
 ```powershell
 python -m tesi_m3d.inference `
-  --checkpoint outputs\train_pix2pix_baseline\best.pt `
+  --checkpoint outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\best.pt `
   --volume-dir "C:\Tesi Magistrale Piscopo\pix2pix\scan\<img_id>" `
-  --device cuda --out outputs\heatmap.npy
+  --device cuda --batch-size 8 `
+  --out outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\heatmap.npy
 ```
 
-La validation della baseline conserva tutte le patch positive di ciascun
-volume e campiona solo le negative rimanenti. Al termine del training viene
-creato `calibration.json` accanto a `best.pt`: contiene una soglia per la
-decisione volume-level e una separata per la maschera di localizzazione. La
-CLI le carica automaticamente; `--threshold <valore>` sostituisce solo la
-soglia di detection. Per scegliere esplicitamente il file della maschera usare
-`--mask-out outputs\heatmap_mask.npy`.
+Sostituire `<img_id>` con un volume esistente. La CLI usa le soglie del
+`calibration.json` accanto al checkpoint e salva heatmap e mask binaria.
+`--threshold` sostituisce soltanto la soglia di detection.
+Il modello produce sempre uno score per patch: il pretraining non lo
+trasforma in un segmentatore voxel-wise o in un modello MIL.
 
-```powershell
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_test_cycle_diffusion.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda
-```
+## 17. Test cross-generator
 
-Questa run:
-
-- legge split e record da `metadata\m3dsynth`;
-- usa pix2pix positivo e CT reali negativi del solo split train;
-- estrae patch `32x32x32` con stride train `32`;
-- esclude patch boundary con overlap positivo inferiore al 5%;
-- bilancia classi con `WeightedRandomSampler`;
-- allena il classificatore 3D e salva il checkpoint.
-
-
-Output:
-
-```text
-outputs\train_pix2pix_test_cycle_diffusion\patch3d_classifier.pt
-```
-
-### Baseline con campionamento e score volume migliorati
-
-La configurazione `train_pix2pix_baseline.yaml` seleziona il 67% dei volumi di
-ogni epoca tra quelli manipolati, senza duplicare patch nello stesso batch. Il
-dry-run riporta anche `positive_volumes_per_epoch`,
-`positive_patches_per_epoch` e `positive_patch_fraction`.
-
-La calibrazione confronta `max` con le medie top-k configurate e salva tutti i
-risultati in `calibration.json > classification > candidates`; lo score con
-AUC validation migliore viene usato dall'inferenza. In
-`outputs\train_pix2pix_baseline\validation_report` vengono inoltre salvati due
-esempi TP, FP, TN e FN con pannelli CT, heatmap, mask reale e predizione.
-
-
-### Esperimento: patch positive bilanciate
-
-`configs\train_pix2pix_balanced_patches.yaml` confronta la baseline con batch
-di volumi manipolati composti da 8 patch positive e 24 negative. Quando un
-volume ha meno di 8 patch positive, il sampler riusa solo quelle positive per
-raggiungere il target; le negative restano distinte. L'80% dei volumi per epoca
-è manipolato, per ottenere circa il 20% di patch positive sull'intera epoca.
-
-La variante isotropica `configs\train_pix2pix_balanced_isotropic.yaml` con patch 32³ realmente corrispondenti a 32 mm³, mantiene
-lo stesso protocollo e lo stesso sottoinsieme deterministico della balanced
-voxel-native: massimo 256 record di training, 64 di validation e seed 21, con
-un limite di 4096 patch per epoca. 
-
-### Singola ablation con target soft
-
-La configurazione seguente mantiene dataset, patch, sampler, modello e budget
-della balanced invariati. Cambia soltanto il target della loss da `label`
-binaria a `soft_score`, cioè la frazione dei 32x32x32 voxel della patch coperta
-dalla mask. Le patch con copertura tra 0 e 5% restano escluse: includerle nello
-stesso esperimento confonderebbe l'effetto del target con quello del sampling.
-AP e AUC di validation restano calcolate sulle label hard, così selezione del
-checkpoint e confronto con la baseline rimangono omogenei.
-
-```powershell
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_soft_targets.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda
-```
-
-Confrontare poi il suo `best.pt` con la balanced usando esattamente lo stesso
-comando `evaluate_patch_level` descritto sotto.
-
-Per provare separatamente una soglia positiva più permissiva, usare
-[`train_pix2pix_overlap_1pct.yaml`](../configs/train_pix2pix_overlap_1pct.yaml):
-mantiene il target binario e gli altri parametri della balanced, cambiando
-solo la soglia dal 5% all'1%. I comandi dei due training e delle valutazioni
-con una definizione comune delle patch sono nel
-[`registro delle verifiche`](REGISTRO_DIAGNOSI_LOCALIZZAZIONE.md#4-soglia-delle-patch-positive-ranking-e-target-di-training).
-
-Per costruire il corpus isotropico a 1 mm, convertire insieme scansioni e mask.
-
-```powershell
-python -m tesi_m3d.isotropic `
-  --source-root "C:\Tesi Magistrale Piscopo" `
-  --output-root "D:\Dataset Tesi Piscopo\M3Dsynth_isotropic_1mm" `
-  --metadata-dir metadata\m3dsynth `
-  --output-metadata-dir metadata\m3dsynth_isotropic_1mm `
-  --target-mm 1.0 `
-  --mods pix2pix real
-```
-
-Dopo una conversione completata senza errori, avviare una nuova baseline da
-zero senza `--resume`:
-
-```powershell
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_balanced_isotropic.yaml `
-  --data-root "D:\Dataset Tesi Piscopo\M3Dsynth_isotropic_1mm" `
-  --device cuda
-```
-
-Se la conversione viene interrotta, non avviare il training con i metadata
-completi: scrivere prima metadata limitati alle directory con marker
-`.complete`, poi eseguire il dry-run.
-
-```powershell
-python -m tesi_m3d.isotropic `
-  --source-root "C:\Tesi Magistrale Piscopo" `
-  --output-root "D:\Dataset Tesi Piscopo\M3Dsynth_isotropic_1mm" `
-  --metadata-dir metadata\m3dsynth `
-  --output-metadata-dir metadata\m3dsynth_isotropic_1mm `
-  --target-mm 1.0 `
-  --mods pix2pix real `
-  --metadata-only
-```
-
-```powershell
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_balanced_patches.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda --dry-run
-
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_balanced_patches.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda
-```
-
-Per confrontare `average` e `gaussian` sul medesimo `best.pt`, senza nuovo
-training, eseguire:
-
-```powershell
-python -m tesi_m3d.compare_aggregations `
-  --config configs\train_pix2pix_balanced_patches.yaml `
-  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda
-```
-
-Il comando crea `aggregation_comparison.json`, i due file
-`calibration_average.json` e `calibration_gaussian.json`, e report visuali
-separati. Nei volumi manipolati il report mostra sia la slice col massimo score
-sia quella centrale della mask reale.
-
-### Valutazione coerente con il classificatore patch-wise
-
-Dopo il training balanced, valutare direttamente gli score delle patch del
-`best.pt`, senza ricostruire una heatmap voxel-level:
-
-```powershell
-python -m tesi_m3d.evaluate_patch_level `
-  --config configs\train_pix2pix_balanced_patches.yaml `
-  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda
-```
-
-### Metriche macro compatibili con il protocollo del paper
-
-Per ogni volume manipolato, il comando seguente confronta la heatmap 3D con la
-mask e calcola ROC-AUC voxel-wise, massima balanced accuracy, lung-AUC e
-lung-AP. Il report contiene
-una riga per volume e media/deviazione standard complessive e per generatore.
-
-La ROI polmonare è stimata dai valori CT grezzi prima della normalizzazione. Per
-non premiare un errore della segmentazione automatica, ai fini della metrica si
-usa `lung_mask OR ground_truth`; `lung_truth_coverage` indica separatamente
-quanta mask era già compresa nella sola ROI stimata. Lung-AUC elimina gran parte
-dei negativi anatomici facili; lung-AP resta informativa quando i voxel
-manipolati sono rari anche dentro il polmone.
-
-Sulla validation pix2pix corrente:
-
-```powershell
-python -m tesi_m3d.evaluate_paper_protocol `
-  --config configs\train_pix2pix_mixed_hard_negative.yaml `
-  --checkpoint outputs\train_pix2pix_mixed_hard_negative\best.pt `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --split valid --mods pix2pix `
-  --device cuda
-```
-
-Per il test cross-generator completo, quando i TIFF cycle e diffusion:
-
-```powershell
-python -m tesi_m3d.evaluate_paper_protocol `
-  --config configs\train_pix2pix_mixed_hard_negative.yaml `
-  --checkpoint outputs\train_pix2pix_mixed_hard_negative\best.pt `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --split test --mods cycle diffusion `
-  --device cuda
-```
-
-Gli output sono `paper_protocol_<split>\per_volume.csv` e `summary.json`.
-I volumi reali sono esclusi perché una mask senza voxel positivi non definisce
-una ROC-AUC di localizzazione.
-
-### Test Pix2Pix → Diffusion con dataset esterno
-
-I metadata in `metadata\m3dsynth` restano quelli locali: identificano i record
-Diffusion dello split test; dal dataset esterno vengono letti solo scan e mask.
+Dopo aver fissato configurazione e checkpoint sulla validation, valutare il
+**medesimo best.pt** su cycle/diffusion quando i TIFF sono disponibili:
 
 ```powershell
 python -m tesi_m3d.evaluate_paper_protocol `
   --config configs\train_pix2pix_balanced_patches.yaml `
-  --checkpoint outputs\train_pix2pix_balanced_patches\patch3d_classifier.pt `
+  --checkpoint outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\best.pt `
   --data-root "D:\Dataset Tesi Piscopo" `
-  --split test --mods diffusion `
-  --device cuda `
-  --out-dir outputs\train_pix2pix_balanced_patches\paper_protocol_test_diffusion
+  --split test --mods cycle diffusion --device cuda
 ```
 
-Questo test misura la localizzazione voxel-wise (AUC e Max BA) sulle sole TAC
-manipolate. Per AUC/accuracy volume-level servono anche TAC reali dello stesso
-split.
-
-Per il report patch-level con immagini e metriche volume-level, usare i TIFF
-reali convertiti in `C:\Tesi Magistrale Piscopo\real\scan` (non i DICOM in
-`Reale\lidc_idri`):
+Se è disponibile soltanto Diffusion, usare `--mods diffusion`. Per il report
+patch-level con i reali conservati sull'altro disco:
 
 ```powershell
 python -m tesi_m3d.evaluate_patch_level `
   --config configs\train_pix2pix_balanced_patches.yaml `
-  --checkpoint outputs\train_pix2pix_balanced_patches\patch3d_classifier.pt `
+  --checkpoint outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\best.pt `
   --data-root "D:\Dataset Tesi Piscopo" `
   --real-scan-root "C:\Tesi Magistrale Piscopo\real\scan" `
-  --split test --mods diffusion `
-  --device cuda `
+  --split test --mods diffusion --device cuda --batch-size 8 `
   --max-report-images 20 `
-  --out-dir outputs\train_pix2pix_balanced_patches\patch_level_report_test_diffusion
+  --out-dir outputs\train_pix2pix_balanced_patches_resnet18_medicalnet\patch_level_report_test_diffusion
 ```
 
-Il comando valuta tutti i volumi test Diffusion e i reali corrispondenti; salva
-20 pannelli rappresentativi in `images`. Aumentare `--max-report-images` solo
-se lo spazio è libero.
+AP, AUC e hit rate non dipendono dalla soglia. Il report patch attuale
+riottimizza precision/recall/F1 sullo split valutato: sul test questi valori
+sono descrittivi, non prestazioni ottenute con una soglia fissata in
+validation. Non scegliere un nuovo checkpoint usando i risultati di test.
 
-### Audit della spaziatura fisica
-
-Prima di un nuovo training, verificare quanto una patch `32x32x32` voxel si
-discosta dal cubo fisico di lato 32 mm usato da M3Dsynth:
-
-```powershell
-python -m tesi_m3d.audit_spacing `
-  --metadata-dir metadata\m3dsynth `
-  --patch-shape 32 32 32 `
-  --target-mm 32 `
-  --out-dir outputs\spacing_audit
-```
-
-`records.csv` riporta spacing, dimensioni fisiche della patch e dimensioni in
-voxel corrispondenti a 32 mm per ogni record. `summary.json` aggrega i risultati
-complessivamente e per split/generatore. L'audit non modifica TIFF o mask.
-
-Il comando scrive `patch_level_report\metrics.json` con AUC/AP e
-precision/recall/F1 patch-level, hit rate top-1/top-3/top-5, distanza del centro
-della top-1 dalla mask e AUC/accuracy volume-level. `volumes.csv` contiene i
-risultati dei singoli volumi manipolati; `images` contiene una tavola per volume
-con centro della mask e le prime cinque patch. Verde indica la mask, ciano una
-patch che la interseca, rosso/arancio/giallo rispettivamente top-1/top-3/top-5.
-
-Ogni pannello riporta score del modello, `soft_score` (percentuale di voxel
-manipolati), target hard risultante, coordinate e distanza dal centro della
-mask. `metrics.json` aggiunge la correlazione di Spearman tra score e
-`soft_score`, mentre `volumes.csv` riporta il rank della patch più coperta e se
-essa coincide con la top-1. Se score e ranking sono corretti ma il riquadro è
-lontano dalla mask, il sospetto si sposta sulla ricostruzione/visualizzazione;
-se correlazione e rank sono scarsi, il problema è già nello score del modello.
-
-### Esperimento: hard-negative mining
-
-Generare prima l'indice delle 64 patch pulite con score piu alto per ogni
-volume di training. Questa fase usa la griglia densa stride 16, ma non modifica il checkpoint di partenza:
-
-```powershell
-python -m tesi_m3d.mine_hard_negatives `
-  --config configs\train_pix2pix_balanced_patches.yaml `
-  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --out outputs\train_pix2pix_hard_negative_mining\hard_negative_index.npz `
-  --device cuda
-```
-
-Controllare `hard_negative_index.json`, poi fare il dry-run e il fine-tuning.
-`--init-checkpoint` carica solo i pesi della run balanced: non riprende epoca,
-optimizer o early stopping della run precedente.
-
-```powershell
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_hard_negative_mining.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda --dry-run
-
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_hard_negative_mining.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda `
-  --init-checkpoint outputs\train_pix2pix_balanced_patches\best.pt
-```
-
-Il test con sole hard negative e' conservato per riproducibilita'. Il test
-successivo usa mixed replay, evitando di dimenticare le negative normali. Il
-miner salva 64 hard negative e 64 negative casuali per volume:
-
-```powershell
-python -m tesi_m3d.mine_hard_negatives `
-  --config configs\train_pix2pix_balanced_patches.yaml `
-  --checkpoint outputs\train_pix2pix_balanced_patches\best.pt `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --out outputs\train_pix2pix_mixed_hard_negative\mixed_negative_index.npz `
-  --negatives-per-volume 64 `
-  --random-negatives-per-volume 64 `
-  --device cuda
-```
-
-Il sampler usa esattamente 8 positive, 12 hard e 12 casuali nei volumi
-manipolati; nei volumi reali usa 16 hard e 16 casuali. Eseguire prima il
-dry-run, poi quattro epoche al learning rate `3e-5` partendo dai soli pesi
-balanced:
-
-```powershell
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_mixed_hard_negative.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda --dry-run
-
-python -m tesi_m3d.train `
-  --config configs\train_pix2pix_mixed_hard_negative.yaml `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda `
-  --init-checkpoint outputs\train_pix2pix_balanced_patches\best.pt
-```
-
-Valutare infine il nuovo checkpoint sulla stessa griglia densa:
-
-```powershell
-python -m tesi_m3d.evaluate_patch_level `
-  --config configs\train_pix2pix_mixed_hard_negative.yaml `
-  --checkpoint outputs\train_pix2pix_mixed_hard_negative\best.pt `
-  --data-root "C:\Tesi Magistrale Piscopo" `
-  --device cuda
-```
+Conservare YAML, `metrics.csv`, `calibration.json` e report densi della run.
+La prima domanda è se migliora la localizzazione su pix2pix; la seconda è
+quanto di quel miglioramento si mantiene sui generatori esclusi dal training.

@@ -16,7 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 train = [
-  "torch>=2.2",
+  "torch>=2.4.1",
+  "monai>=1.5.2,<1.6",
   "scikit-learn>=1.4",
   "tqdm>=4.66",
   "PyYAML>=6",

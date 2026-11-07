@@ -1,6 +1,12 @@
 # Tesi Magistrale Piscopo
 
-Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT
+Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT.
+
+Questo branch usa **ResNet-18 3D preaddestrata con MedicalNet (23 dataset)** al
+posto della CNN compatta. Il pretraining è obbligatorio per le nuove run;
+solo la testa binaria è inizializzata da zero. I checkpoint della vecchia CNN
+sono incompatibili. Download verificato dei pesi, smoke test e comandi di
+training/valutazione sono in [docs/LAB_WORKFLOW.md](docs/LAB_WORKFLOW.md).
 
 ## Struttura
 
@@ -34,9 +40,11 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 
 ```bat
 python -m pytest -q -p no:cacheprovider
-python scripts\smoke_synthetic_training.py
+python scripts\smoke_synthetic_training.py --device cuda
 ```
 
+Prima dello smoke scaricare i pesi MedicalNet come indicato nella guida di
+laboratorio. I test unitari usano fixture locali e non richiedono download.
 Il test patch extraction usa un volume finto `64x64x64`, patch `32x32x32` e
 stride `16`. Deve produrre 27 patch. Lo smoke training controlla forward,
 backward, checkpoint, heatmap e metriche; non produce risultati scientifici.
@@ -102,7 +110,7 @@ del dataset patch-level, bilanciamento, training GPU e salvataggio checkpoint:
 
 ```bat
 python -m tesi_m3d.train ^
-  --config configs\train_pix2pix_test_cycle_diffusion.yaml ^
+  --config configs\train_pix2pix_balanced_patches.yaml ^
   --data-root "C:\Tesi Magistrale Piscopo" ^
   --device cuda
 ```

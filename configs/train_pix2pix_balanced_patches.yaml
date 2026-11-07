@@ -1,8 +1,8 @@
 # Next experiment: 8 positive and 24 negative patches in manipulated-volume batches.
-experiment_name: train_pix2pix_balanced_patches
+experiment_name: train_pix2pix_balanced_patches_resnet18_medicalnet
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/train_pix2pix_balanced_patches
+output_dir: outputs/train_pix2pix_balanced_patches_resnet18_medicalnet
 
 split:
   train_set: train
@@ -29,10 +29,10 @@ patches:
   max_valid_patches_per_volume: 64
 
 model:
-  name: simple_3d_cnn
+  name: resnet18_medicalnet
   in_channels: 1
   num_classes: 1
-  base_channels: 16
+  medicalnet_weights: checkpoints/medicalnet/resnet_18_23dataset.pth
   dropout: 0.2  # Usato per ridurre l'overfitting.
 
 training:

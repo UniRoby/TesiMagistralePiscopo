@@ -41,16 +41,19 @@ class SyntheticDataTests(unittest.TestCase):
 
         project = Path(__file__).resolve().parents[1]
         script = project / "scripts" / "smoke_synthetic_training.py"
+        weights = project / "checkpoints" / "medicalnet" / "resnet_18_23dataset.pth"
+        if not weights.is_file():
+            self.skipTest("Download official MedicalNet weights to run the integration smoke")
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
-                [sys.executable, str(script)],
+                [sys.executable, str(script), "--medicalnet-weights", str(weights)],
                 cwd=tmp,
                 check=True,
                 text=True,
                 capture_output=True,
             )
-            checkpoint = Path(tmp) / "outputs" / "synthetic_smoke" / "synthetic_patch3d.pt"
-            heatmap = Path(tmp) / "outputs" / "synthetic_smoke" / "synthetic_heatmap.npy"
+            checkpoint = Path(tmp) / "outputs" / "synthetic_smoke_resnet18_medicalnet" / "synthetic_patch3d.pt"
+            heatmap = Path(tmp) / "outputs" / "synthetic_smoke_resnet18_medicalnet" / "synthetic_heatmap.npy"
             self.assertIn("train_loss", result.stdout)
             self.assertTrue(checkpoint.exists())
             self.assertTrue(heatmap.exists())

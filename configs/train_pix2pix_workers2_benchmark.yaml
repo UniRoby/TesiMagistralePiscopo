@@ -1,8 +1,8 @@
 # 20-batch GPU/data-loading benchmark. No validation or calibration by design.
-experiment_name: train_pix2pix_workers2_benchmark
+experiment_name: train_pix2pix_workers2_benchmark_resnet18_medicalnet
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/train_pix2pix_workers2_benchmark
+output_dir: outputs/train_pix2pix_workers2_benchmark_resnet18_medicalnet
 
 split:
   train_set: train
@@ -27,10 +27,10 @@ patches:
   neg_per_pos: 5.0
 
 model:
-  name: simple_3d_cnn
+  name: resnet18_medicalnet
   in_channels: 1
   num_classes: 1
-  base_channels: 16
+  medicalnet_weights: checkpoints/medicalnet/resnet_18_23dataset.pth
   dropout: 0.2
 
 training:

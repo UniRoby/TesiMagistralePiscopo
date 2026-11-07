@@ -167,14 +167,8 @@ def main() -> None:
         checkpoint_config = payload.get("config", {})
         model_cfg = checkpoint_config.get("model", {})
         model = build_patch3d_classifier(
-            Patch3DModelConfig(
-                in_channels=int(model_cfg.get("in_channels", 1)),
-                num_classes=int(model_cfg.get("num_classes", 1)),
-                base_channels=int(model_cfg.get("base_channels", 16)),
-                dropout=float(model_cfg.get("dropout", 0.2)),
-            )
+            Patch3DModelConfig(**model_cfg), state_dict=payload["model_state_dict"],
         )
-        model.load_state_dict(payload["model_state_dict"])
         model.to(args.device)
         volume = normalize_percentile(load_tiff_stack(args.volume_dir))
         heatmap = infer_heatmap(

@@ -1,8 +1,8 @@
 # Single ablation: identical to balanced patches, but the loss learns mask coverage.
-experiment_name: train_pix2pix_soft_targets
+experiment_name: train_pix2pix_soft_targets_resnet18_medicalnet
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/train_pix2pix_soft_targets
+output_dir: outputs/train_pix2pix_soft_targets_resnet18_medicalnet
 
 split:
   train_set: train
@@ -29,10 +29,10 @@ patches:
   max_valid_patches_per_volume: 64
 
 model:
-  name: simple_3d_cnn
+  name: resnet18_medicalnet
   in_channels: 1
   num_classes: 1
-  base_channels: 16
+  medicalnet_weights: checkpoints/medicalnet/resnet_18_23dataset.pth
   dropout: 0.2
 
 training:

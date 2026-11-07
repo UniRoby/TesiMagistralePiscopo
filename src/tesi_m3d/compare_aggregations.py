@@ -7,7 +7,7 @@ import copy
 import json
 from pathlib import Path
 
-from .train import build_loaders, calibrate_best_checkpoint, load_yaml_config, resolve_cache_dir
+from .train import _load_torch_payload, build_loaders, calibrate_best_checkpoint, load_yaml_config, resolve_cache_dir
 
 
 def main() -> None:
@@ -24,7 +24,8 @@ def main() -> None:
     output_dir = checkpoint.parent
     cache_dir = resolve_cache_dir(config, None, output_dir)
     objects = build_loaders(
-        config, data_root_override=args.data_root, cache_dir=cache_dir, device=args.device
+        config, data_root_override=args.data_root, cache_dir=cache_dir, device=args.device,
+        model_state_dict=_load_torch_payload(checkpoint)["model_state_dict"],
     )
     if objects.valid_dataset is None:
         raise SystemExit("The configuration produced no validation dataset.")

@@ -7,7 +7,6 @@ import unittest
 import numpy as np
 
 from tesi_m3d.inference import infer_heatmap, predict_patch_scores
-from tesi_m3d.model import Patch3DModelConfig, build_patch3d_classifier
 from tesi_m3d.patches import PatchGrid
 
 
@@ -18,7 +17,9 @@ class InferenceTests(unittest.TestCase):
         except ImportError:
             self.skipTest("torch not installed")
 
-        model = build_patch3d_classifier(Patch3DModelConfig(base_channels=4))
+        model = torch.nn.Sequential(
+            torch.nn.AdaptiveAvgPool3d(1), torch.nn.Flatten(), torch.nn.Linear(1, 1),
+        )
         volume = np.zeros((64, 64, 64), dtype=np.float32)
         grid = PatchGrid(volume.shape, patch_shape=(32, 32, 32), stride=(16, 16, 16))
         scores = predict_patch_scores(model, volume, grid, batch_size=5, device="cpu")

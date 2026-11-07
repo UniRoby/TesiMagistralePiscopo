@@ -4,10 +4,10 @@
 # stride. A stride of 128 with a 32-voxel patch samples 1.5% of each volume and
 # yields zero positive patches on every series measured, which would silently
 # train the classifier on an all-negative set.
-experiment_name: train_pix2pix_quick_test
+experiment_name: train_pix2pix_quick_test_resnet18_medicalnet
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/train_pix2pix_quick_test
+output_dir: outputs/train_pix2pix_quick_test_resnet18_medicalnet
 cache_dir: D:/tesi_m3d_cache  # the dataset drive C: has only a few GB free
 
 split:
@@ -33,10 +33,10 @@ patches:
   max_valid_patches_per_volume: 256
 
 model:
-  name: simple_3d_cnn
+  name: resnet18_medicalnet
   in_channels: 1
   num_classes: 1
-  base_channels: 16
+  medicalnet_weights: checkpoints/medicalnet/resnet_18_23dataset.pth
   dropout: 0.2
 
 training:

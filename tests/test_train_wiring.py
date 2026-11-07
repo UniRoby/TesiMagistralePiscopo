@@ -10,7 +10,6 @@ import numpy as np
 
 from tesi_m3d.dataset import M3DSynthPatchDataset, M3DSynthRecord
 from tesi_m3d.patch_index import build_patch_index
-from tesi_m3d.model import Patch3DModelConfig, build_patch3d_classifier
 from tesi_m3d.train import (
     _checkpoint_payload,
     _load_checkpoint,
@@ -93,16 +92,16 @@ class TestBaselineAndResume(unittest.TestCase):
             pass
 
         source = Objects()
-        source.model = build_patch3d_classifier(Patch3DModelConfig(base_channels=4))
+        source.model = torch.nn.Linear(1, 1)
         source.optimizer = torch.optim.AdamW(source.model.parameters(), lr=1e-3)
         source.scaler = torch.amp.GradScaler("cuda", enabled=False)
-        payload = _checkpoint_payload(source, {"model": {"base_channels": 4}}, epoch=3, best_ap=0.7)
+        payload = _checkpoint_payload(source, {}, epoch=3, best_ap=0.7)
 
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint = f"{tmp}/resume.pt"
             torch.save(payload, checkpoint)
             target = Objects()
-            target.model = build_patch3d_classifier(Patch3DModelConfig(base_channels=4))
+            target.model = torch.nn.Linear(1, 1)
             target.optimizer = torch.optim.AdamW(target.model.parameters(), lr=1e-3)
             target.scaler = torch.amp.GradScaler("cuda", enabled=False)
             epoch, best_ap, without_improvement = _load_checkpoint(checkpoint, target)

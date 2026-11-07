@@ -1,80 +1,92 @@
-"""Patch-level 3D classifiers for M3Dsynth manipulation detection.
-
-The main thesis model is a patch classifier: input is a CT patch with shape
-``(B, 1, D, H, W)`` and output is one logit per patch with shape ``(B, 1)``.
-``sigmoid(logit)`` is interpreted as probability that the patch is synthetic.
-"""
+"""MedicalNet-initialized ResNet-18 for binary 3D patch classification."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+from typing import Mapping, Any
+
+
+MEDICALNET_WEIGHTS = "checkpoints/medicalnet/resnet_18_23dataset.pth"
+MEDICALNET_SHA256 = "61224f9317fcce873366deb3703183e92cc47325b726b69691b33536244e10f4"
 
 
 @dataclass(frozen=True)
 class Patch3DModelConfig:
-    """Configuration for the compact 3D CNN patch classifier."""
+    """MedicalNet encoder and a new binary classification head."""
 
+    name: str = "resnet18_medicalnet"
     in_channels: int = 1
     num_classes: int = 1
-    base_channels: int = 16
     dropout: float = 0.2
+    medicalnet_weights: str = MEDICALNET_WEIGHTS
 
 
 class TorchDependencyError(RuntimeError):
-    """Raised when PyTorch-dependent code runs without PyTorch installed."""
+    """Raised when the model dependencies are unavailable."""
 
 
+def build_patch3d_classifier(
+    config: Patch3DModelConfig | None = None,
+    *,
+    state_dict: Mapping[str, Any] | None = None,
+):
+    """Load MedicalNet for a new run, or restore a complete fine-tuned model.
 
-def build_patch3d_classifier(config: Patch3DModelConfig | None = None):
-    """Build a compact 3D CNN for patch classification.
-
-    Args:
-        config: Model hyperparameters. Default returns one logit per patch.
-
-    Returns:
-        ``torch.nn.Module`` mapping ``(B, C, D, H, W)`` to ``(B, num_classes)``.
+    A missing or incompatible weight file is an error, never a random-weight
+    fallback. Restoring a full state dict needs no original MedicalNet file.
+    Input is ``(B, 1, D, H, W)``; output is one raw logit per patch.
     """
 
     config = config or Patch3DModelConfig()
+    if config.name != "resnet18_medicalnet":
+        raise ValueError("This branch only supports model.name=resnet18_medicalnet; old CNN checkpoints are incompatible")
+    if config.in_channels != 1 or config.num_classes != 1:
+        raise ValueError("MedicalNet patch classification requires in_channels=1 and num_classes=1")
+    if not 0.0 <= config.dropout < 1.0:
+        raise ValueError("model.dropout must be in [0, 1)")
+
+    if state_dict is None:
+        path = Path(config.medicalnet_weights)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"MedicalNet weights not found: {path}. Download resnet_18_23dataset.pth "
+                "as described in docs/LAB_WORKFLOW.md; random initialization is disabled."
+            )
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != MEDICALNET_SHA256:
+            raise ValueError(f"MedicalNet SHA256 mismatch: {path}; download the official resnet_18_23dataset.pth again")
+
     try:
+        import torch
         from torch import nn
+        from monai.networks.nets import resnet18
     except ImportError as exc:  # pragma: no cover - depends on training env
-        raise TorchDependencyError(
-            "PyTorch is required to build the 3D classifier. Install with `pip install -e '.[train]'`."
-        ) from exc
+        raise TorchDependencyError("PyTorch and MONAI are required. Install with `pip install -e '.[train]'`.") from exc
 
-    class Simple3DCNN(nn.Module):
-        """Small 3D CNN encoder with global pooling and patch-level head."""
+    model = resnet18(
+        pretrained=False, spatial_dims=3, n_input_channels=1,
+        shortcut_type="A", conv1_t_stride=2, feed_forward=False,
+    )
+    # MedicalNet uses dilated stages 3/4 instead of MONAI's extra downsampling.
+    for layer, dilation in ((model.layer3, 2), (model.layer4, 4)):
+        layer[0].downsample.keywords["stride"] = 1
+        for block in layer:
+            block.stride = 1
+            for conv in (block.conv1, block.conv2):
+                conv.stride = (1, 1, 1)
+                conv.dilation = conv.padding = (dilation,) * 3
 
-        def __init__(self) -> None:
-            """Create convolutional feature extractor and linear classifier."""
+    if state_dict is None:
+        payload = torch.load(path, map_location="cpu", weights_only=True)
+        weights = {key.removeprefix("module."): value for key, value in payload["state_dict"].items()}
+        model.load_state_dict(weights, strict=True)
 
-            super().__init__()
-            c = config.base_channels
-            self.features = nn.Sequential(
-                nn.Conv3d(config.in_channels, c, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm3d(c),
-                nn.ReLU(inplace=True),
-                nn.MaxPool3d(2),
-                nn.Conv3d(c, c * 2, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm3d(c * 2),
-                nn.ReLU(inplace=True),
-                nn.MaxPool3d(2),
-                nn.Conv3d(c * 2, c * 4, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm3d(c * 4),
-                nn.ReLU(inplace=True),
-                # Adaptive pooling removes dependence on exact patch size.
-                nn.AdaptiveAvgPool3d(1),  #tutta la patch viene compressa in un unico vettore
-            )
-            self.classifier = nn.Sequential(
-                nn.Flatten(),
-                nn.Dropout(config.dropout),
-                nn.Linear(c * 4, config.num_classes),
-            )
-
-        def forward(self, x):
-            """Return raw logits for input patches with shape ``(B, C, D, H, W)``."""
-
-            return self.classifier(self.features(x))
-
-    return Simple3DCNN()
+    model.fc = nn.Sequential(nn.Dropout(config.dropout), nn.Linear(512, 1))
+    if state_dict is not None:
+        model.load_state_dict(state_dict, strict=True)
+    return model

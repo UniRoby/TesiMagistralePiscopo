@@ -23,6 +23,7 @@ env/
 # Thesis data
 data/
 outputs/train_pix2pix_quick_test
+outputs/*_resnet18_medicalnet/
 runs/
 checkpoints/
 *.ckpt

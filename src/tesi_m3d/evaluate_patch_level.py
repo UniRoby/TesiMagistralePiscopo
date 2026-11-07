@@ -201,13 +201,9 @@ def _load_model(checkpoint: Path, device: str):
 
     payload = _load_torch_payload(checkpoint)
     cfg = payload.get("config", {}).get("model", {})
-    model = build_patch3d_classifier(Patch3DModelConfig(
-        in_channels=int(cfg.get("in_channels", 1)),
-        num_classes=int(cfg.get("num_classes", 1)),
-        base_channels=int(cfg.get("base_channels", 16)),
-        dropout=float(cfg.get("dropout", 0.2)),
-    ))
-    model.load_state_dict(payload["model_state_dict"])
+    model = build_patch3d_classifier(
+        Patch3DModelConfig(**cfg), state_dict=payload["model_state_dict"],
+    )
     return model.to(device)
 
 

@@ -66,12 +66,15 @@ def main() -> None:
     args = parse_args()
     config = load_yaml_config(args.config)
     data_root = Path(args.data_root or config.get("data_root", "data/M3Dsynth"))
-    objects = build_loaders(config, data_root_override=str(data_root), device=args.device)
+    model = _load_model(Path(args.checkpoint), args.device)
+    objects = build_loaders(
+        config, data_root_override=str(data_root), device=args.device,
+        model_state_dict=model.state_dict(),
+    )
     source = objects.train_dataset.examples
     records = objects.train_dataset.records
     patch_shape = tuple(config.get("patches", {}).get("patch_shape", (32, 32, 32)))
     stride = tuple(config.get("hard_negative_mining", {}).get("mining_stride", (16, 16, 16)))
-    model = _load_model(Path(args.checkpoint), args.device)
 
     record_parts, coord_parts, label_parts, soft_parts, flag_parts, score_parts = [], [], [], [], [], []
     rng = np.random.default_rng(int(config.get("training", {}).get("seed", 21)))

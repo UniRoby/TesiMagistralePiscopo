@@ -52,6 +52,7 @@ def test_spawn_worker_counters_are_returned_to_parent(tmp_path):
 
 
 def test_benchmark_reuses_disk_index_and_never_rereads_masks_per_patch(tmp_path, monkeypatch):
+    torch = pytest.importorskip('torch')
     import tesi_m3d.patch_index as module
     import tesi_m3d.train as train
     from tesi_m3d.benchmark_loading import run_benchmark
@@ -62,6 +63,7 @@ def test_benchmark_reuses_disk_index_and_never_rereads_masks_per_patch(tmp_path,
     metadata = tmp_path / 'metadata'
     metadata.mkdir()
     monkeypatch.setattr(train, 'read_records', lambda *a: records)
+    monkeypatch.setattr(train, 'build_patch3d_classifier', lambda *a, **kw: torch.nn.Linear(1, 1))
     loads = []
     original = module.load_label_mask
 

@@ -1,8 +1,8 @@
 # Leave-generator-out experiment for M3Dsynth.
-experiment_name: leave_out_diffusion
+experiment_name: leave_out_diffusion_resnet18_medicalnet
 data_root: data/M3Dsynth
 metadata_dir: metadata/m3dsynth
-output_dir: outputs/leave_out_diffusion
+output_dir: outputs/leave_out_diffusion_resnet18_medicalnet
 
 split:
   train_set: train
@@ -19,10 +19,10 @@ patches:
   positive_overlap_fraction: 0.05
 
 model:
-  name: simple_3d_cnn
+  name: resnet18_medicalnet
   in_channels: 1
   num_classes: 1
-  base_channels: 16
+  medicalnet_weights: checkpoints/medicalnet/resnet_18_23dataset.pth
 
 training:
   epochs: 50

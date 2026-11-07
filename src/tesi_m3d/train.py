@@ -35,8 +35,6 @@ from .volume_io import (
     load_normalized_scan_and_lung_mask,
 )
 
-KNOWN_MODEL_NAMES = {"simple_3d_cnn"}
-
 
 def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
     """Load an experiment YAML config using PyYAML."""
@@ -205,6 +203,7 @@ def build_loaders(
     cache_dir: str | Path | None = None,
     device: str = "cpu",
     rebuild_index: bool = False,
+    model_state_dict=None,
 ) -> TrainingObjects:
     """Build model, train/valid loaders, loss, optimizer and AMP state."""
 
@@ -230,9 +229,9 @@ def build_loaders(
     model_cfg = config.get("model", {})
     training_cfg = config.get("training", {})
 
-    model_name = model_cfg.get("name", "simple_3d_cnn")
-    if model_name not in KNOWN_MODEL_NAMES:
-        raise ValueError(f"unknown model.name {model_name!r}; known names: {sorted(KNOWN_MODEL_NAMES)}")
+    model = build_patch3d_classifier(
+        Patch3DModelConfig(**model_cfg), state_dict=model_state_dict,
+    )
 
     records = read_records(metadata_dir)
     test_mods = split_cfg.get("test_mods")
@@ -364,14 +363,6 @@ def build_loaders(
             valid_dataset, valid_sampler, training_cfg, pin_memory=pin_memory
         )
 
-    model = build_patch3d_classifier(
-        Patch3DModelConfig(
-            in_channels=int(model_cfg.get("in_channels", 1)),
-            num_classes=int(model_cfg.get("num_classes", 1)),
-            base_channels=int(model_cfg.get("base_channels", 16)),
-            dropout=float(model_cfg.get("dropout", 0.2)),
-        )
-    )
     loss = build_loss(training_cfg.get("loss", "focal"))
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -774,14 +765,8 @@ def calibrate_best_checkpoint(
     payload = _load_torch_payload(best_path)
     model_cfg = payload.get("config", config).get("model", {})
     model = build_patch3d_classifier(
-        Patch3DModelConfig(
-            in_channels=int(model_cfg.get("in_channels", 1)),
-            num_classes=int(model_cfg.get("num_classes", 1)),
-            base_channels=int(model_cfg.get("base_channels", 16)),
-            dropout=float(model_cfg.get("dropout", 0.2)),
-        )
+        Patch3DModelConfig(**model_cfg), state_dict=payload["model_state_dict"],
     )
-    model.load_state_dict(payload["model_state_dict"])
     model.to(device)
 
     patch_cfg = config.get("patches", {})
@@ -925,6 +910,10 @@ def main() -> None:
         tqdm = None
 
     args = parse_args()
+    if args.init_checkpoint and args.resume:
+        raise ValueError("--init-checkpoint and --resume are mutually exclusive")
+    initial_path = args.resume or args.init_checkpoint
+    initial_payload = _load_torch_payload(Path(initial_path)) if initial_path else None
     config = load_yaml_config(args.config)
     training_cfg = config.get("training", {})
     target_key = str(training_cfg.get("target", "label"))
@@ -945,6 +934,7 @@ def main() -> None:
         cache_dir=cache_dir,
         device=args.device,
         rebuild_index=args.rebuild_index,
+        model_state_dict=initial_payload["model_state_dict"] if initial_payload else None,
     )
 
     stats = objects.train_sampler.describe()
@@ -969,10 +959,7 @@ def main() -> None:
     best_ap = -float("inf")
     epochs_without_improvement = 0
     start_epoch = 0
-    if args.init_checkpoint and args.resume:
-        raise ValueError("--init-checkpoint and --resume are mutually exclusive")
     if args.init_checkpoint:
-        objects.model.load_state_dict(_load_torch_payload(Path(args.init_checkpoint))["model_state_dict"])
         print(f"Initialized model weights from {args.init_checkpoint}.")
     if args.resume:
         start_epoch, best_ap, epochs_without_improvement = _load_checkpoint(args.resume, objects)
