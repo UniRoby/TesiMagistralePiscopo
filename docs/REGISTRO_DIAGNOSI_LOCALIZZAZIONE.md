@@ -275,6 +275,28 @@ non condivisa tra worker, e i volumi possono essere riletti in epoche diverse.
 non è ancora dimostrato che il costo residuo sia trascurabile sul run reale.
 
 
+## Strumenti pronti per le verifiche aperte
+
+La [guida operativa](TEST_DIAGNOSI_LOCALIZZAZIONE.md) raccoglie i comandi per il
+PC del laboratorio e la descrizione degli output. I punti restano aperti fino
+alla verifica sui dati reali:
+
+- `python -m tesi_m3d.diagnose_localization`: audit delle esclusioni all'1% e
+  al 5%, ranking/overlap/distanze e copertura della mask nei top-k; confronto
+  `average`/`gaussian` e soglie sugli stessi score; metriche globali, polmonari
+  e locali; overlay nei tre piani e controllo delle forme scan/mask e della ROI.
+  Con più checkpoint confronta anche AP e classifica su validation campionata
+  fissa e griglia densa, usando una configurazione comune.
+- `python -m tesi_m3d.benchmark_loading`: confronto fra 0/2 worker, capacità
+  della cache e batch raggruppati/casuali, tempi per epoca di caricamento,
+  contatori restituiti dai worker e avvio con costruzione/riuso dell'indice.
+  Non misura il tempo del forward/backward né le letture fisiche del disco.
+
+I test automatici usano TIFF sintetici; non sostituiscono il controllo visivo
+delle annotazioni né i tempi sul PC di training. Le due configurazioni di
+ablation già presenti rimangono separate: soglia all'1% con target binario,
+oppure soglia al 5% con target `soft_score`.
+
 ## Come aggiornare questo registro
 
 Per ogni punto chiuso, sostituire «Da compilare» con: **verifica eseguita**

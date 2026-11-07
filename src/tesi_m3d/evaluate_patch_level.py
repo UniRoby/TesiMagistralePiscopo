@@ -150,6 +150,7 @@ def _load_validation_records(
     split_name: str = "valid",
     mods: list[str] | None = None,
     real_scan_root: Path | None = None,
+    deduplicate: bool = True,
 ):
     from .dataset import cross_generator_records, read_records
     from .train import subset_records
@@ -176,7 +177,8 @@ def _load_validation_records(
         wanted_mods = set(mods)
         records = [record for record in records if record.is_real or record.mod in wanted_mods]
     limit = data.get("max_valid_records") if split_name == "valid" else None
-    return _unique_records(subset_records(records, limit, seed), data_root, real_scan_root)
+    selected = subset_records(records, limit, seed)
+    return _unique_records(selected, data_root, real_scan_root) if deduplicate else selected
 
 
 def _report_image_ids(records, max_images: int) -> set[str]:
