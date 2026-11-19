@@ -1,5 +1,6 @@
 numpy>=1.24
 pillow>=10
+tifffile>=2023.7
 
 [conversion]
 pydicom>=2.4
@@ -8,7 +9,8 @@ pydicom>=2.4
 pytest>=8
 
 [train]
-torch>=2.2
+torch>=2.4.1
+monai<1.6,>=1.5.2
 scikit-learn>=1.4
 tqdm>=4.66
 PyYAML>=6

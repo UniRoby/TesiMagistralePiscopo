@@ -6,8 +6,10 @@ Requires-Python: >=3.9
 Description-Content-Type: text/markdown
 Requires-Dist: numpy>=1.24
 Requires-Dist: pillow>=10
+Requires-Dist: tifffile>=2023.7
 Provides-Extra: train
-Requires-Dist: torch>=2.2; extra == "train"
+Requires-Dist: torch>=2.4.1; extra == "train"
+Requires-Dist: monai<1.6,>=1.5.2; extra == "train"
 Requires-Dist: scikit-learn>=1.4; extra == "train"
 Requires-Dist: tqdm>=4.66; extra == "train"
 Requires-Dist: PyYAML>=6; extra == "train"
@@ -19,9 +21,13 @@ Requires-Dist: pytest>=8; extra == "dev"
 
 # Tesi Magistrale Piscopo
 
-Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT,
-ispirata a *Localization of Synthetic Manipulations in Western Blot Images* e
-valutata sul dataset M3Dsynth.
+Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT.
+
+Questo branch usa **ResNet-18 3D preaddestrata con MedicalNet (23 dataset)** al
+posto della CNN compatta. Il pretraining è obbligatorio per le nuove run;
+solo la testa binaria è inizializzata da zero. I checkpoint della vecchia CNN
+sono incompatibili. Download verificato dei pesi, smoke test e comandi di
+training/valutazione sono in [docs/LAB_WORKFLOW.md](docs/LAB_WORKFLOW.md).
 
 ## Struttura
 
@@ -55,9 +61,11 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 
 ```bat
 python -m pytest -q -p no:cacheprovider
-python scripts\smoke_synthetic_training.py
+python scripts\smoke_synthetic_training.py --device cuda
 ```
 
+Prima dello smoke scaricare i pesi MedicalNet come indicato nella guida di
+laboratorio. I test unitari usano fixture locali e non richiedono download.
 Il test patch extraction usa un volume finto `64x64x64`, patch `32x32x32` e
 stride `16`. Deve produrre 27 patch. Lo smoke training controlla forward,
 backward, checkpoint, heatmap e metriche; non produce risultati scientifici.
@@ -73,8 +81,7 @@ La pipeline distingue due tipi di CSV:
 - `C:\Tesi Magistrale Piscopo\Reale\metadata.csv`: manifest del download IDC;
   serve alla conversione per trovare i DICOM, ma non viene letto dal training.
 
-I quattro CSV ufficiali M3Dsynth sono inclusi nella repo: non è più necessario
-avere `../M3Dsynth/data` durante training e test.
+I quattro CSV ufficiali M3Dsynth sono inclusi nella repo.
 
 ## Dati laboratorio
 
@@ -93,13 +100,10 @@ C:\Tesi Magistrale Piscopo\
   TesiMagistralePiscopo\
 ```
 
-Su Windows `Scan` e `scan` sono equivalenti. Per mantenere portabilità verso
-Linux è comunque consigliato rinominare la cartella pix2pix in `scan`.
 
 ## Conversione LIDC DICOM in TIFF
 
-Non usare `get_M3Dsynth.sh` per questa macchina: scaricherebbe di nuovo tutti i
-generatori e la conversione originale usa primitive Unix. Eseguire prima una
+Eseguire prima una
 sola serie:
 
 ```bat
@@ -127,16 +131,7 @@ del dataset patch-level, bilanciamento, training GPU e salvataggio checkpoint:
 
 ```bat
 python -m tesi_m3d.train ^
-  --config configs\train_pix2pix_test_cycle_diffusion.yaml ^
+  --config configs\train_pix2pix_balanced_patches.yaml ^
   --data-root "C:\Tesi Magistrale Piscopo" ^
   --device cuda
 ```
-
-Il comando attuale allena e salva il checkpoint. La valutazione cross-generator
-scientifica verrà eseguita quando `cycle` e `diffusion` saranno disponibili.
-
-## Preprocessing
-
-Il default v1 è la normalizzazione percentile, coerente con il codice M3Dsynth.
-Il clipping HU fisso `[-1000, 400]` resta sospeso perché i TIFF ufficiali sono
-valori raw convertiti in `uint16`, non HU direttamente garantiti.
