@@ -318,8 +318,48 @@ Il nome `label` deve contenere le mask con gli stessi `img_id` di pix2pix.
 
 ## 13. Ottimizzazione data loading
 
-Il dataset contiene ~4.2 milioni di patch su 3262 serie TIFF (239 GB totali).
-Senza ottimizzazione, ogni batch ricarica i TIFF dal disco (88 sec/batch = infattibile).
+Il numero di record disponibili e il numero di patch elaborate per epoca sono
+due limiti distinti. Il loader non tiene tutte le CT in RAM:
+
+- costruisce una volta l'indice delle patch leggendo le mask, poi lo salva
+  nella cache su disco;
+- legge e normalizza una CT quando serve; la cache RAM conserva due volumi
+  per worker (`volume_cache_size: 2`);
+- raggruppa le patch della stessa scansione in batch, riusando il volume
+  caricato invece di decodificare tutti i TIFF per ogni singola patch;
+- usa due worker persistenti, prefetch di un batch per worker, memoria pinned
+  e trasferimenti non bloccanti verso CUDA.
+
+La cache RAM è locale al worker e limitata: una scansione può essere riletta
+nelle epoche successive. Ogni miss richiede ancora la lettura del volume
+completo; non va confuso con un caricamento limitato alle sole 32 patch.
+
+HexMIL include tutti i record train dei generatori selezionati, ma riduce il
+lavoro spaziale: SliceMIL legge le sezioni selezionate vicino a `coord_z`,
+mentre HexMIL legge una finestra di K sezioni. I percentili sono calcolati
+sull'intera scansione la prima volta e salvati in `percentile.npy`.
+Il suo sampler bilanciato usa reinserimento: tutti i record sono disponibili,
+ma una singola epoca può ripeterne alcuni e saltarne altri.
+
+Per confrontare i worker sul PC reale, il benchmark esistente misura soltanto
+il caricamento. Usare prima il sottoinsieme bounded, senza eseguire ResNet:
+
+```powershell
+python -m tesi_m3d.benchmark_loading `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --workers 0 2 --cache-sizes 2 --orders grouped --epochs 2 `
+  --out-dir outputs\loading_benchmark_resnet18_medicalnet
+```
+
+Il benchmark costruisce comunque modello e indice all'avvio, quindi richiede
+il file MedicalNet; nelle epoche misurate non esegue forward/backward.
+La GPU resta inutilizzata: `nvidia-smi` può mostrare 0 MiB. Durante la lettura
+viene mostrata una barra dei batch per epoca, seguita da tempo, patch/s e
+numero di caricamenti dei volumi. Con `workers=0` la lettura è sequenziale.
+Confrontare `patches_per_second` e `volume_reads` in `epochs.csv`. Aumentare i
+worker soltanto se migliora il throughput e la RAM resta sufficiente. Il tempo
+di training completo comprende anche GPU, validation e calibrazione.
 
 
 ## 14. Esperimento ResNet-18 MedicalNet: pix2pix
@@ -385,6 +425,65 @@ resta 32. Se la GPU esaurisce la memoria, ridurre `training.batch_size` a 8
 mantenendo `patches.max_patches_per_volume: 32`; annotare questa variazione
 nel confronto. Per calibrazione e inferenza si può ridurre separatamente
 `evaluation.calibration_batch_size` o passare `--batch-size 8` alle CLI.
+
+### Training con tutti i record train
+
+Per usare tutto lo split train pix2pix + real, scegliere
+[`train_pix2pix_full_train.yaml`](../configs/train_pix2pix_full_train.yaml).
+Questa configurazione rimuove il limite di 256 record e quello di 4096 patch
+per epoca. Visita tutte le scansioni fisiche indicizzate ogni epoca,
+campionando 32 patch per scansione; le patch scelte cambiano con l'epoca.
+Non elabora in ogni epoca tutte le milioni di patch della griglia.
+
+```yaml
+data:
+  max_train_records: null
+  max_valid_records: 64
+patches:
+  max_patches_per_volume: 32
+  positive_volume_fraction: null
+training:
+  max_patches_per_epoch: null
+```
+
+I metadata contengono 1537 record pix2pix e 1787 reali di training. Con i reali
+salvati dal convertitore come `orig_id__sdir_id`, i record reali corrispondono
+a 489 scansioni: l'atteso è quindi circa **2026 scansioni, 2026 batch e 64832
+patch per epoca**, con batch 32. Il numero effettivo riportato dal dry-run fa
+fede per il layout TIFF presente sul PC. I record che puntano allo stesso
+volume reale sono raggruppati, non richiedono batch duplicati.
+
+```powershell
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_full_train.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda --dry-run
+
+python -m tesi_m3d.train `
+  --config configs\train_pix2pix_full_train.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --device cuda
+```
+
+Nel dry-run controllare che `batches_per_epoch` coincida con `n_volumes`
+e che `patches_per_epoch` sia `n_volumes * 32`. La prima indicizzazione è più
+costosa del sottoinsieme e viene riutilizzata dai successivi avvii.
+Se mancano TIFF richiesti dal training, il loader segnala un errore.
+
+Modello, loss, learning rate, numero di epoche e sampling delle patch restano
+quelli della balanced. Il sottoinsieme di validation resta fissato a 64 record
+per mantenere confrontabile la selezione dei checkpoint con la run precedente;
+non diventa una validation densa. Cycle/diffusion e i pazienti di validation e
+test restano esclusi dall'allenamento.
+
+La run parte dai pesi MedicalNet, senza `--resume`, e salva in
+`outputs\train_pix2pix_full_train_resnet18_medicalnet`. Per valutarla, usare i
+comandi dei punti 15–17 sostituendo il file YAML con
+`configs\train_pix2pix_full_train.yaml` e la directory del checkpoint con
+quella della nuova run. Conservare i risultati della run bounded separati.
+
+Ogni epoca esegue circa 16 volte più batch del precedente limite di 128:
+è un rapporto di lavoro, non una stima dei tempi sul PC del laboratorio.
 
 ### Checkpoint e ripresa
 

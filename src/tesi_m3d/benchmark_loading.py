@@ -47,6 +47,8 @@ def batch_plan(sampler, epoch, order, seed):
 
 def measure_epochs(dataset, sampler, training, *, epochs, order, seed):
     """Drain complete epochs: prefetch cannot create uncounted reads after a cutoff."""
+    from tqdm import tqdm
+
     rows = []
     loader = _build_dataloader(ProfiledDataset(dataset), batch_plan(sampler, 0, order, seed), training)
     for epoch in range(epochs):
@@ -56,7 +58,7 @@ def measure_epochs(dataset, sampler, training, *, epochs, order, seed):
         patches = reads = hits = 0
         item_seconds = 0.0
         first_batch_seconds = None
-        for batch in loader:
+        for batch in tqdm(loader, desc=f'Loading epoch {epoch + 1}/{epochs}', unit='batch', mininterval=1.0):
             if first_batch_seconds is None:
                 first_batch_seconds = perf_counter() - started
             patches += len(batch['label'])
@@ -69,6 +71,8 @@ def measure_epochs(dataset, sampler, training, *, epochs, order, seed):
                          seconds=seconds, first_batch_seconds=first_batch_seconds,
                          patches_per_second=patches / seconds, volume_reads=reads, cache_hits=hits,
                          worker_item_seconds=item_seconds))
+        print(f'Epoch {epoch + 1}/{epochs}: {seconds:.1f}s, '
+              f'{patches / seconds:.1f} patches/s, volume_reads={reads}', flush=True)
     return rows
 
 

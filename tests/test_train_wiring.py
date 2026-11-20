@@ -73,6 +73,41 @@ class TestSeeding(unittest.TestCase):
 
 
 class TestBaselineAndResume(unittest.TestCase):
+    def test_full_training_config_visits_every_physical_scan_each_epoch(self) -> None:
+        from collections import Counter
+        from tesi_m3d.sampling import VolumeGroupedBatchSampler
+
+        config = load_yaml_config("configs/train_pix2pix_full_train.yaml")
+        self.assertIsNone(config["data"]["max_train_records"])
+        self.assertEqual(config["split"]["train_mods"], ["pix2pix"])
+        self.assertTrue(config["split"]["include_real"])
+        self.assertNotEqual(config["output_dir"], load_yaml_config(
+            "configs/train_pix2pix_balanced_patches.yaml"
+        )["output_dir"])
+        patch, training = config["patches"], config["training"]
+        self.assertIsNone(training["max_patches_per_epoch"])
+        self.assertIsNone(training.get("max_volumes_per_epoch"))
+        self.assertIsNone(patch["positive_volume_fraction"])
+        keys = [f"scan{i}" for i in range(6) for _ in range(64)]
+        labels = np.asarray(([1] * 8 + [0] * 56) * 3 + [0] * 192, dtype=np.uint8)
+        # A second metadata record points to the same real scan.
+        keys += ["scan5"] * 64
+        labels = np.concatenate([labels, np.zeros(64, dtype=np.uint8)])
+        sampler = VolumeGroupedBatchSampler(
+            keys, labels, batch_size=training["batch_size"],
+            patches_per_volume=patch["max_patches_per_volume"],
+            positive_patches_per_volume=patch["positive_patches_per_volume"],
+            max_patches_per_epoch=training["max_patches_per_epoch"],
+            positive_volume_fraction=patch["positive_volume_fraction"],
+            seed=training["seed"],
+        )
+        for epoch in range(2):
+            sampler.set_epoch(epoch)
+            batches = list(sampler)
+            self.assertEqual(Counter(keys[batch[0]] for batch in batches), Counter({f"scan{i}": 1 for i in range(6)}))
+            self.assertTrue(all(len(batch) == 32 for batch in batches))
+            self.assertTrue(all(len({keys[i] for i in batch}) == 1 for batch in batches))
+
     def test_baseline_config_has_the_bounded_training_budget(self) -> None:
         config = load_yaml_config("configs/train_pix2pix_baseline.yaml")
         self.assertEqual(config["data"]["max_train_records"], 256)

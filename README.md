@@ -8,6 +8,11 @@ solo la testa binaria è inizializzata da zero. I checkpoint della vecchia CNN
 sono incompatibili. Download verificato dei pesi, smoke test e comandi di
 training/valutazione sono in [docs/LAB_WORKFLOW.md](docs/LAB_WORKFLOW.md).
 
+Per allenare su tutti i record train pix2pix + real usare
+[`configs/train_pix2pix_full_train.yaml`](configs/train_pix2pix_full_train.yaml):
+visita tutte le scansioni ogni epoca e campiona 32 patch per scansione.
+La configurazione balanced mantiene il sottoinsieme rapido da 256 record.
+
 ## Struttura
 
 - `src/tesi_m3d/`: dataset, patch 3D, modello, loss, inferenza e metriche.
