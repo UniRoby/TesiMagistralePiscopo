@@ -98,9 +98,9 @@
     }
   },
   "data_root": "C:\\Tesi Magistrale Piscopo",
-  "first_startup_seconds": 51.51893019999261,
+  "first_startup_seconds": 2.822929899994051,
   "first_startup_forced_rebuild": false,
-  "warm_startup_seconds": 0.7155426999961492,
+  "warm_startup_seconds": 0.7162214000127278,
   "n_index_patches": 527467,
   "epochs": [
     {
@@ -109,12 +109,12 @@
       "cache_size": 2,
       "order": "grouped",
       "patches": 4096,
-      "seconds": 150.76665020000655,
-      "first_batch_seconds": 8.385533399996348,
-      "patches_per_second": 27.167811943598,
+      "seconds": 65.92658480000682,
+      "first_batch_seconds": 6.942283500015037,
+      "patches_per_second": 62.129716144488896,
       "volume_reads": 128,
       "cache_hits": 3968,
-      "worker_item_seconds": 424.3384896008065
+      "worker_item_seconds": 173.55602869900758
     },
     {
       "epoch": 2,
@@ -122,12 +122,12 @@
       "cache_size": 2,
       "order": "grouped",
       "patches": 4096,
-      "seconds": 83.9869708000042,
-      "first_batch_seconds": 1.5920417000015732,
-      "patches_per_second": 48.769469371072915,
+      "seconds": 65.73691520001739,
+      "first_batch_seconds": 0.8448337000154424,
+      "patches_per_second": 62.30897795458033,
       "volume_reads": 128,
       "cache_hits": 3968,
-      "worker_item_seconds": 245.98356139933458
+      "worker_item_seconds": 189.92721590044675
     }
   ],
   "notes": "Loader only: no GPU/forward/backward. Startup includes model/optimizer construction. volume_reads counts normalized stack loader calls (cache misses), not OS physical disk reads. worker_item_seconds sums concurrent item time; it is not wall time. OS filesystem cache is not cleared. Every scenario starts with empty volume caches; persistent workers follow the config. Index labels are reused, not loaded per patch. Percentile disk cache is shared across epochs/scenarios and reused on subsequent runs."
