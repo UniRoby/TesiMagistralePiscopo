@@ -11,9 +11,9 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from .diagnose_localization import write_json
+from .diagnose_localization import write_csv, write_json
 from .evaluate_segmentation import run_evaluation
-from .segmentation import SEGMENTER_NAME, build_segmenter, segmentation_loss
+from .segmentation import SEGMENTER_NAME, build_segmenter, file_digest, load_predictor, segmentation_loss
 from .segmentation_data import SegmentationDataset, VolumeOrder, manifest_records
 from .segmentation_metrics import cohort_id, compare_baseline, evaluate_records, preview_planes, save_preview
 from .train import _load_torch_payload, _write_metrics_row, load_yaml_config, resolve_cache_dir, set_global_seed
@@ -115,37 +115,92 @@ def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumul
     return float(torch.stack(losses).mean().cpu())
 
 
-def overfit_metrics(model, dataset, device="cpu", microbatch=2, output=None):
+def overfit_metrics(model, dataset, device="cpu", microbatch=2, output=None, *, amp=False):
     model.eval()
     dice, false_positive, negative_voxels = [], 0, 0
+    crops, cases = [], []
     with torch.no_grad():
         for index in range(len(dataset)):
             batch = dataset[(0, index)]
-            first_probability = None
+            record = dataset.records[index]
+            case_crops, probabilities = [], []
             for start in range(0, 8, microbatch):
                 image = batch["image"][start:start + microbatch].to(device)
                 target = batch["mask"][start:start + microbatch].bool()
-                probability = model(image).float().sigmoid().cpu()
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and str(device).startswith("cuda")):
+                    probability = model(image).float().sigmoid().cpu()
                 if not torch.isfinite(probability).all():
                     raise FloatingPointError("non-finite overfit prediction")
                 pred = probability >= 0.5
-                if first_probability is None:
-                    first_probability = probability[0, 0].numpy()
-                for truth, detected in zip(target, pred):
+                if output is not None:
+                    probabilities.extend(probability[:, 0].numpy())
+                for offset, (truth, detected) in enumerate(zip(target, pred)):
+                    n_truth, n_pred = int(truth.sum()), int(detected.sum())
+                    tp = int((truth & detected).sum())
+                    crop_dice = 2 * tp / (n_truth + n_pred) if n_truth else None
                     if truth.any():
-                        dice.append(float((2 * (truth & detected).sum() / (truth.sum() + detected.sum())).item()))
+                        dice.append(crop_dice)
                     else:
-                        false_positive += int(detected.sum())
+                        false_positive += n_pred
                         negative_voxels += truth.numel()
+                    case_crops.append({"mod": record.mod, "img_id": batch["img_id"], "crop_index": start + offset,
+                                       "target_voxels": n_truth, "predicted_voxels": n_pred,
+                                       "true_positive_voxels": tp, "false_positive_voxels": n_pred - tp,
+                                       "false_negative_voxels": n_truth - tp, "dice": crop_dice,
+                                       "precision": tp / n_pred if n_pred else None,
+                                       "recall": tp / n_truth if n_truth else None,
+                                       "negative_crop_fp_fraction": n_pred / truth.numel() if not n_truth else None,
+                                       "peak_probability": float(probability[offset].max())})
+            positive = [r for r in case_crops if r["target_voxels"]]
+            negative = [r for r in case_crops if not r["target_voxels"]]
+            cases.append({"mod": record.mod, "img_id": batch["img_id"], "positive_crops": len(positive),
+                          "negative_crops": len(negative),
+                          "positive_crop_dice": float(np.mean([r["dice"] for r in positive])) if positive else None,
+                          "negative_crop_fp_fraction": float(np.mean([r["negative_crop_fp_fraction"] for r in negative])) if negative else None})
+            crops.extend(case_crops)
             if output is not None:
-                path = Path(output)
+                path = Path(output) / "images"
                 path.mkdir(parents=True, exist_ok=True)
-                planes = preview_planes(batch["image"][0, 0].numpy(), batch["mask"][0, 0].numpy().astype(bool), first_probability)
-                save_preview(path / f'{index:02d}_{batch["img_id"]}.png', planes, 0.5)
+                selected = {"first": 0}
+                if positive:
+                    selected["worst_positive"] = min(positive, key=lambda r: r["dice"])["crop_index"]
+                if negative:
+                    selected["worst_negative"] = max(negative, key=lambda r: r["negative_crop_fp_fraction"])["crop_index"]
+                for kind, crop in selected.items():
+                    planes = preview_planes(batch["image"][crop, 0].numpy(), batch["mask"][crop, 0].numpy().astype(bool), probabilities[crop])
+                    save_preview(path / f'{index:02d}_{record.mod}_{batch["img_id"]}_{kind}_crop{crop}.png', planes, 0.5)
+    if output is not None:
+        write_csv(Path(output) / "crops.csv", crops)
+        write_csv(Path(output) / "cases.csv", cases)
     mean_dice = float(np.mean(dice)) if dice else 0.0
     fpr = false_positive / negative_voxels if negative_voxels else 1.0
     return {"positive_crop_dice": mean_dice, "negative_crop_fp_fraction": fpr,
             "passed": bool(dice and negative_voxels and mean_dice >= 0.90 and fpr < 0.01)}
+
+
+def diagnose_overfit(checkpoint, data_root, *, device="cpu", output_dir=None, cache_dir=None, real_scan_root=None):
+    """Re-evaluate fixed training crops without updating weights or the original gate."""
+    model, payload = load_predictor(Path(checkpoint), device)
+    config = payload["config"]
+    if payload.get("task") != "segmentation" or config.get("stage") != "overfit":
+        raise ValueError("diagnosis requires a segmentation overfit checkpoint")
+    manifest = payload["manifest"]
+    check_prerequisites(config, manifest, data_root, real_scan_root)
+    output = Path(output_dir or Path(checkpoint).parent / "diagnostics")
+    output.mkdir(parents=True, exist_ok=True)
+    dataset = SegmentationDataset(manifest_records(manifest, "overfit"), data_root,
+                                  patch_shape=config["patches"]["patch_shape"], preprocessing=config["preprocessing"],
+                                  seed=manifest["seed"], augment=False, fixed=True,
+                                  cache_dir=resolve_cache_dir(config, cache_dir, output),
+                                  volume_cache_size=config["training"].get("volume_cache_size", 6), real_scan_root=real_scan_root)
+    batch = config["training"]["batch_size"]
+    report = {"evaluation_only": True, "checkpoint": str(checkpoint), "checkpoint_sha256": file_digest(checkpoint),
+              "manifest_id": manifest["manifest_id"], "updates": payload["updates"], "threshold": 0.5,
+              "fp32": overfit_metrics(model, dataset, device, batch, output / "fp32")}
+    if str(device).startswith("cuda"):
+        report["bfloat16"] = overfit_metrics(model, dataset, device, batch, output / "bfloat16", amp=True)
+    write_json(output / "report.json", report)
+    return report
 
 
 def _rng_state():
@@ -259,6 +314,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
             updates += 1
             if stage == "overfit" and (updates % 25 == 0 or updates >= training.get("max_updates", 300)):
                 overfit_report = overfit_metrics(model, dataset, device, training["batch_size"])
+                _write_metrics_row(output / "overfit_metrics.csv", {"updates": updates, **overfit_report})
                 model.train()
                 if overfit_report["passed"] or updates >= training.get("max_updates", 300):
                     break
@@ -288,7 +344,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         if stage != "overfit" and stale >= training.get("early_stopping_validations", 3):
             break
     if stage == "overfit":
-        overfit_report = overfit_metrics(model, dataset, device, training["batch_size"], output / "images")
+        overfit_report = overfit_metrics(model, dataset, device, training["batch_size"], output)
         overfit_report.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True)
         write_json(output / "gate.json", overfit_report)
         return overfit_report
@@ -307,7 +363,9 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--config")
+    source.add_argument("--diagnose-checkpoint")
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--real-scan-root")
     parser.add_argument("--output-dir")
@@ -315,6 +373,13 @@ def main():
     parser.add_argument("--resume")
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
+    if args.diagnose_checkpoint:
+        if args.resume:
+            parser.error("--diagnose-checkpoint does not train or resume")
+        report = diagnose_overfit(args.diagnose_checkpoint, args.data_root, device=args.device,
+                                  output_dir=args.output_dir, cache_dir=args.cache_dir, real_scan_root=args.real_scan_root)
+        print(json.dumps(report, indent=2))
+        return
     report = run_training(load_yaml_config(args.config), args.data_root, device=args.device,
                           output_dir=args.output_dir, cache_dir=args.cache_dir, resume=args.resume, real_scan_root=args.real_scan_root)
     print(json.dumps(report, indent=2))

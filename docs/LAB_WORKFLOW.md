@@ -739,6 +739,33 @@ Se fallisce, ispezionare le immagini prodotte e fermarsi: i piloti verranno
 bloccati. Exit code 2 indica criterio scientifico non superato; leggere
 il report, senza aumentare il budget del full.
 
+Se il gate fallisce, rivalutare `last.pt` senza altri aggiornamenti:
+
+```powershell
+python -m tesi_m3d.train_segmentation `
+  --diagnose-checkpoint outputs\segmentation_overfit\last.pt `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --output-dir outputs\segmentation_overfit\diagnostics
+```
+
+Usa manifest, preprocessing, seed e crop fissi del checkpoint. Non aggiorna
+i pesi, non richiede nuovamente il file MedicalNet e non riscrive `gate.json`.
+`diagnostics/report.json` confronta il gate in float32 con bfloat16 su CUDA,
+la precisione del training. Non calibra soglie: entrambe restano a 0,5.
+Ogni directory `fp32/` e `bfloat16/` contiene `crops.csv` (tutti i 48 crop),
+`cases.csv` e figure del primo crop, del positivo con Dice minimo e del
+negativo con più falsi positivi per scansione. I nomi includono `real` o
+`pix2pix`: i reali conservano identificativi `inj_*`/`rem_*` ma hanno
+correttamente target vuoto. Le metriche non definite sono celle vuote;
+il Dice dei crop negativi non contribuisce alla media sui positivi.
+Su CPU si produce soltanto float32. Copiare questi piccoli report e le figure
+per l'analisi; i checkpoint possono rimanere sul PC del laboratorio.
+
+Le nuove run salvano anche `overfit_metrics.csv` ogni 25 aggiornamenti e al
+limite configurato. La prima run non conserva questa storia: la sola curva
+della loss non dice quando Dice e falsi positivi siano stati migliori.
+La diagnosi non sostituisce il gate e non sblocca i piloti.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

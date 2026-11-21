@@ -350,6 +350,55 @@ perché implementato. Servono le esecuzioni sui TIFF e la revisione visiva
 delle annotazioni. I report cross-generator usano checkpoint e soglie
 congelati; risultati soltanto su pix2pix non chiudono la generalizzazione.
 
+### 10.1 Prima prova overfit della segmentazione: gate non superato
+
+**Verifica eseguita.** La run
+[`segmentation_overfit`](../outputs/segmentation_overfit/gate.json), manifest
+`0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200`,
+ha completato 50 epoche, 300 aggiornamenti su sei scansioni train: due
+injection, due removal e due reali. Crop fissi, nessuna augmentation,
+normalizzazione senza clipping, encoder MedicalNet aggiornato fin dall'inizio.
+Il gate restituisce Dice medio dei crop positivi **0,70994**, frazione di voxel
+predetti positivi sui crop negativi **0,016996** e gradienti finiti.
+Fallisce entrambi i criteri spaziali (>=0,90 e <0,01).
+
+**Curva e immagini.** La [loss](../outputs/segmentation_overfit/metrics.csv)
+passa da 0,55507 a 0,29618; la media delle epoche 41–45 è 0,31639 e quella
+delle epoche 46–50 è 0,29142. Non emerge un plateau della loss in questa
+finestra; manca però la storia intermedia del Dice e dei falsi positivi.
+I primi crop dei quattro manipolati mostrano sovrapposizione con il target,
+con predizioni spesso più ampie e bordi arrotondati. Non mostrano un
+grossolano scambio degli assi nelle sezioni visualizzate. I reali
+[`inj_1713`](../outputs/segmentation_overfit/images/04_inj_1713.png) e
+[`rem_605`](../outputs/segmentation_overfit/images/05_rem_605.png)
+mostrano falsi positivi: il prefisso del nome non indica il dominio,
+che nel manifest è `real` e richiede target vuoto.
+
+**Annotazioni e audit appaiato.** I quattro manipolati overfit hanno
+`bbox_fill_fraction=1`; lo stesso vale per tutti i 78 record manipolati
+controllati dall'[audit iniziale](../outputs/segmentation_protocol/audit.json).
+Sono riquadri volumetrici pieni, non contorni anatomici di tumore.
+Nell'[audit delle differenze locali](../outputs/segmentation_protocol/paired_artifacts/regions.csv),
+per `inj_2092` e `inj_1419` cambia rispettivamente il 42,45% e il 46,45%
+dei voxel dentro la mask, senza differenze nelle regioni esterne esaminate.
+Per `rem_133` cambia il 93,80% del target e le differenze esterne sono
+al massimo un'unità nei valori TIFF. Per `rem_15`, corona e tessuto lontano
+hanno differenza assoluta di circa 1024, con differenze dei gradienti quasi
+nulle: compatibile con un offset additivo, senza dimostrarne segno o causa.
+Le differenze raw non vanno confuse con quelle dopo normalizzazione né
+usate per sostituire la mask.
+
+**Decisione e limite.** Piloti e full restano bloccati. Non cambiare soglia,
+budget o criterio per trasformare questo risultato in un successo.
+Il risultato dimostra apprendimento parziale sui crop del train; non misura
+la localizzazione su volumi completi e non è confrontabile direttamente
+con il Dice della baseline su validation. Prima di cambiare ottimizzazione
+o decoder, rivalutare il checkpoint con la diagnostica della sezione 18.2
+della guida: tutti i crop, precision/recall, errori per scansione e confronto
+float32/bfloat16 alla stessa soglia. La nuova diagnostica non modifica pesi
+o gate originale. Checkpoint e TIFF sono sul PC Windows: tale rivalutazione
+non è ancora stata eseguita localmente.
+
 ## Come aggiornare questo registro
 
 Per ogni punto chiuso, sostituire «Da compilare» con: **verifica eseguita**

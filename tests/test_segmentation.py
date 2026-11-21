@@ -20,7 +20,7 @@ from tesi_m3d.segmentation_data import (SegmentationDataset, audit_records, crop
                                         stratified, validate_stack)
 from tesi_m3d.segmentation_metrics import BINS, ScoreHistogram, compare_baseline, evaluate_records, summarize
 from tesi_m3d.train import load_yaml_config
-from tesi_m3d.train_segmentation import check_prerequisites, run_training, train_volume
+from tesi_m3d.train_segmentation import check_prerequisites, diagnose_overfit, overfit_metrics, run_training, train_volume
 from tesi_m3d.volume_io import align_mask_to_scan
 
 
@@ -133,6 +133,43 @@ def test_streaming_metrics_match_exact_quantized_ap_and_auc():
 class PointwisePredictor(torch.nn.Module):
     def forward(self, x):
         return 4 * x - 2
+
+
+def test_overfit_diagnostics_measure_all_crops_and_show_worst_errors(tmp_path):
+    import csv
+    from _tiff_fixtures import make_fake_record
+
+    class FixedCrops:
+        records = [make_fake_record()]
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, key):
+            assert key == (0, 0)
+            mask = torch.zeros(8, 1, 8, 8, 8)
+            mask[:4, :, 2:4, 2:4, 2:4] = 1
+            image = mask.clone()
+            image[1] = 0
+            image[4, :, 0, 0, 0] = 1
+            image[5, :, :2, :2, :2] = 1
+            return {"image": image, "mask": mask, "img_id": self.records[0].img_id}
+
+    report = overfit_metrics(PointwisePredictor(), FixedCrops(), output=tmp_path)
+    assert report["positive_crop_dice"] == 0.75
+    assert report["negative_crop_fp_fraction"] == 9 / (4 * 8**3)
+    assert not report["passed"]
+    assert overfit_metrics(PointwisePredictor(), FixedCrops(), microbatch=1) == report
+    crops = list(csv.DictReader((tmp_path / "crops.csv").open()))
+    cases = list(csv.DictReader((tmp_path / "cases.csv").open()))
+    assert len(crops) == 8 and len(cases) == 1
+    assert crops[1]["recall"] == "0.0" and crops[1]["precision"] == ""
+    assert crops[5]["dice"] == "" and crops[5]["false_positive_voxels"] == "8"
+    assert float(cases[0]["positive_crop_dice"]) == report["positive_crop_dice"]
+    names = [p.name for p in (tmp_path / "images").glob("*.png")]
+    assert len(names) == 3
+    assert any("worst_positive_crop1" in name for name in names)
+    assert any("worst_negative_crop5" in name for name in names)
 
 
 @pytest.mark.parametrize("shape", [(17, 19, 21), (5, 6, 7)])
@@ -303,6 +340,7 @@ def test_staged_training_evaluation_and_resume_with_tiff_fixture(tmp_path, monke
         return build(payload["config"]["model"], payload["model_state_dict"]).to(device), payload
 
     monkeypatch.setattr(trainer, "build_segmenter", build)
+    monkeypatch.setattr(trainer, "load_predictor", restore)
     monkeypatch.setattr(evaluator, "load_predictor", restore)
     baseline = evaluate_records(TinySegmenter(), {"config": config}, records, root, batch_size=2)
     baseline.update(manifest_id="synthetic", split="valid", model_name="resnet18_medicalnet")
@@ -329,6 +367,32 @@ def test_staged_training_evaluation_and_resume_with_tiff_fixture(tmp_path, monke
     assert overfit["updates"] == 1 and overfit["finite_gradients"]
     assert not overfit["passed"]
     assert (tmp_path / "overfit/gate.json").exists()
+    assert len((tmp_path / "overfit/overfit_metrics.csv").read_text().splitlines()) == 2
+    checkpoint = tmp_path / "overfit/last.pt"
+    original = checkpoint.read_bytes()
+    original_gate = (tmp_path / "overfit/gate.json").read_bytes()
+    diagnosis = diagnose_overfit(checkpoint, root)
+    assert diagnosis["evaluation_only"] and diagnosis["updates"] == 1
+    assert diagnosis["fp32"]["positive_crop_dice"] == overfit["positive_crop_dice"]
+    assert "bfloat16" not in diagnosis  # Never label CPU evaluation as the CUDA training precision.
+    assert checkpoint.read_bytes() == original
+    assert (tmp_path / "overfit/gate.json").read_bytes() == original_gate
+    assert (tmp_path / "overfit/diagnostics/fp32/crops.csv").exists()
+    config["stage"] = "pilot"
+    with patch.object(trainer, "load_predictor", return_value=(TinySegmenter(), {"config": config, "manifest": manifest, "task": "segmentation"})):
+        with pytest.raises(ValueError, match="overfit checkpoint"):
+            diagnose_overfit(checkpoint, root)
+
+
+def test_overfit_diagnosis_cli_does_not_start_training(tmp_path, monkeypatch):
+    import sys
+    import tesi_m3d.train_segmentation as cli
+    called = []
+    monkeypatch.setattr(cli, "diagnose_overfit", lambda *a, **kw: called.append((a, kw)) or {"evaluation_only": True})
+    monkeypatch.setattr(cli, "run_training", lambda *a, **kw: pytest.fail("diagnosis must not train"))
+    monkeypatch.setattr(sys, "argv", ["train_segmentation", "--diagnose-checkpoint", "last.pt", "--data-root", str(tmp_path)])
+    cli.main()
+    assert called[0][0] == ("last.pt", str(tmp_path))
 
 
 def test_full_training_recomputes_gates_and_selects_only_controlled_pilots(tmp_path):
