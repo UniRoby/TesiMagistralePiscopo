@@ -562,3 +562,17 @@ def test_pilot_configs_differ_only_in_clipping_and_output():
     assert protocol_signature(first) == protocol_signature(second)
     second["preprocessing"]["low"] = 2
     assert protocol_signature(first) != protocol_signature(second)
+
+
+def test_overfit_decoder_lr_retry_changes_only_lr_and_output():
+    from tesi_m3d.train_segmentation import validate_config
+    original = load_yaml_config("configs/segmentation_overfit.yaml")
+    retry = load_yaml_config("configs/segmentation_overfit_decoder_lr.yaml")
+    validate_config(retry)
+    assert retry["training"]["decoder_lr"] == 1e-3
+    assert retry["output_dir"] != original["output_dir"]
+    assert retry["overfit_report"] == retry["output_dir"] + "/gate.json"
+    retry["training"]["decoder_lr"] = original["training"]["decoder_lr"]
+    for key in ("output_dir", "overfit_report"):
+        retry[key] = original[key]
+    assert retry == original

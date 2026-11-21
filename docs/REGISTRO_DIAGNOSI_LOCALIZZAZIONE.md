@@ -396,8 +396,59 @@ con il Dice della baseline su validation. Prima di cambiare ottimizzazione
 o decoder, rivalutare il checkpoint con la diagnostica della sezione 18.2
 della guida: tutti i crop, precision/recall, errori per scansione e confronto
 float32/bfloat16 alla stessa soglia. La nuova diagnostica non modifica pesi
-o gate originale. Checkpoint e TIFF sono sul PC Windows: tale rivalutazione
-non è ancora stata eseguita localmente.
+o gate originale. Checkpoint e TIFF sono sul PC Windows; la rivalutazione
+successiva e i report sincronizzati sono documentati nella sezione 10.2.
+
+### 10.2 Diagnostica di tutti i crop e confronto delle precisioni
+
+**Verifica eseguita.** La
+[diagnostica del checkpoint a 300 aggiornamenti](../outputs/segmentation_overfit/diagnostics/report.json)
+`665d87e234721605fbeb91401ecdd9f0268739f9e51e6f602fa331ad956d1755`
+è stata eseguita sul PC del laboratorio e i report sono stati sincronizzati.
+Alla soglia 0,5, float32 dà Dice medio 0,709938 e FP sui negativi 1,69957%;
+bfloat16 dà Dice 0,709819 e FP 1,70363%. La differenza di Dice è 0,000119,
+con massimo scarto per crop di circa 0,000594: in questo checkpoint il cambio
+di precisione non spiega il fallimento del gate.
+
+**Errori misurati.** Nei
+[16 crop positivi](../outputs/segmentation_overfit/diagnostics/fp32/crops.csv)
+il recall medio per crop è 94,22%, la precision media è 61,04%. I conteggi
+aggregati sono TP=246.575, FP=136.112, FN=27.344: la precision micro è
+64,43% e il recall micro 90,02%. Non confondere medie per crop e conteggi
+globali. Solo un crop positivo su 16 raggiunge Dice >=0,90; 13/16 hanno
+recall >=0,90. Il crop 3 di `inj_2092` ha 1.300 voxel target, tutti trovati,
+ma 12.638 falsi positivi: Dice 0,17063 e precision 9,33%. La sua figura
+mostra una piccola porzione di target al bordo del crop e una predizione
+molto più ampia. I crop negativi non intersecano il target secondo il
+sampler; 17/32 superano comunque l'1% di voxel predetti positivi.
+
+| Scansione | Dominio | Dice medio crop positivi | FP voxel nei suoi crop negativi |
+| --- | --- | ---: | ---: |
+| inj_2092 | pix2pix | 0,54868 | 1,35% |
+| inj_1419 | pix2pix | 0,78602 | 4,12% |
+| rem_133 | pix2pix | 0,69577 | 1,69% |
+| rem_15 | pix2pix | 0,80928 | 1,12% |
+| inj_1713 | real | non definito | 0,51% |
+| rem_605 | real | non definito | 2,15% |
+
+I [conteggi per caso](../outputs/segmentation_overfit/diagnostics/fp32/cases.csv)
+non indicano un errore isolato: tutte le scansioni manipolate hanno Dice
+medio inferiore al criterio aggregato del gate e FP negativi >1%. Nei soli
+16 crop reali la frazione FP aggregata è 1,32985%; nei 16 negativi estratti
+da pix2pix è 2,06928%. Le figure mostrano anche attivazioni lontane dal
+target e su reali. È confermata la sovraestensione delle predizioni;
+la causa nel training, nei dati o nell'architettura resta aperta.
+
+**Decisione.** Nessun cambiamento di soglia, clipping, loss, encoder o
+budget. Per verificare l'ipotesi di convergenza troppo lenta nel budget
+fissato, è preparata una sola replica con
+[`segmentation_overfit_decoder_lr.yaml`](../configs/segmentation_overfit_decoder_lr.yaml):
+LR decoder 1e-3 invece di 3e-4, nuova inizializzazione identica tramite
+seed 21 e MedicalNet, stessi crop e massimo 300 aggiornamenti, output
+separati. Un test verifica che nessun altro parametro sperimentale cambi.
+L'esito non è ancora disponibile. I piloti restano bloccati dal gate
+originale: non promuovere la replica senza esaminarne report e immagini.
+Il risultato resta sul train e non dimostra generalizzazione.
 
 ## Come aggiornare questo registro
 

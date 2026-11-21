@@ -766,6 +766,31 @@ limite configurato. La prima run non conserva questa storia: la sola curva
 della loss non dice quando Dice e falsi positivi siano stati migliori.
 La diagnosi non sostituisce il gate e non sblocca i piloti.
 
+La prima diagnosi ha confermato risultati quasi identici in float32 e
+bfloat16 (Dice 0,70994 e 0,70982). Sui positivi il recall medio è 94,22%
+ma la precision media è 61,04%; prevale l'eccesso di predizioni positive.
+La loss continua a scendere al limite dei 300 aggiornamenti. È disponibile
+**una replica controllata**, per verificare se il decoder converge meglio
+nello stesso budget, cambiando soltanto il suo LR da 3e-4 a 1e-3:
+
+```powershell
+python -m tesi_m3d.train_segmentation `
+  --config configs\segmentation_overfit_decoder_lr.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
+```
+
+Avviare da MedicalNet e dallo stesso seed, **senza `--resume`**. Tutti gli
+altri parametri, i crop, il manifest e il gate restano quelli originali;
+non è un'estensione della run a 600 aggiornamenti. Gli output separati sono
+in `outputs/segmentation_overfit_decoder_lr/`: confrontare `gate.json`,
+`overfit_metrics.csv`, `cases.csv`, `crops.csv` e le immagini dei peggiori
+errori. Un LR maggiore è un'ipotesi sperimentale, non una causa già dimostrata
+né una correzione garantita. Se fallisce, fermarsi e documentare l'esito;
+non avviare una serie di tentativi arbitrari o il full. Le configurazioni
+pilota continuano a richiedere il gate originale e non vengono sbloccate
+automaticamente da questa prova. Se passa, occorre riesaminare il risultato
+prima di collegarne il report ai piloti.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:
