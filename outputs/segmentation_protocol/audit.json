@@ -1,0 +1,1602 @@
+{
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "data_root": "C:\\Tesi Magistrale Piscopo",
+  "real_scan_root": "C:\\Tesi Magistrale Piscopo\\real\\scan",
+  "stage": "pilot",
+  "passed": true,
+  "cohorts": [
+    "overfit",
+    "pilot_train",
+    "common_valid"
+  ],
+  "records": [
+    {
+      "img_id": "inj_2092",
+      "mod": "pix2pix",
+      "shape": [
+        139,
+        512,
+        512
+      ],
+      "positive_voxels": 27508,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1419",
+      "mod": "pix2pix",
+      "shape": [
+        300,
+        512,
+        512
+      ],
+      "positive_voxels": 80000,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_133",
+      "mod": "pix2pix",
+      "shape": [
+        139,
+        512,
+        512
+      ],
+      "positive_voxels": 16848,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_15",
+      "mod": "pix2pix",
+      "shape": [
+        127,
+        512,
+        512
+      ],
+      "positive_voxels": 29952,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1713",
+      "mod": "real",
+      "shape": [
+        219,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_605",
+      "mod": "real",
+      "shape": [
+        87,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1270",
+      "mod": "pix2pix",
+      "shape": [
+        240,
+        512,
+        512
+      ],
+      "positive_voxels": 55016,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2437",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 27508,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2383",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 24037,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_475",
+      "mod": "pix2pix",
+      "shape": [
+        140,
+        512,
+        512
+      ],
+      "positive_voxels": 27508,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2270",
+      "mod": "pix2pix",
+      "shape": [
+        143,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_354",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_210",
+      "mod": "pix2pix",
+      "shape": [
+        117,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_292",
+      "mod": "pix2pix",
+      "shape": [
+        143,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1072",
+      "mod": "pix2pix",
+      "shape": [
+        536,
+        512,
+        512
+      ],
+      "positive_voxels": 103243,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2028",
+      "mod": "pix2pix",
+      "shape": [
+        119,
+        512,
+        512
+      ],
+      "positive_voxels": 27508,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2448",
+      "mod": "pix2pix",
+      "shape": [
+        151,
+        512,
+        512
+      ],
+      "positive_voxels": 19773,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_693",
+      "mod": "pix2pix",
+      "shape": [
+        215,
+        512,
+        512
+      ],
+      "positive_voxels": 29584,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2273",
+      "mod": "pix2pix",
+      "shape": [
+        238,
+        512,
+        512
+      ],
+      "positive_voxels": 43706,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2204",
+      "mod": "pix2pix",
+      "shape": [
+        257,
+        512,
+        512
+      ],
+      "positive_voxels": 37544,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_30",
+      "mod": "pix2pix",
+      "shape": [
+        128,
+        512,
+        512
+      ],
+      "positive_voxels": 24037,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_11",
+      "mod": "pix2pix",
+      "shape": [
+        256,
+        512,
+        512
+      ],
+      "positive_voxels": 43706,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_763",
+      "mod": "pix2pix",
+      "shape": [
+        152,
+        512,
+        512
+      ],
+      "positive_voxels": 32500,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_726",
+      "mod": "pix2pix",
+      "shape": [
+        290,
+        512,
+        512
+      ],
+      "positive_voxels": 35344,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1293",
+      "mod": "pix2pix",
+      "shape": [
+        375,
+        512,
+        512
+      ],
+      "positive_voxels": 96800,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_512",
+      "mod": "pix2pix",
+      "shape": [
+        250,
+        512,
+        512
+      ],
+      "positive_voxels": 78650,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2026",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 17797,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_281",
+      "mod": "pix2pix",
+      "shape": [
+        136,
+        512,
+        512
+      ],
+      "positive_voxels": 38416,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_18",
+      "mod": "pix2pix",
+      "shape": [
+        149,
+        512,
+        512
+      ],
+      "positive_voxels": 24037,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_364",
+      "mod": "pix2pix",
+      "shape": [
+        583,
+        512,
+        512
+      ],
+      "positive_voxels": 55016,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_363",
+      "mod": "pix2pix",
+      "shape": [
+        583,
+        512,
+        512
+      ],
+      "positive_voxels": 55016,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_346",
+      "mod": "pix2pix",
+      "shape": [
+        191,
+        512,
+        512
+      ],
+      "positive_voxels": 35344,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_173",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 27508,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_529",
+      "mod": "pix2pix",
+      "shape": [
+        321,
+        512,
+        512
+      ],
+      "positive_voxels": 51984,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_124",
+      "mod": "pix2pix",
+      "shape": [
+        139,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_151",
+      "mod": "pix2pix",
+      "shape": [
+        150,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_532",
+      "mod": "pix2pix",
+      "shape": [
+        529,
+        512,
+        512
+      ],
+      "positive_voxels": 73034,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_31",
+      "mod": "pix2pix",
+      "shape": [
+        113,
+        512,
+        512
+      ],
+      "positive_voxels": 24037,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_1",
+      "mod": "pix2pix",
+      "shape": [
+        140,
+        512,
+        512
+      ],
+      "positive_voxels": 19773,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_100",
+      "mod": "pix2pix",
+      "shape": [
+        117,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_317",
+      "mod": "pix2pix",
+      "shape": [
+        318,
+        512,
+        512
+      ],
+      "positive_voxels": 67712,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_120",
+      "mod": "pix2pix",
+      "shape": [
+        333,
+        512,
+        512
+      ],
+      "positive_voxels": 26896,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_362",
+      "mod": "pix2pix",
+      "shape": [
+        280,
+        512,
+        512
+      ],
+      "positive_voxels": 35344,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_47",
+      "mod": "pix2pix",
+      "shape": [
+        272,
+        512,
+        512
+      ],
+      "positive_voxels": 48074,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_227",
+      "mod": "pix2pix",
+      "shape": [
+        253,
+        512,
+        512
+      ],
+      "positive_voxels": 67626,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_240",
+      "mod": "pix2pix",
+      "shape": [
+        278,
+        512,
+        512
+      ],
+      "positive_voxels": 48672,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_600",
+      "mod": "pix2pix",
+      "shape": [
+        136,
+        512,
+        512
+      ],
+      "positive_voxels": 29584,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_554",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 17797,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_328",
+      "mod": "pix2pix",
+      "shape": [
+        289,
+        512,
+        512
+      ],
+      "positive_voxels": 45864,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_522",
+      "mod": "pix2pix",
+      "shape": [
+        545,
+        512,
+        512
+      ],
+      "positive_voxels": 50336,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2452",
+      "mod": "real",
+      "shape": [
+        238,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_1042",
+      "mod": "real",
+      "shape": [
+        123,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1208",
+      "mod": "real",
+      "shape": [
+        413,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1606",
+      "mod": "real",
+      "shape": [
+        300,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_617",
+      "mod": "real",
+      "shape": [
+        105,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_119",
+      "mod": "real",
+      "shape": [
+        368,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_2367",
+      "mod": "real",
+      "shape": [
+        147,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_331",
+      "mod": "real",
+      "shape": [
+        145,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1152",
+      "mod": "real",
+      "shape": [
+        325,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_2297",
+      "mod": "real",
+      "shape": [
+        232,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_366",
+      "mod": "real",
+      "shape": [
+        208,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_2420",
+      "mod": "real",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_780",
+      "mod": "real",
+      "shape": [
+        503,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1123",
+      "mod": "real",
+      "shape": [
+        456,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_146",
+      "mod": "real",
+      "shape": [
+        297,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_221",
+      "mod": "pix2pix",
+      "shape": [
+        326,
+        512,
+        512
+      ],
+      "positive_voxels": 80000,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_202",
+      "mod": "real",
+      "shape": [
+        265,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1867",
+      "mod": "pix2pix",
+      "shape": [
+        300,
+        512,
+        512
+      ],
+      "positive_voxels": 89888,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1399",
+      "mod": "pix2pix",
+      "shape": [
+        529,
+        512,
+        512
+      ],
+      "positive_voxels": 90988,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1888",
+      "mod": "pix2pix",
+      "shape": [
+        154,
+        512,
+        512
+      ],
+      "positive_voxels": 28717,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1845",
+      "mod": "real",
+      "shape": [
+        121,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_365",
+      "mod": "real",
+      "shape": [
+        113,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_2176",
+      "mod": "pix2pix",
+      "shape": [
+        265,
+        512,
+        512
+      ],
+      "positive_voxels": 33696,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1863",
+      "mod": "pix2pix",
+      "shape": [
+        273,
+        512,
+        512
+      ],
+      "positive_voxels": 55016,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1084",
+      "mod": "pix2pix",
+      "shape": [
+        290,
+        512,
+        512
+      ],
+      "positive_voxels": 40000,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2407",
+      "mod": "real",
+      "shape": [
+        301,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1090",
+      "mod": "real",
+      "shape": [
+        290,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_1059",
+      "mod": "real",
+      "shape": [
+        107,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_77",
+      "mod": "pix2pix",
+      "shape": [
+        197,
+        512,
+        512
+      ],
+      "positive_voxels": 35594,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1047",
+      "mod": "real",
+      "shape": [
+        181,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1962",
+      "mod": "pix2pix",
+      "shape": [
+        312,
+        512,
+        512
+      ],
+      "positive_voxels": 73728,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1961",
+      "mod": "pix2pix",
+      "shape": [
+        312,
+        512,
+        512
+      ],
+      "positive_voxels": 73728,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2170",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 27508,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2315",
+      "mod": "real",
+      "shape": [
+        123,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_314",
+      "mod": "pix2pix",
+      "shape": [
+        258,
+        512,
+        512
+      ],
+      "positive_voxels": 35594,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_305",
+      "mod": "pix2pix",
+      "shape": [
+        140,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_4",
+      "mod": "real",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1862",
+      "mod": "pix2pix",
+      "shape": [
+        273,
+        512,
+        512
+      ],
+      "positive_voxels": 55016,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_552",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 21853,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_257",
+      "mod": "real",
+      "shape": [
+        278,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1864",
+      "mod": "pix2pix",
+      "shape": [
+        300,
+        512,
+        512
+      ],
+      "positive_voxels": 89888,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2290",
+      "mod": "real",
+      "shape": [
+        258,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1979",
+      "mod": "pix2pix",
+      "shape": [
+        133,
+        512,
+        512
+      ],
+      "positive_voxels": 29952,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_510",
+      "mod": "real",
+      "shape": [
+        225,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1897",
+      "mod": "pix2pix",
+      "shape": [
+        193,
+        512,
+        512
+      ],
+      "positive_voxels": 33856,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2381",
+      "mod": "real",
+      "shape": [
+        249,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_805",
+      "mod": "real",
+      "shape": [
+        108,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_662",
+      "mod": "real",
+      "shape": [
+        111,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_2141",
+      "mod": "pix2pix",
+      "shape": [
+        197,
+        512,
+        512
+      ],
+      "positive_voxels": 35594,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_1035",
+      "mod": "real",
+      "shape": [
+        124,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "rem_644",
+      "mod": "real",
+      "shape": [
+        118,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1959",
+      "mod": "real",
+      "shape": [
+        312,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1124",
+      "mod": "pix2pix",
+      "shape": [
+        286,
+        512,
+        512
+      ],
+      "positive_voxels": 73728,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_327",
+      "mod": "pix2pix",
+      "shape": [
+        95,
+        512,
+        512
+      ],
+      "positive_voxels": 17797,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2128",
+      "mod": "pix2pix",
+      "shape": [
+        166,
+        512,
+        512
+      ],
+      "positive_voxels": 32400,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_303",
+      "mod": "real",
+      "shape": [
+        251,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1894",
+      "mod": "real",
+      "shape": [
+        99,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_432",
+      "mod": "pix2pix",
+      "shape": [
+        301,
+        512,
+        512
+      ],
+      "positive_voxels": 57434,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2127",
+      "mod": "pix2pix",
+      "shape": [
+        166,
+        512,
+        512
+      ],
+      "positive_voxels": 32400,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_1053",
+      "mod": "real",
+      "shape": [
+        126,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_361",
+      "mod": "pix2pix",
+      "shape": [
+        143,
+        512,
+        512
+      ],
+      "positive_voxels": 17797,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2230",
+      "mod": "real",
+      "shape": [
+        116,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1138",
+      "mod": "pix2pix",
+      "shape": [
+        164,
+        512,
+        512
+      ],
+      "positive_voxels": 27508,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "rem_344",
+      "mod": "pix2pix",
+      "shape": [
+        481,
+        512,
+        512
+      ],
+      "positive_voxels": 48074,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_1206",
+      "mod": "pix2pix",
+      "shape": [
+        140,
+        512,
+        512
+      ],
+      "positive_voxels": 36517,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_2165",
+      "mod": "real",
+      "shape": [
+        158,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_2483",
+      "mod": "pix2pix",
+      "shape": [
+        225,
+        512,
+        512
+      ],
+      "positive_voxels": 40000,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_162",
+      "mod": "pix2pix",
+      "shape": [
+        241,
+        512,
+        512
+      ],
+      "positive_voxels": 73034,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": true,
+      "bbox_fill_fraction": 1.0
+    },
+    {
+      "img_id": "inj_266",
+      "mod": "real",
+      "shape": [
+        153,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_1735",
+      "mod": "real",
+      "shape": [
+        189,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_124",
+      "mod": "real",
+      "shape": [
+        115,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    },
+    {
+      "img_id": "inj_2302",
+      "mod": "real",
+      "shape": [
+        95,
+        512,
+        512
+      ],
+      "positive_voxels": 0,
+      "metadata_coord_in_scan": true,
+      "metadata_coord_in_mask": false,
+      "bbox_fill_fraction": null
+    }
+  ],
+  "paired_audit": "outputs\\segmentation_protocol\\paired_artifacts\\summary.json",
+  "annotation_review": "Inspect three-plane overlays and bbox_fill_fraction; masks label edits, not tumor contours."
+}

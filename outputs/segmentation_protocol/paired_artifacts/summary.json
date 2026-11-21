@@ -1,0 +1,37 @@
+{
+  "n_pairs": 32,
+  "split": "train",
+  "seed": 21,
+  "near_radius_voxels": 4,
+  "regions": {
+    "mask": {
+      "changed_fraction": 0.7160897398418962,
+      "mean_absolute_difference": 69.02542131660245,
+      "mean_absolute_difference_on_changed": 82.85141759810509,
+      "max_absolute_difference": 1082.5625,
+      "mean_gradient_difference_xy": 24.580761740192965
+    },
+    "near": {
+      "changed_fraction": 0.09815815697938629,
+      "mean_absolute_difference": 32.06690815697939,
+      "mean_absolute_difference_on_changed": 79.6923076923077,
+      "max_absolute_difference": 32.375,
+      "mean_gradient_difference_xy": 0.018536009320495733
+    },
+    "far": {
+      "changed_fraction": 0.03146530626565849,
+      "mean_absolute_difference": 32.00021531113064,
+      "mean_absolute_difference_on_changed": 64.93750000972996,
+      "max_absolute_difference": 32.5,
+      "mean_gradient_difference_xy": 8.124038195727569e-05
+    }
+  },
+  "definitions": {
+    "mask": "aligned manipulation annotation",
+    "near": "outside mask, within four voxels on each axis; both TIFF values nonzero",
+    "far": "outside near and mask; both TIFF values nonzero",
+    "mean_gradient_difference_xy": "mean absolute difference of adjacent in-plane intensity differences in stored uint16 units"
+  },
+  "interpretation": "Screening only: differences outside the mask do not by themselves prove a generator artifact or a model shortcut.",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200"
+}
