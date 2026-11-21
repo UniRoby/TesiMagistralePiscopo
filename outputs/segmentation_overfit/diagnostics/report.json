@@ -1,0 +1,18 @@
+{
+  "evaluation_only": true,
+  "checkpoint": "outputs\\segmentation_overfit\\last.pt",
+  "checkpoint_sha256": "665d87e234721605fbeb91401ecdd9f0268739f9e51e6f602fa331ad956d1755",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "updates": 300,
+  "threshold": 0.5,
+  "fp32": {
+    "positive_crop_dice": 0.7099381814024452,
+    "negative_crop_fp_fraction": 0.016995668411254883,
+    "passed": false
+  },
+  "bfloat16": {
+    "positive_crop_dice": 0.7098190563323667,
+    "negative_crop_fp_fraction": 0.0170363187789917,
+    "passed": false
+  }
+}
