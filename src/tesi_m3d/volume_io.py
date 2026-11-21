@@ -16,8 +16,13 @@ installed.
 from __future__ import annotations
 
 from collections import OrderedDict
+import hashlib
+import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Callable
+import warnings
 
 import numpy as np
 
@@ -120,10 +125,61 @@ def align_mask_to_scan(
     return np.pad(mask, ((0, padding), (0, 0), (0, 0)), mode="constant", constant_values=False)
 
 
+def normalize_scan(
+    raw: np.ndarray,
+    dirname: str | Path,
+    cache_dir: str | Path | None = None,
+    *, low: float = 1.0, high: float = 99.0,
+) -> np.ndarray:
+    """Normalize with persistent bounds, invalidated by slice metadata/parameters."""
+
+    from .dataset import normalize_percentile, percentile_bounds
+
+    if cache_dir is None:
+        return normalize_percentile(raw, low, high)
+
+    dirname = Path(dirname).resolve()
+    slices = []
+    for index in range(raw.shape[0]):
+        stat = (dirname / SLICE_TEMPLATE.format(index)).stat()
+        slices.append((stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+    # Include the physical path so real-record aliases share bounds, while
+    # different generators/scans never collide. Bump version if the rule changes.
+    identity = (1, str(dirname), raw.shape, raw.dtype.str, float(low), float(high), slices)
+    key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    cache_path = Path(cache_dir) / "percentiles" / f"{key}.json"
+    bounds = None
+    try:
+        cached = json.loads(cache_path.read_text())
+        values = np.asarray(cached, dtype=np.float64)
+        if values.shape == (2,) and np.isfinite(values).all() and values[1] >= values[0]:
+            bounds = (float(values[0]), float(values[1]))
+    except (OSError, ValueError, TypeError):
+        pass  # A missing or damaged cache is rebuilt from the original scan.
+    if bounds is None:
+        bounds = percentile_bounds(raw, low, high)
+        temporary = None
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            # Close before replace for Windows; unique temp names allow workers
+            # to populate the same entry without exposing a partially written file.
+            with tempfile.NamedTemporaryFile(mode="w", dir=cache_path.parent, suffix=".tmp", delete=False) as handle:
+                temporary = Path(handle.name)
+                json.dump(bounds, handle)
+            os.replace(temporary, cache_path)
+        except OSError as exc:
+            warnings.warn(f"Cannot save percentile cache {cache_path}: {exc}", RuntimeWarning, stacklevel=2)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    return normalize_percentile(raw, low, high, bounds=bounds)
+
+
 def load_normalized_scan(
     data_root: str | Path,
     record,
     real_scan_root: str | Path | None = None,
+    *, cache_dir: str | Path | None = None,
 ) -> np.ndarray:
     """Load one scan as a percentile-normalized float32 volume.
 
@@ -131,23 +187,26 @@ def load_normalized_scan(
     import at module load time.
     """
 
-    from .dataset import load_tiff_stack, normalize_percentile, scan_dir
+    from .dataset import load_tiff_stack, scan_dir
 
-    return normalize_percentile(load_tiff_stack(scan_dir(data_root, record, real_scan_root)))
+    dirname = scan_dir(data_root, record, real_scan_root)
+    return normalize_scan(load_tiff_stack(dirname), dirname, cache_dir)
 
 
 def load_normalized_scan_and_lung_mask(
     data_root: str | Path,
     record,
     real_scan_root: str | Path | None = None,
+    *, cache_dir: str | Path | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Load one scan and derive its lung ROI before intensity normalization."""
 
-    from .dataset import load_tiff_stack, normalize_percentile, scan_dir
+    from .dataset import load_tiff_stack, scan_dir
     from .lung import lung_mask_from_ct
 
-    raw = load_tiff_stack(scan_dir(data_root, record, real_scan_root))
-    return normalize_percentile(raw), lung_mask_from_ct(raw)
+    dirname = scan_dir(data_root, record, real_scan_root)
+    raw = load_tiff_stack(dirname)
+    return normalize_scan(raw, dirname, cache_dir), lung_mask_from_ct(raw)
 
 
 class VolumeCache:

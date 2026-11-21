@@ -104,6 +104,7 @@ def run_benchmark(config, data_root, output, *, workers=(0, 2), cache_sizes=(1, 
                 source = objects.train_dataset
                 dataset = M3DSynthPatchDataset(source.records, source.data_root, examples=source.examples,
                                                patch_shape=source.patch_shape, stride=source.stride,
+                                               cache_dir=source.cache_dir,
                                                volume_cache_size=size)
                 training = {**candidate['training'], 'num_workers': worker_count}
                 print(f'workers={worker_count}, cache={size}, order={order}', flush=True)
@@ -117,7 +118,8 @@ def run_benchmark(config, data_root, output, *, workers=(0, 2), cache_sizes=(1, 
                         'volume_reads counts normalized stack loader calls (cache misses), not OS physical disk reads. '
                         'worker_item_seconds sums concurrent item time; it is not wall time. '
                         'OS filesystem cache is not cleared. Every scenario starts with empty volume caches; '
-                        'persistent workers follow the config. Index labels are reused, not loaded per patch.')
+                        'persistent workers follow the config. Index labels are reused, not loaded per patch. '
+                        'Percentile disk cache is shared across epochs/scenarios and reused on subsequent runs.')
     write_json(output / 'benchmark.json', report)
     return report
 

@@ -281,12 +281,21 @@ def load_tiff_stack(
     return _load_tiff_stack_impl(dirname_str, dtype_str)
 
 
-def normalize_percentile(scan: np.ndarray, low: float = 1.0, high: float = 99.0) -> np.ndarray:
-    """Normalize a CT stack to ``[0, 1]`` using robust percentiles."""
-
+def percentile_bounds(scan: np.ndarray, low: float = 1.0, high: float = 99.0) -> tuple[float, float]:
+    """Compute normalization bounds using positive voxels, as in training."""
     non_zero = scan[scan > 0]
     source = non_zero if non_zero.size else scan.reshape(-1)
     lo, hi = np.percentile(source, [low, high])
+    return float(lo), float(hi)
+
+
+def normalize_percentile(
+    scan: np.ndarray, low: float = 1.0, high: float = 99.0,
+    *, bounds: tuple[float, float] | None = None,
+) -> np.ndarray:
+    """Rescale using robust percentiles, without clipping outliers."""
+
+    lo, hi = percentile_bounds(scan, low, high) if bounds is None else bounds
     if hi <= lo:
         return np.zeros_like(scan, dtype=np.float32)
     # Preallocate float32 and copy in-place to avoid temporary copy from astype
@@ -386,8 +395,8 @@ class M3DSynthPatchDataset:
     ) -> None:
         """Store records and build or accept a patch index.
 
-        cache_dir: where to persist the built patch index; ``None`` rebuilds it
-            every time, which costs minutes on the full training set.
+        cache_dir: where to persist the patch index and scan percentiles;
+            ``None`` disables both disk caches.
         volume_cache_size: how many normalized volumes to keep resident. Only
             useful together with :class:`~tesi_m3d.sampling.VolumeGroupedBatchSampler`,
             which keeps consecutive accesses on the same volume.
@@ -397,6 +406,7 @@ class M3DSynthPatchDataset:
 
         self.records = list(records)
         self.data_root = Path(data_root)
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else None
         self.patch_shape = tuple(int(v) for v in patch_shape)
         self.stride = tuple(int(v) for v in stride)
 
@@ -465,7 +475,7 @@ class M3DSynthPatchDataset:
         # loading it was doubling the IO for every patch.
         scan = self._volume_cache.get(
             self.volume_key(index),
-            lambda: load_normalized_scan(self.data_root, record),
+            lambda: load_normalized_scan(self.data_root, record, cache_dir=self.cache_dir),
         )
         z, y, x = (int(v) for v in self._index.coord[index])
         dz, dy, dx = self.patch_shape

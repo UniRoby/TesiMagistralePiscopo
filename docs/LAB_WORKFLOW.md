@@ -323,16 +323,44 @@ due limiti distinti. Il loader non tiene tutte le CT in RAM:
 
 - costruisce una volta l'indice delle patch leggendo le mask, poi lo salva
   nella cache su disco;
+- calcola p1/p99 una sola volta per scansione e li salva in una piccola cache
+  JSON su disco, riusata dopo l'evizione dalla RAM e ai successivi avvii;
 - legge e normalizza una CT quando serve; la cache RAM conserva due volumi
   per worker (`volume_cache_size: 2`);
 - raggruppa le patch della stessa scansione in batch, riusando il volume
   caricato invece di decodificare tutti i TIFF per ogni singola patch;
-- usa due worker persistenti, prefetch di un batch per worker, memoria pinned
+- usa i worker persistenti indicati nel YAML, prefetch di un batch per worker, memoria pinned
   e trasferimenti non bloccanti verso CUDA.
 
 La cache RAM è locale al worker e limitata: una scansione può essere riletta
 nelle epoche successive. Ogni miss richiede ancora la lettura del volume
 completo; non va confuso con un caricamento limitato alle sole 32 patch.
+
+La cache dei percentili è attiva automaticamente nel training, nella
+validation, nella calibrazione finale e nel benchmark. Usa
+`<cache-dir>/percentiles/*.json`: per il full training il percorso predefinito è
+`outputs/train_pix2pix_full_train_resnet18_medicalnet/cache/percentiles`.
+`--cache-dir`, il campo YAML `cache_dir` e `TESI_M3D_CACHE_DIR` mantengono la
+precedenza già prevista per il training. Nel benchmark la cache è invece
+in `<out-dir>/index_cache/percentiles`, condivisa fra epoche e scenari.
+Per condividerla fra run di training usare lo stesso `--cache-dir`.
+
+Ogni voce contiene solo i due limiti di normalizzazione: non salva copie
+delle CT e non scrive nelle directory del dataset. La chiave comprende il
+percorso fisico della scansione, forma e dtype, parametri dei percentili,
+dimensione e timestamp di tutte le sezioni lette. Modificare una sezione o i
+parametri fa ricalcolare i limiti; i record reali che puntano alla stessa CT
+condividono la voce. I file sono pubblicati con sostituzione atomica per
+supportare più worker, anche su Windows. Una voce corrotta viene ricostruita;
+un errore di scrittura genera un warning e il caricamento prosegue senza
+salvare la voce. Non modificare i TIFF mentre il caricamento è in corso.
+
+Il calcolo resta esattamente quello precedente: percentili sui voxel
+strettamente positivi, fallback sull'intero volume se sono tutti zero,
+riscalatura float32 e nessun clipping. Questa modifica può essere usata con
+i checkpoint esistenti e non richiede un nuovo training per compatibilità.
+Le CLI di analisi/inferenza autonome che non ricevono una directory cache
+continuano a calcolare gli stessi percentili senza salvarli.
 
 HexMIL include tutti i record train dei generatori selezionati, ma riduce il
 lavoro spaziale: SliceMIL legge le sezioni selezionate vicino a `coord_z`,
@@ -360,6 +388,31 @@ numero di caricamenti dei volumi. Con `workers=0` la lettura è sequenziale.
 Confrontare `patches_per_second` e `volume_reads` in `epochs.csv`. Aumentare i
 worker soltanto se migliora il throughput e la RAM resta sufficiente. Il tempo
 di training completo comprende anche GPU, validation e calibrazione.
+
+Per misurare il guadagno della cache dei percentili sul PC del laboratorio,
+usare una cartella nuova, gli stessi parametri del benchmark precedente e
+solo quattro worker:
+
+```powershell
+python -m tesi_m3d.benchmark_loading `
+  --config configs\train_pix2pix_balanced_patches.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --workers 4 --cache-sizes 2 --orders grouped --epochs 2 `
+  --out-dir outputs\benchmark_percentile_cache
+```
+
+La prima epoca popola la cache, la seconda la riusa. Un secondo avvio con lo
+stesso `--out-dir` parte con i percentili già salvati (e sovrascrive il report
+del benchmark precedente). I tempi dipendono anche dalla cache filesystem
+di Windows: confrontare il secondo passaggio con quello del benchmark
+precedente, senza interpretare tutta la differenza fra epoca 1 e 2 come
+effetto dei soli percentili. `volume_reads` può restare invariato: conta i
+caricamenti completi, anche quando i limiti sono già disponibili su disco.
+Per forzare il ricalcolo basta rimuovere la sola sottocartella `percentiles`;
+`--rebuild-index` ricostruisce invece l'indice delle patch e non cancella i
+percentili. Le vecchie voci invalidate possono essere eliminate nello stesso
+modo. Misurare prima il loader: il risparmio sul tempo totale di training non
+è garantito se il collo di bottiglia prevalente resta la decodifica TIFF.
 
 
 ## 14. Esperimento ResNet-18 MedicalNet: pix2pix

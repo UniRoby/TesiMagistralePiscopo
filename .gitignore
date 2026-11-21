@@ -26,6 +26,7 @@ outputs/train_pix2pix_quick_test
 runs/
 checkpoints/
 *.ckpt
+*.pt
 *.pth
 *.onnx
 *.npz
@@ -35,6 +36,7 @@ checkpoints/
 *.tiff
 *.tif
 *.dcm
+**/percentiles/
 
 # OS
 .DS_Store

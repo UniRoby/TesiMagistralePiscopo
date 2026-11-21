@@ -13,6 +13,11 @@ Per allenare su tutti i record train pix2pix + real usare
 visita tutte le scansioni ogni epoca e campiona 32 patch per scansione.
 La configurazione balanced mantiene il sottoinsieme rapido da 256 record.
 
+Training, validation e calibrazione finale riusano p1/p99 da una cache su
+disco (`cache/percentiles` nella cartella della run). I valori normalizzati
+restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.
+Procedura di misura in [Ottimizzazione data loading](docs/LAB_WORKFLOW.md#13-ottimizzazione-data-loading).
+
 ## Struttura
 
 - `src/tesi_m3d/`: dataset, patch 3D, modello, loss, inferenza e metriche.

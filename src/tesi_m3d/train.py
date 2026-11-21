@@ -78,7 +78,7 @@ def resolve_cache_dir(
     cli_override: str | None,
     output_dir: Path,
 ) -> Path:
-    """Resolve where to store the patch index cache.
+    """Resolve where to store the patch index and percentile caches.
 
     Order: CLI, then config, then ``TESI_M3D_CACHE_DIR``, then a directory under
     the run's output dir. The explicit options matter because on this machine the
@@ -296,6 +296,7 @@ def build_loaders(
         patch_shape=patch_shape,
         stride=train_stride,
         volume_cache_size=volume_cache_size,
+        cache_dir=cache_dir,
     )
     train_volume_keys = [train_dataset.volume_key(i) for i in range(len(train_dataset))]
     hard_negative_flags = None
@@ -347,6 +348,7 @@ def build_loaders(
             patch_shape=patch_shape,
             stride=train_stride,
             volume_cache_size=volume_cache_size,
+            cache_dir=cache_dir,
         )
         valid_keys = [valid_dataset.volume_key(i) for i in range(len(valid_dataset))]
         # Natural, unbalanced order: a rebalanced validation set would report an
@@ -727,7 +729,7 @@ def _save_validation_report(
         chosen = order[-examples_per_class:] if category in {"TP", "FP"} else order[:examples_per_class]
         for index in chosen:
             record = records[int(index)]
-            scan = load_normalized_scan(valid_dataset.data_root, record)
+            scan = load_normalized_scan(valid_dataset.data_root, record, cache_dir=valid_dataset.cache_dir)
             heatmap = infer_heatmap(
                 model, scan, patch_shape=patch_shape, stride=stride,
                 batch_size=batch_size, aggregation=aggregation, device=device,
@@ -792,9 +794,11 @@ def calibrate_best_checkpoint(
     records = _unique_validation_records(valid_dataset)
     for record in records:
         if calculate_lung_metrics and record.is_manipulated:
-            scan, lung_mask = load_normalized_scan_and_lung_mask(valid_dataset.data_root, record)
+            scan, lung_mask = load_normalized_scan_and_lung_mask(
+                valid_dataset.data_root, record, cache_dir=valid_dataset.cache_dir,
+            )
         else:
-            scan = load_normalized_scan(valid_dataset.data_root, record)
+            scan = load_normalized_scan(valid_dataset.data_root, record, cache_dir=valid_dataset.cache_dir)
             lung_mask = None
         heatmap = infer_heatmap(
             model, scan, patch_shape=patch_shape, stride=stride,

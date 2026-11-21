@@ -14,7 +14,8 @@ def _dataset(tmp_path):
     for z in range(2):
         Image.fromarray(np.full((4, 4), 100 + z, dtype=np.uint16)).save(directory / f'slide{z:04d}.tiff')
     examples = [PatchExample(0, (0, y, x), 0, 0) for y in (0, 2) for x in (0, 2)]
-    return M3DSynthPatchDataset(records, tmp_path, examples=examples, patch_shape=(2, 2, 2), volume_cache_size=1)
+    return M3DSynthPatchDataset(records, tmp_path, examples=examples, patch_shape=(2, 2, 2),
+                               volume_cache_size=1, cache_dir=tmp_path / 'cache')
 
 
 def test_shuffle_preserves_exact_samples_and_batch_sizes():
@@ -49,6 +50,7 @@ def test_spawn_worker_counters_are_returned_to_parent(tmp_path):
         assert sum(int(batch['cache_hits'].sum()) for batch in batches) + totals[-1] == 4
     assert totals == [2, 0]
     assert dataset._volume_cache.misses == 0  # Counters are worker-local, not the parent's.
+    assert len(list((tmp_path / 'cache/percentiles').glob('*.json'))) == 1
 
 
 def test_benchmark_reuses_disk_index_and_never_rereads_masks_per_patch(tmp_path, monkeypatch):
@@ -81,3 +83,4 @@ def test_benchmark_reuses_disk_index_and_never_rereads_masks_per_patch(tmp_path,
     assert [r['volume_reads'] for r in report['epochs']] == [1, 0]
     assert (tmp_path / 'benchmark/epochs.csv').exists()
     assert (tmp_path / 'benchmark/benchmark.json').exists()
+    assert len(list((tmp_path / 'benchmark/index_cache/percentiles').glob('*.json'))) == 1
