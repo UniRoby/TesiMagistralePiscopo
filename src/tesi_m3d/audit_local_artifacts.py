@@ -127,6 +127,8 @@ class LocalArtifactAuditor(IntensityAuditor):
                     raise ValueError(f"empty manipulation mask for {fake_record.img_id}")
                 near = _near_mask(mask)
                 preview_index = int(np.argmax(np.count_nonzero(mask, axis=(1, 2))))
+                center = np.rint(np.argwhere(mask).mean(0)).astype(int)
+                planes = {axis: {name: [] for name in ("real", "fake", "mask", "near")} for axis in (1, 2)}
                 stats = {name: {key: 0 for key in ("voxels", "changed_voxels", "absolute_difference_sum",
                                                    "max_absolute_difference", "gradient_edges", "gradient_difference_sum")}
                          for name in ("mask", "near", "far")}
@@ -138,6 +140,9 @@ class LocalArtifactAuditor(IntensityAuditor):
                     if real.shape != first_real.shape or fake.shape != real.shape or real.dtype != np.uint16 or fake.dtype != np.uint16:
                         raise ValueError(f"invalid TIFF slice shape/dtype for {fake_record.img_id}, z={index}")
                     delta = fake.astype(np.int32) - real.astype(np.int32)
+                    for axis in (1, 2):
+                        for name, plane in (("real", real), ("fake", fake), ("mask", mask[index]), ("near", near[index])):
+                            planes[axis][name].append(np.take(plane, center[axis], axis=axis - 1).copy())
                     tissue = (real > 0) & (fake > 0)
                     regions = {"mask": mask[index], "near": near[index] & tissue,
                                "far": ~(mask[index] | near[index]) & tissue}
@@ -152,6 +157,9 @@ class LocalArtifactAuditor(IntensityAuditor):
                 if outside_preview is not None and outside_preview[0] != preview_index:
                     _, real, fake, mask_plane, near_plane = outside_preview
                     _save_preview(preview_dir / f"{fake_record.img_id}_outside.png", real, fake, mask_plane, near_plane)
+                for axis, name in ((1, "coronal"), (2, "sagittal")):
+                    _save_preview(preview_dir / f"{fake_record.img_id}_{name}.png",
+                                  *(np.stack(planes[axis][key]) for key in ("real", "fake", "mask", "near")))
                 for name, values in stats.items():
                     row = {"img_id": fake_record.img_id, "region": name, **_result(values)}
                     writer.writerow(row)

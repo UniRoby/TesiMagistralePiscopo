@@ -45,4 +45,6 @@ def test_local_audit_separates_mask_near_and_far(tmp_path):
     assert int(rows["far"]["max_absolute_difference"]) == 50
     assert report["regions"]["near"]["mean_gradient_difference_xy"] > 0
     assert (output / "previews" / "sample.png").exists()
+    assert (output / "previews" / "sample_coronal.png").exists()
+    assert (output / "previews" / "sample_sagittal.png").exists()
     assert (output / "previews" / "sample_outside.png").exists()

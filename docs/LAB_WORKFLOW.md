@@ -664,3 +664,208 @@ validation. Non scegliere un nuovo checkpoint usando i risultati di test.
 Conservare YAML, `metrics.csv`, `calibration.json` e report densi della run.
 La prima domanda è se migliora la localizzazione su pix2pix; la seconda è
 quanto di quel miglioramento si mantiene sui generatori esclusi dal training.
+
+## 18. Recupero della localizzazione: segmentazione MedicalNet
+
+Questo percorso affianca il classificatore: apprende la mask della
+**manipolazione**, non il contorno clinico del tumore. Encoder ResNet-18
+MedicalNet obbligatorio, decoder con skip e GroupNorm, output voxel della
+stessa forma dell'input. Le 17 BatchNorm dell'encoder mantengono fisse le
+statistiche anche in training; i parametri affini vengono affinati dopo il
+warmup. Non usare i checkpoint del classificatore per inizializzare il decoder.
+
+Prerequisiti: ambiente e pesi MedicalNet della sezione 14. Non sono richieste
+nuove dipendenze. Dalla root del repository, impostare i percorsi del PC:
+
+```powershell
+$ctRoot = "C:\Tesi Magistrale Piscopo"
+$realCtRoot = Join-Path $ctRoot "real\scan"
+$baselineCheckpoint = "outputs\train_pix2pix_full_train_resnet18_medicalnet\best.pt"
+```
+
+Se pix2pix/cycle/diffusion sono su D: e i reali su C:, impostare invece
+`$ctRoot = "D:\Dataset Tesi Piscopo"` e
+`$realCtRoot = "C:\Tesi Magistrale Piscopo\real\scan"`.
+Usare gli stessi percorsi in preparazione e training: un cambio richiede
+un nuovo audit. La calibrazione/inferenza del modello usa il preprocessing
+del checkpoint e non accetta override delle trasformazioni o della geometria.
+
+### 18.1 Audit e manifest fissi
+
+```powershell
+python -m tesi_m3d.prepare_segmentation `
+  --config configs\segmentation_pilot.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot `
+  --out-dir outputs\segmentation_protocol --stage pilot
+```
+
+Salva `manifest.json`, `audit.json` e `paired_artifacts/`. L'audit iniziale
+copre il train pilota e la validation comune; prima del full verrà esteso a
+tutto il train. Controlla ogni header CT, sequenze TIFF senza buchi, mask non
+vuote e compatibilità spaziale. Il taglio delle sezioni finali è consentito
+solo se non elimina voxel positivi. Errori di forma, sequenza o annotazione
+bloccano il protocollo: non corregge orientamenti/traslazioni e non modifica
+gli originali. Le coordinate metadata sono riportate, non usate in inferenza.
+
+Esaminare `records` nell'audit e le immagini dei tre piani in
+`paired_artifacts/previews/`: l'audit appaia 16 injection e 16 removal del
+train con i relativi reali. `bbox_fill_fraction` vicino a 1 suggerisce
+un'annotazione a riquadro e richiede interpretazione visiva; non dimostra
+un contorno anatomico. Differenze fuori dalla mask sono diagnostiche, mai
+ground truth sostitutiva. Le verifiche automatiche non certificano da sole
+la correttezza anatomica delle annotazioni.
+
+I manifest contengono 6 casi overfit, 64 train pilota (24 inj, 24 rem, 16 real),
+8 validation pilota (2 inj, 2 rem, 4 real), 16 validation full (4 inj, 4 rem,
+8 real), tutte le 2026 scansioni fisiche train e le 58 validation comuni.
+I sottoinsiemi sono annidati, deduplicati e separati per paziente; non
+modificarli dopo aver confrontato i risultati.
+
+### 18.2 Verificare l'apprendimento su sei scansioni
+
+```powershell
+python -m tesi_m3d.train_segmentation `
+  --config configs\segmentation_overfit.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
+```
+
+Massimo 300 aggiornamenti, crop fissi senza augmentation. In questa sola
+fase una cache da sei scansioni e zero worker evita riletture ripetute.
+Il risultato in `outputs/segmentation_overfit/gate.json` deve avere
+`passed: true`: Dice dei crop positivi almeno 0,90, frazione di voxel
+falsamente positivi sui crop negativi inferiore a 0,01 e gradienti finiti.
+Sono misure sul train che verificano l'apprendimento, non generalizzazione.
+Se fallisce, ispezionare le immagini prodotte e fermarsi: i piloti verranno
+bloccati. Exit code 2 indica criterio scientifico non superato; leggere
+il report, senza aumentare il budget del full.
+
+### 18.3 Baseline comune e due piloti controllati
+
+Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:
+
+```powershell
+python -m tesi_m3d.evaluate_segmentation `
+  --checkpoint $baselineCheckpoint --cohort pilot_valid `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda --batch-size 2 `
+  --out-dir outputs\segmentation_protocol\baseline_pilot
+```
+
+Poi eseguire entrambe le prove, ciascuna da massimo otto epoche:
+
+```powershell
+python -m tesi_m3d.train_segmentation `
+  --config configs\segmentation_pilot.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
+
+python -m tesi_m3d.train_segmentation `
+  --config configs\segmentation_pilot_clip.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
+```
+
+Cambia soltanto il clipping p1/p99. Seed, inizializzazione del decoder,
+manifest e sampling sono identici. Otto crop 64³ per scansione: quattro
+positivi con posizione variabile nel crop, due negativi polmonari e due
+globali; sui reali quattro polmonari e quattro globali. I negativi hanno
+intersezione nulla con la mask, con fallback globale se necessario. Anche
+intersezioni positive inferiori al 5% restano supervisionate voxel per voxel.
+La ROI euristica non taglia l'inferenza. Nessun resampling; spacing registrato
+e risultati separati nelle fasce z <=1, 1–2 e >2 mm.
+
+Ogni worker legge una scansione e prepara insieme tutti gli otto crop. Il
+trainer usa microbatch 2 e accumulo 4, AMP bfloat16, BCE + Dice sui crop con
+foreground; i crop vuoti ricevono comunque BCE. In caso di OOM cambiare in
+**entrambi** i YAML `batch_size: 1` e `accumulation_steps: 8`: il peso della
+loss sul batch effettivo resta uguale. I primi due epoch aggiornano solo il
+decoder, poi l'encoder con LR 3e-5 e il decoder con LR 3e-4, AdamW 1e-4.
+
+Ogni due epoche esegue inferenza sui volumi completi. `best.pt` massimizza
+`valid_dense_ap`, calcolata su tutti i voxel con istogrammi streaming a
+65.536 bin; è un'approssimazione dichiarata, confrontata con il calcolo
+esatto nei test. Non è l'AP delle patch bilanciate. `last.pt` consente il
+resume; si conservano solo questi due checkpoint, con scrittura atomica.
+
+I risultati sono in `outputs/segmentation_pilot*/evaluation/metrics.json`,
+`volumes.csv` e `images/`. Il gate richiede Dice micro calibrato >=0,10,
+picco dentro la mask in almeno 2/4 positivi, AP voxel media almeno tripla
+della baseline e quota di falsi positivi sui reali non superiore alla
+baseline. L'AP media e quella pooled sono riportate separatamente.
+Se entrambi falliscono, fermarsi e analizzare gli errori residui.
+
+### 18.4 Full soltanto dopo il superamento del pilota
+
+Estendere prima l'audit e ricalcolare la baseline sulle 58 scansioni comuni:
+
+```powershell
+python -m tesi_m3d.prepare_segmentation `
+  --config configs\segmentation_full.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --stage full
+
+python -m tesi_m3d.evaluate_segmentation `
+  --checkpoint $baselineCheckpoint --cohort common_valid `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda --batch-size 2 `
+  --out-dir outputs\segmentation_protocol\baseline_common
+
+python -m tesi_m3d.train_segmentation `
+  --config configs\segmentation_full.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
+```
+
+Il full ricontrolla i report dei due piloti, richiede protocolli uguali e
+sceglie automaticamente il clipping della variante ammessa con AP pooled
+maggiore. Non copia i pesi del pilota: riparte da MedicalNet con seed 21.
+La scelta effettiva è in `effective_config.json`. Visita tutte le scansioni
+train a ogni epoca, massimo 16 epoche, validation densa ogni due epoche su
+16 casi, stop dopo tre validation senza miglioramento. Il best viene poi
+valutato sui 58 casi comuni, con soglie distinte per mask e detection.
+
+Il gate finale richiede Dice medio dei positivi >=0,30, picco nella mask
+in almeno 15/30 casi, AP voxel media >=3 volte la baseline e falsi positivi
+sui reali non superiori alla baseline. Un fallimento resta scritto nel
+report: la presenza del codice non dimostra un miglioramento scientifico.
+
+Un avvio su una run esistente richiede `--resume outputs\segmentation_full\last.pt`
+oppure un output nuovo con `--output-dir`; non sovrascrive silenziosamente
+i risultati. Il resume ripristina optimizer e RNG, verifica manifest e
+preprocessing e consente il cambio 2/4 -> 1/8 in caso di OOM.
+
+### 18.5 Cross-generator e inferenza
+
+Valutare i generatori separatamente con le soglie della validation congelate:
+
+```powershell
+python -m tesi_m3d.evaluate_segmentation `
+  --checkpoint outputs\segmentation_full\best.pt `
+  --calibration outputs\segmentation_full\calibration.json `
+  --split test --mods cycle `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --out-dir outputs\segmentation_full\test_cycle
+
+python -m tesi_m3d.evaluate_segmentation `
+  --checkpoint outputs\segmentation_full\best.pt `
+  --calibration outputs\segmentation_full\calibration.json `
+  --split test --mods diffusion `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --out-dir outputs\segmentation_full\test_diffusion
+```
+
+La CLI rifiuta test senza calibrazione, generatori usati nel train o
+calibrazioni appartenenti a un altro checkpoint. Non sceglie soglie o
+checkpoint sul test. Le vecchie valutazioni già consultate rimangono
+esplorative; risultati validi su pix2pix non dimostrano generalizzazione.
+Non escludere silenziosamente scansioni mancanti o prive di annotazioni:
+correggere i percorsi o dichiarare esplicitamente un protocollo diverso.
+
+Per inferenza su una sola CT non servono metadata, mask o coordinate:
+
+```powershell
+python -m tesi_m3d.infer_segmentation `
+  --checkpoint outputs\segmentation_full\best.pt `
+  --volume-dir "$ctRoot\pix2pix\scan\inj_2176" `
+  --device cuda --out-dir outputs\segmentation_prediction
+```
+
+Produce `probability.npy` float32, `mask.npy` e `prediction.json`. Sliding
+window 64³, sovrapposizione 50%, fusione gaussiana di probabilità voxel,
+accumulo su CPU; dimensioni e coordinate restano quelle originali.
+Le figure di valutazione usano assi z/y/x, sezioni della mask e del picco,
+scala della probabilità fissa 0..1 e colori distinti per FP/FN/TP.

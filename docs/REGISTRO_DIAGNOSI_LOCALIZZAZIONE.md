@@ -44,14 +44,14 @@ Fonte: [`calibration.json`](../outputs/train_pix2pix_balanced_patches/calibratio
 | --- | --- | --- |
 | Differenza globale di intensità fra CT reali e pix2pix | Ridimensionata nel campione train | Audit appaiato su 32 coppie; dettagli al punto 1 |
 | Differenze locali o di texture prodotte da pix2pix | Aperto | Confrontare ROI manipolata e tessuto circostante nelle coppie appaiate |
-| Metriche globali che nascondono errori nei polmoni | Calcolo previsto nel codice; risultato da verificare | Confrontare voxel AUC/AP globali e lung AUC/AP sugli stessi volumi |
+| Metriche globali che nascondono errori nei polmoni | Confermato nella run MedicalNet full | AUC voxel 0,903 contro AUC polmonare 0,569; dettagli al punto 10 |
 | Soglia del 5% e target proporzionale alla mask | Da sperimentare | Distinguere effetto della soglia da quello di `soft_score` |
 | Ranking e copertura delle patch positive | Problema osservato, causa aperta | Analizzare score, overlap e distanza delle patch meglio classificate |
 | Ricostruzione, soglia e visualizzazione della heatmap | Aperto | Confrontare score patch, metriche locali e overlay sulle stesse scansioni |
 | Allineamento scan, mask e ROI polmonare | Da verificare su esempi critici | Controllo visivo su sezioni e coordinate dei falsi positivi/negativi |
 | Presenza della validation loss | Chiarito: presente | Valori per epoca in `metrics.csv`; il best usa `valid_ap` |
 | Validation densa e rappresentativa | Criticità osservata | Confrontare prevalenza e AP della validation campionata e della griglia densa |
-| Rilettura dei volumi durante il training | Mitigata nel codice; tempi da verificare | Cache per volume, batch raggruppati e indice su disco |
+| Rilettura dei volumi durante il training | Misurata; costo residuo presente | Quattro worker e cache percentili: circa 66 s contro 78 s nel benchmark bounded; dettagli al punto 10 |
 
 ## 1. Differenza globale di intensità fra reali e pix2pix
 
@@ -296,6 +296,59 @@ I test automatici usano TIFF sintetici; non sostituiscono il controllo visivo
 delle annotazioni né i tempi sul PC di training. Le due configurazioni di
 ablation già presenti rimangono separate: soglia all'1% con target binario,
 oppure soglia al 5% con target `soft_score`.
+
+## 10. Evidenze MedicalNet full e protocollo di recupero
+
+**Verifica eseguita.** La run
+[`train_pix2pix_full_train_resnet18_medicalnet`](../outputs/train_pix2pix_full_train_resnet18_medicalnet/patch_level_report/metrics.json)
+ha 58 scansioni validation, 30 manipolate: AP patch 0,01041, top-1 hit
+1/30, top-5 hit 4/30. La
+[`calibrazione`](../outputs/train_pix2pix_full_train_resnet18_medicalnet/calibration.json)
+sceglie soglia voxel 0,46 con Dice micro 0,01118. AUC voxel media 0,90289,
+AP voxel media 0,00803; nella ROI polmonare unita alla mask, AUC 0,56918
+e AP 0,06288. La sola ROI polmonare copre mediamente il 74,89% della mask.
+
+**Decisione.** Il problema è già nel ranking delle patch. Né la sostituzione
+dell'encoder né l'aumento dei dati hanno risolto la localizzazione; non basta
+modificare la soglia o ritoccare le immagini. Non usare la ROI polmonare per
+tagliare le predizioni. Queste evidenze aggiornano i punti 3, 4, 5 e 8;
+non dimostrano una causa unica e non chiudono l'audit delle annotazioni.
+
+**Prestazioni.** Il
+[`benchmark con percentili riusati`](../outputs/benchmark_percentile_cache/benchmark.json)
+misura 65,93 e 65,74 secondi, rispetto a 79,39 e 77,16 secondi con quattro
+worker nel benchmark precedente: circa -16% nel solo caricamento. La cache
+filesystem di Windows contribuisce al confronto; non è una misura del
+risparmio totale di training GPU e i TIFF vengono ancora decodificati.
+
+**Intervento implementato, da validare sul dataset.** Il protocollo della
+[sezione 18 della guida laboratorio](LAB_WORKFLOW.md#18-recupero-della-localizzazione-segmentazione-medicalnet)
+aggiunge supervisione voxel con encoder MedicalNet e decoder spaziale,
+BatchNorm dell'encoder con statistiche fisse, crop positivi anche con piccola
+intersezione e negativi polmonari/globali. Seleziona il checkpoint con AP
+densa su tutti i voxel; conserva separatamente l'AP media sui positivi.
+Un confronto controllato con/senza clipping cambia solo quel preprocessing.
+La cache percentili resta una modifica prestazionale distinta.
+
+Preparazione e gate impediscono di saltare audit, verifica di apprendimento
+e confronto pilota. La preparazione controlla sequenze/forme/mask e produce
+audit di 32 coppie train, bilanciate inj/rem, con figure nei tre piani.
+Le mask etichettano la manipolazione disponibile: un riquadro non equivale
+al contorno preciso di una lesione. Le differenze fake/reale non diventano
+etichette automatiche. La modalità legacy mantiene il proprio allineamento;
+la segmentazione vieta il taglio di voxel annotati positivi.
+
+**Criteri da verificare.** Overfit: Dice crop positivi >=0,90 e FP voxel su
+crop negativi <1%. Pilota: Dice micro >=0,10, picco corretto >=2/4,
+AP voxel media almeno tripla della baseline comune e FP sui reali non
+peggiori. Full: Dice medio positivo >=0,30 e picco corretto >=15/30,
+mantenendo gli stessi vincoli AP/FP. Il picco voxel e il vecchio hit di una
+patch sono misure diverse; il confronto avviene col nuovo valutatore comune.
+
+**Limite e stato.** Nessun criterio scientifico è dichiarato superato solo
+perché implementato. Servono le esecuzioni sui TIFF e la revisione visiva
+delle annotazioni. I report cross-generator usano checkpoint e soglie
+congelati; risultati soltanto su pix2pix non chiudono la generalizzazione.
 
 ## Come aggiornare questo registro
 

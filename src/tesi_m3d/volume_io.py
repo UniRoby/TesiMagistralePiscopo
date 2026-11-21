@@ -21,7 +21,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Callable
+from typing import Any, Callable
 import warnings
 
 import numpy as np
@@ -98,6 +98,7 @@ def align_mask_to_scan(
     mask: np.ndarray,
     scan_shape: tuple[int, int, int],
     img_id: str = "",
+    *, strict: bool = False,
 ) -> np.ndarray:
     """Align a label mask to the scan shape along z.
 
@@ -120,23 +121,25 @@ def align_mask_to_scan(
             f"scan {scan_shape} != mask {mask.shape}"
         )
     if mask_z > scan_z:
+        if strict and np.any(mask[scan_z:]):
+            raise ValueError(f"alignment would discard positive mask voxels for {img_id}")
         return mask[:scan_z]
     padding = scan_z - mask_z
     return np.pad(mask, ((0, padding), (0, 0), (0, 0)), mode="constant", constant_values=False)
 
 
-def normalize_scan(
+def cached_percentile_bounds(
     raw: np.ndarray,
     dirname: str | Path,
     cache_dir: str | Path | None = None,
     *, low: float = 1.0, high: float = 99.0,
-) -> np.ndarray:
-    """Normalize with persistent bounds, invalidated by slice metadata/parameters."""
+) -> tuple[float, float]:
+    """Read or compute bounds, invalidated by slice metadata/parameters."""
 
-    from .dataset import normalize_percentile, percentile_bounds
+    from .dataset import percentile_bounds
 
     if cache_dir is None:
-        return normalize_percentile(raw, low, high)
+        return percentile_bounds(raw, low, high)
 
     dirname = Path(dirname).resolve()
     slices = []
@@ -172,6 +175,13 @@ def normalize_scan(
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+    return bounds
+
+
+def normalize_scan(raw, dirname, cache_dir=None, *, low=1.0, high=99.0) -> np.ndarray:
+    """Normalize using the shared persistent percentile bounds."""
+    from .dataset import normalize_percentile
+    bounds = cached_percentile_bounds(raw, dirname, cache_dir, low=low, high=high)
     return normalize_percentile(raw, low, high, bounds=bounds)
 
 
@@ -228,9 +238,9 @@ class VolumeCache:
         self.maxsize = int(maxsize)
         self.hits = 0
         self.misses = 0
-        self._store: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._store: OrderedDict[str, Any] = OrderedDict()
 
-    def get(self, key: str, loader: Callable[[], np.ndarray]) -> np.ndarray:
+    def get(self, key: str, loader: Callable[[], Any]) -> Any:
         """Return the cached volume for ``key``, calling ``loader`` on a miss."""
 
         if key in self._store:

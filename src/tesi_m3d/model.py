@@ -47,8 +47,18 @@ def build_patch3d_classifier(
     if not 0.0 <= config.dropout < 1.0:
         raise ValueError("model.dropout must be in [0, 1)")
 
-    if state_dict is None:
-        path = Path(config.medicalnet_weights)
+    model = build_medicalnet_encoder(config.medicalnet_weights, initialize=state_dict is None)
+    from torch import nn
+    model.fc = nn.Sequential(nn.Dropout(config.dropout), nn.Linear(512, 1))
+    if state_dict is not None:
+        model.load_state_dict(state_dict, strict=True)
+    return model
+
+
+def build_medicalnet_encoder(weights_path: str = MEDICALNET_WEIGHTS, *, initialize: bool = True):
+    """Shared spatial encoder; skipping initialization requires a full restore."""
+    if initialize:
+        path = Path(weights_path)
         if not path.is_file():
             raise FileNotFoundError(
                 f"MedicalNet weights not found: {path}. Download resnet_18_23dataset.pth "
@@ -81,12 +91,9 @@ def build_patch3d_classifier(
                 conv.stride = (1, 1, 1)
                 conv.dilation = conv.padding = (dilation,) * 3
 
-    if state_dict is None:
+    if initialize:
         payload = torch.load(path, map_location="cpu", weights_only=True)
         weights = {key.removeprefix("module."): value for key, value in payload["state_dict"].items()}
         model.load_state_dict(weights, strict=True)
 
-    model.fc = nn.Sequential(nn.Dropout(config.dropout), nn.Linear(512, 1))
-    if state_dict is not None:
-        model.load_state_dict(state_dict, strict=True)
     return model

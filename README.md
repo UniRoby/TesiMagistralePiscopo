@@ -4,7 +4,7 @@ Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT.
 
 Questo branch usa **ResNet-18 3D preaddestrata con MedicalNet (23 dataset)** al
 posto della CNN compatta. Il pretraining è obbligatorio per le nuove run;
-solo la testa binaria è inizializzata da zero. I checkpoint della vecchia CNN
+nel classificatore solo la testa binaria è inizializzata da zero. I checkpoint della vecchia CNN
 sono incompatibili. Download verificato dei pesi, smoke test e comandi di
 training/valutazione sono in [docs/LAB_WORKFLOW.md](docs/LAB_WORKFLOW.md).
 
@@ -12,6 +12,14 @@ Per allenare su tutti i record train pix2pix + real usare
 [`configs/train_pix2pix_full_train.yaml`](configs/train_pix2pix_full_train.yaml):
 visita tutte le scansioni ogni epoca e campiona 32 patch per scansione.
 La configurazione balanced mantiene il sottoinsieme rapido da 256 record.
+
+Per il recupero della localizzazione è disponibile anche la **segmentazione
+voxel con encoder ResNet-18 MedicalNet** e decoder supervisionato dalle mask.
+Il classificatore rimane disponibile come baseline. Il protocollo esegue audit,
+overfit su sei scansioni, due piloti con/senza clipping e infine il full solo
+se superati i criteri di localizzazione. Comandi Windows e condizioni di stop:
+[segmentazione MedicalNet](docs/LAB_WORKFLOW.md#18-recupero-della-localizzazione-segmentazione-medicalnet).
+Il nuovo decoder parte da zero; l'encoder richiede sempre i pesi MedicalNet.
 
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
