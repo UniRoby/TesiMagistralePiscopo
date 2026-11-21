@@ -1,0 +1,73 @@
+{
+  "format_version": 1,
+  "checkpoint": "best.pt",
+  "inference": {
+    "patch_shape": [
+      32,
+      32,
+      32
+    ],
+    "stride": [
+      16,
+      16,
+      16
+    ],
+    "aggregation": "average"
+  },
+  "classification": {
+    "score_mode": "max",
+    "topk_fraction": null,
+    "threshold": 0.4803324341773987,
+    "balanced_accuracy": 0.6857142857142857,
+    "auc": 0.6821428571428572,
+    "n_volumes": 58,
+    "n_positive_volumes": 30,
+    "candidates": {
+      "max": {
+        "threshold": 0.4803324341773987,
+        "balanced_accuracy": 0.6857142857142857,
+        "auc": 0.6821428571428572
+      },
+      "topk_0.0001": {
+        "threshold": 0.4808371365070343,
+        "balanced_accuracy": 0.6714285714285715,
+        "auc": 0.6738095238095239
+      },
+      "topk_0.0005": {
+        "threshold": 0.4742375314235687,
+        "balanced_accuracy": 0.65,
+        "auc": 0.6625
+      },
+      "topk_0.001": {
+        "threshold": 0.46125298738479614,
+        "balanced_accuracy": 0.6630952380952381,
+        "auc": 0.6726190476190477
+      },
+      "topk_0.005": {
+        "threshold": 0.44675108790397644,
+        "balanced_accuracy": 0.6642857142857143,
+        "auc": 0.6613095238095238
+      },
+      "topk_0.01": {
+        "threshold": 0.4405720829963684,
+        "balanced_accuracy": 0.6642857142857143,
+        "auc": 0.6607142857142857
+      }
+    }
+  },
+  "localization": {
+    "threshold": 0.46,
+    "precision": 0.006709454900244374,
+    "recall": 0.033418537878648104,
+    "f1": 0.011175249854352977,
+    "dice": 0.011175249854352977,
+    "iou": 0.005619021914090009,
+    "mean_voxel_auc_on_positive_volumes": 0.9028857283133237,
+    "mean_voxel_ap_on_positive_volumes": 0.008028679283563246,
+    "n_positive_volumes": 30,
+    "lung_roi_definition": "heuristic lung mask union ground-truth manipulation mask",
+    "mean_lung_auc_on_positive_volumes": 0.5691812339555934,
+    "mean_lung_ap_on_positive_volumes": 0.06288413561406034,
+    "mean_ground_truth_coverage_by_lung_mask": 0.7488840824719067
+  }
+}

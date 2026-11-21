@@ -1,0 +1,109 @@
+{
+  "checkpoint": "outputs\\train_pix2pix_balanced_patches_resnet18_medicalnet\\best.pt",
+  "split": "valid",
+  "mods": [
+    "pix2pix"
+  ],
+  "n_validation_volumes": 58,
+  "n_report_images": 20,
+  "patch_definition": {
+    "positive_overlap_fraction": 0.05,
+    "ambiguous_patches_excluded": true
+  },
+  "patch_classification": {
+    "n_patches": 702519,
+    "n_positive": 1483,
+    "positive_fraction": 0.0021109749344857577,
+    "auc": 0.8756048460858605,
+    "average_precision": 0.010897374478730385,
+    "threshold": 0.4787047803401947,
+    "precision": 0.014462490332559938,
+    "recall": 0.1260957518543493,
+    "f1": 0.02594879622562964,
+    "accuracy": 0.9800161988501379,
+    "sensitivity": 0.1260957518543493,
+    "specificity": 0.9818226168128313,
+    "balanced_accuracy": 0.5539591843335903,
+    "confusion": {
+      "tp": 187,
+      "fp": 12743,
+      "tn": 688293,
+      "fn": 1296
+    }
+  },
+  "localization": {
+    "definition": "A top-k hit means at least one selected patch has any non-zero mask intersection.",
+    "top1_hit_rate": 0.0,
+    "top3_hit_rate": 0.06666666666666667,
+    "top5_hit_rate": 0.06666666666666667,
+    "positive_patch_recall": 0.1260957518543493,
+    "score_soft_spearman_all_manipulated_patches": 0.09570416503286379,
+    "score_soft_spearman_intersecting_patches": 0.15552387594775316,
+    "best_coverage_patch_rank": {
+      "mean": 1039.4666666666667,
+      "median": 731.0,
+      "top1_rate": 0.0
+    },
+    "top1_center_distance_voxels": {
+      "mean": 175.75030016435613,
+      "median": 156.12477088841814,
+      "p90": 299.4447025724292
+    }
+  },
+  "volume_classification": {
+    "selected_score": "top5_mean",
+    "candidates": {
+      "max": {
+        "auc": 0.5053571428571428,
+        "threshold": 0.4986228942871094,
+        "precision": 0.5510204081632653,
+        "recall": 0.9,
+        "f1": 0.6835443037974683,
+        "accuracy": 0.5689655172413793,
+        "sensitivity": 0.9,
+        "specificity": 0.21428571428571427,
+        "balanced_accuracy": 0.5571428571428572,
+        "confusion": {
+          "tp": 27,
+          "fp": 22,
+          "tn": 6,
+          "fn": 3
+        }
+      },
+      "top3_mean": {
+        "auc": 0.5541666666666667,
+        "threshold": 0.49625590443611145,
+        "precision": 0.5714285714285714,
+        "recall": 0.9333333333333333,
+        "f1": 0.7088607594936709,
+        "accuracy": 0.603448275862069,
+        "sensitivity": 0.9333333333333333,
+        "specificity": 0.25,
+        "balanced_accuracy": 0.5916666666666667,
+        "confusion": {
+          "tp": 28,
+          "fp": 21,
+          "tn": 7,
+          "fn": 2
+        }
+      },
+      "top5_mean": {
+        "auc": 0.5696428571428571,
+        "threshold": 0.49956876039505005,
+        "precision": 0.5833333333333334,
+        "recall": 0.7,
+        "f1": 0.6363636363636365,
+        "accuracy": 0.5862068965517241,
+        "sensitivity": 0.7,
+        "specificity": 0.4642857142857143,
+        "balanced_accuracy": 0.5821428571428571,
+        "confusion": {
+          "tp": 21,
+          "fp": 15,
+          "tn": 13,
+          "fn": 9
+        }
+      }
+    }
+  }
+}

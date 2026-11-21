@@ -1,0 +1,186 @@
+{
+  "config": {
+    "experiment_name": "train_pix2pix_balanced_patches_resnet18_medicalnet",
+    "data_root": "data/M3Dsynth",
+    "metadata_dir": "metadata/m3dsynth",
+    "output_dir": "outputs/train_pix2pix_balanced_patches_resnet18_medicalnet",
+    "split": {
+      "train_set": "train",
+      "valid_set": "valid",
+      "test_set": "test",
+      "train_mods": [
+        "pix2pix"
+      ],
+      "valid_mods": [
+        "pix2pix"
+      ],
+      "test_mods": [
+        "cycle",
+        "diffusion"
+      ],
+      "include_real": true
+    },
+    "data": {
+      "max_train_records": 256,
+      "max_valid_records": 0,
+      "record_subset_seed": 21
+    },
+    "patches": {
+      "patch_shape": [
+        32,
+        32,
+        32
+      ],
+      "train_stride": [
+        32,
+        32,
+        32
+      ],
+      "inference_stride": [
+        16,
+        16,
+        16
+      ],
+      "positive_overlap_fraction": 0.05,
+      "max_patches_per_volume": 32,
+      "positive_patches_per_volume": 8,
+      "positive_volume_fraction": 0.8,
+      "max_valid_patches_per_volume": 64
+    },
+    "model": {
+      "name": "resnet18_medicalnet",
+      "in_channels": 1,
+      "num_classes": 1,
+      "medicalnet_weights": "checkpoints/medicalnet/resnet_18_23dataset.pth",
+      "dropout": 0.2
+    },
+    "training": {
+      "epochs": 16,
+      "loss": "focal",
+      "target": "label",
+      "batch_size": 32,
+      "max_patches_per_epoch": 4096,
+      "volume_cache_size": 2,
+      "learning_rate": 0.0003,
+      "weight_decay": 0.0001,
+      "mixed_precision": true,
+      "amp_dtype": "bfloat16",
+      "num_workers": 0,
+      "persistent_workers": true,
+      "prefetch_factor": 1,
+      "pin_memory": true,
+      "early_stopping_patience": 5,
+      "seed": 21,
+      "checkpoint_every_epoch": true
+    },
+    "evaluation": {
+      "threshold_source": "validation",
+      "detection_score": "auto",
+      "topk_fractions": [
+        0.0001,
+        0.0005,
+        0.001,
+        0.005,
+        0.01
+      ],
+      "report_examples_per_class": 2,
+      "heatmap_aggregation": "average",
+      "calibration_batch_size": 32,
+      "calibration_threshold_steps": 99,
+      "calibrate_best": true,
+      "lung_metrics": true,
+      "localization_metrics": [
+        "f1",
+        "iou",
+        "voxel_auc",
+        "ap"
+      ]
+    }
+  },
+  "data_root": "C:\\Tesi Magistrale Piscopo",
+  "first_startup_seconds": 2.880135599989444,
+  "first_startup_forced_rebuild": false,
+  "warm_startup_seconds": 0.7103918999928283,
+  "n_index_patches": 527467,
+  "epochs": [
+    {
+      "epoch": 1,
+      "workers": 0,
+      "cache_size": 2,
+      "order": "grouped",
+      "patches": 4096,
+      "seconds": 195.3657050000038,
+      "first_batch_seconds": 1.6498548999952618,
+      "patches_per_second": 20.965808712434562,
+      "volume_reads": 128,
+      "cache_hits": 3968,
+      "worker_item_seconds": 195.2251930998027
+    },
+    {
+      "epoch": 2,
+      "workers": 0,
+      "cache_size": 2,
+      "order": "grouped",
+      "patches": 4096,
+      "seconds": 224.7294882999995,
+      "first_batch_seconds": 0.7077719000080833,
+      "patches_per_second": 18.22635752426091,
+      "volume_reads": 128,
+      "cache_hits": 3968,
+      "worker_item_seconds": 224.59298680066422
+    },
+    {
+      "epoch": 1,
+      "workers": 2,
+      "cache_size": 2,
+      "order": "grouped",
+      "patches": 4096,
+      "seconds": 114.56755429999612,
+      "first_batch_seconds": 4.358010700001614,
+      "patches_per_second": 35.75183240164653,
+      "volume_reads": 128,
+      "cache_hits": 3968,
+      "worker_item_seconds": 187.7349062004214
+    },
+    {
+      "epoch": 2,
+      "workers": 2,
+      "cache_size": 2,
+      "order": "grouped",
+      "patches": 4096,
+      "seconds": 111.95363200000429,
+      "first_batch_seconds": 0.7183521000115434,
+      "patches_per_second": 36.58657541364842,
+      "volume_reads": 128,
+      "cache_hits": 3968,
+      "worker_item_seconds": 193.56351100023312
+    },
+    {
+      "epoch": 1,
+      "workers": 4,
+      "cache_size": 2,
+      "order": "grouped",
+      "patches": 4096,
+      "seconds": 79.38797830000112,
+      "first_batch_seconds": 7.2068954999995185,
+      "patches_per_second": 51.594713553751525,
+      "volume_reads": 128,
+      "cache_hits": 3968,
+      "worker_item_seconds": 216.2140101003024
+    },
+    {
+      "epoch": 2,
+      "workers": 4,
+      "cache_size": 2,
+      "order": "grouped",
+      "patches": 4096,
+      "seconds": 77.16042460000608,
+      "first_batch_seconds": 0.9451928000053158,
+      "patches_per_second": 53.08420762629755,
+      "volume_reads": 128,
+      "cache_hits": 3968,
+      "worker_item_seconds": 228.28808839968406
+    }
+  ],
+  "notes": "Loader only: no GPU/forward/backward. Startup includes model/optimizer construction. volume_reads counts normalized stack loader calls (cache misses), not OS physical disk reads. worker_item_seconds sums concurrent item time; it is not wall time. OS filesystem cache is not cleared. Every scenario starts with empty volume caches; persistent workers follow the config. Index labels are reused, not loaded per patch."
+}

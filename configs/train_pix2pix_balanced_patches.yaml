@@ -46,7 +46,7 @@ training:
   weight_decay: 0.0001
   mixed_precision: true
   amp_dtype: bfloat16
-  num_workers: 2
+  num_workers: 4
   persistent_workers: true
   prefetch_factor: 1
   pin_memory: true
