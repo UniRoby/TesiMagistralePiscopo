@@ -98,7 +98,7 @@ def build_segmenter(config=None, *, state_dict=None):
     return model
 
 
-def segmentation_loss(logits, mask, *, foreground_normalizer=None):
+def segmentation_loss_components(logits, mask, *, foreground_normalizer=None):
     if logits.shape != mask.shape or logits.ndim != 5 or logits.shape[1] != 1:
         raise ValueError("segmentation logits and targets must have matching Bx1xDxHxW shapes")
     logits, mask = logits.float(), mask.float()
@@ -110,7 +110,12 @@ def segmentation_loss(logits, mask, *, foreground_normalizer=None):
     # Empty crops are supervised by BCE, never rewarded as perfect Dice examples.
     denominator = positive.sum().clamp_min(1) if foreground_normalizer is None else max(float(foreground_normalizer), 1e-8)
     dice_loss = ((1 - dice) * positive).sum() / denominator
-    return 0.5 * bce + 0.5 * dice_loss
+    return bce, dice_loss
+
+
+def segmentation_loss(logits, mask, *, foreground_normalizer=None):
+    bce, dice = segmentation_loss_components(logits, mask, foreground_normalizer=foreground_normalizer)
+    return 0.5 * bce + 0.5 * dice
 
 
 def preprocess_scan(raw, dirname, cache_dir=None, preprocessing=None):

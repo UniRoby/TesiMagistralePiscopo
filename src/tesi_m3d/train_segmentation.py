@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from .diagnose_localization import write_csv, write_json
 from .evaluate_segmentation import run_evaluation
-from .segmentation import SEGMENTER_NAME, build_segmenter, file_digest, load_predictor, segmentation_loss
+from .segmentation import SEGMENTER_NAME, build_segmenter, file_digest, load_predictor, segmentation_loss_components
 from .segmentation_data import SegmentationDataset, VolumeOrder, manifest_records
 from .segmentation_metrics import cohort_id, compare_baseline, evaluate_records, preview_planes, save_preview
 from .train import _load_torch_payload, _write_metrics_row, load_yaml_config, resolve_cache_dir, set_global_seed
@@ -32,6 +32,10 @@ def save_checkpoint(payload, path):
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def overfit_rank(metrics):
+    return metrics["passed"], metrics["positive_crop_dice"], -(metrics["negative_crop_fp_fraction"] or 0)
 
 
 def check_prerequisites(config, manifest, data_root=None, real_scan_root=None):
@@ -94,28 +98,55 @@ def make_loader(dataset, training, device):
     return torch.utils.data.DataLoader(dataset, **options), order
 
 
-def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumulation=4):
-    if microbatch * accumulation != 8 or len(batch["image"]) != 8:
-        raise ValueError("eight crops per update required; use batch=2/accum=4 or batch=1/accum=8")
+def make_optimizer(model, training):
+    decoder = [p for name, p in model.named_parameters() if not name.startswith("encoder.")]
+    return torch.optim.AdamW([{"params": model.encoder.parameters(), "lr": training.get("encoder_lr", 3e-5)},
+                              {"params": decoder, "lr": training.get("decoder_lr", 3e-4)}],
+                             weight_decay=training.get("weight_decay", 1e-4))
+
+
+def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumulation=4, diagnostics=None):
+    count = len(batch["image"])
+    if microbatch < 1 or accumulation < 1 or count != microbatch * accumulation or len(batch["mask"]) != count:
+        raise ValueError("crop count must match microbatch * accumulation")
     optimizer.zero_grad(set_to_none=True)
-    losses = []
+    losses, components = [], []
+    before = {name: p.detach().clone() for name, p in model.named_parameters() if p.requires_grad} if diagnostics is not None else None
     n_positive = int(batch["mask"].flatten(1).any(1).sum())
-    for start in range(0, 8, microbatch):
+    for start in range(0, count, microbatch):
         image = batch["image"][start:start + microbatch].to(device, non_blocking=True)
         mask = batch["mask"][start:start + microbatch].to(device, non_blocking=True)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
             # Preserve the effective-batch Dice weighting when reducing microbatch size.
-            loss = segmentation_loss(model(image), mask, foreground_normalizer=n_positive / accumulation)
+            bce, dice = segmentation_loss_components(model(image), mask, foreground_normalizer=n_positive / accumulation)
+            loss = 0.5 * bce + 0.5 * dice
         if not torch.isfinite(loss):
             raise FloatingPointError("non-finite segmentation loss")
         (loss / accumulation).backward()
         losses.append(loss.detach())
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
+        if diagnostics is not None:
+            components.append(torch.stack((bce.detach(), dice.detach())))
+    if diagnostics is not None:
+        for group in ("encoder", "decoder"):
+            grads = [p.grad.detach().float().norm() for name, p in model.named_parameters()
+                     if (name.startswith("encoder.") == (group == "encoder")) and p.grad is not None]
+            diagnostics[f"{group}_grad_norm"] = float(torch.stack(grads).norm().cpu()) if grads else 0.0
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
     optimizer.step()
+    if diagnostics is not None:
+        diagnostics.update(bce=float(torch.stack(components).mean(0)[0].cpu()),
+                           soft_dice_loss=float(torch.stack(components).mean(0)[1].cpu()),
+                           grad_norm_before_clip=float(norm.cpu()))
+        for group in ("encoder", "decoder"):
+            changes = [(p.detach() - before[name]).float().norm() for name, p in model.named_parameters()
+                       if name in before and (name.startswith("encoder.") == (group == "encoder"))]
+            diagnostics[f"{group}_update_norm"] = float(torch.stack(changes).norm().cpu()) if changes else 0.0
+        if not all(np.isfinite(value) for value in diagnostics.values()):
+            raise FloatingPointError("non-finite gradient or parameter update diagnostic")
     return float(torch.stack(losses).mean().cpu())
 
 
-def overfit_metrics(model, dataset, device="cpu", microbatch=2, output=None, *, amp=False):
+def overfit_metrics(model, dataset, device="cpu", microbatch=2, output=None, *, amp=False, case_rows=None):
     model.eval()
     dice, false_positive, negative_voxels = [], 0, 0
     crops, cases = [], []
@@ -172,6 +203,8 @@ def overfit_metrics(model, dataset, device="cpu", microbatch=2, output=None, *, 
     if output is not None:
         write_csv(Path(output) / "crops.csv", crops)
         write_csv(Path(output) / "cases.csv", cases)
+    if case_rows is not None:
+        case_rows.extend(cases)
     mean_dice = float(np.mean(dice)) if dice else 0.0
     fpr = false_positive / negative_voxels if negative_voxels else 1.0
     return {"positive_crop_dice": mean_dice, "negative_crop_fp_fraction": fpr,
@@ -234,7 +267,8 @@ def validate_config(config):
         raise ValueError("overfit must use at most 300 optimizer updates")
 
 
-def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=None, resume=None, real_scan_root=None):
+def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=None, resume=None, real_scan_root=None,
+                 debug_updates=False):
     config = copy.deepcopy(config)
     validate_config(config)
     manifest = read_json(config["manifest"])
@@ -261,10 +295,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         if old != new:
             raise ValueError("resume would change model, preprocessing or training protocol")
     model = build_segmenter(config["model"], state_dict=restored["model_state_dict"] if restored else None).to(device)
-    decoder = [p for name, p in model.named_parameters() if not name.startswith("encoder.")]
-    optimizer = torch.optim.AdamW([{"params": model.encoder.parameters(), "lr": training.get("encoder_lr", 3e-5)},
-                                  {"params": decoder, "lr": training.get("decoder_lr", 3e-4)}],
-                                 weight_decay=training.get("weight_decay", 1e-4))
+    optimizer = make_optimizer(model, training)
     if restored:
         optimizer.load_state_dict(restored["optimizer_state_dict"])
         for state in optimizer.state.values():
@@ -282,9 +313,17 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
     best_ap = restored.get("best_ap", -1.0) if restored else -1.0
     stale = restored.get("stale_validations", 0) if restored else 0
     updates = restored.get("updates", 0) if restored else 0
+    best_overfit = restored.get("best_overfit_metrics") if restored else None
     start_epoch = restored["epoch"] if restored else 0
     if restored and stage != "overfit" and best_ap >= 0 and not (output / "best.pt").exists():
         raise ValueError("resume needs best.pt alongside last.pt to preserve the previous model selection")
+    if restored and stage == "overfit":
+        if Path(resume).name != "last.pt":
+            raise ValueError("overfit resume requires last.pt; best.pt may be from the middle of an epoch")
+        if updates >= training.get("max_updates", 300):
+            raise ValueError("overfit checkpoint has already reached max_updates")
+        if best_overfit is not None and not (output / "best.pt").exists():
+            raise ValueError("resume needs best.pt alongside last.pt to preserve the previous overfit selection")
     max_epochs = int(training["epochs"])
     if start_epoch >= max_epochs:
         raise ValueError("resume checkpoint has already reached training.epochs")
@@ -299,6 +338,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         return {"format_version": 1, "task": "segmentation", "config": config, "manifest": manifest,
                 "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch, "updates": updates, "best_ap": best_ap, "stale_validations": stale,
+                "best_overfit_metrics": best_overfit,
                 "rng_state": _rng_state(), "amp": "bfloat16" if str(device).startswith("cuda") else "disabled"}
 
     overfit_report = None
@@ -309,12 +349,23 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         model.train()
         losses = []
         for batch in tqdm(loader, desc=f"seg epoch {epoch + 1}/{max_epochs}", unit="vol"):
+            diagnostics = {} if debug_updates else None
             losses.append(train_volume(model, batch, optimizer, device=device, microbatch=training["batch_size"],
-                                       accumulation=training["accumulation_steps"]))
+                                       accumulation=training["accumulation_steps"], diagnostics=diagnostics))
             updates += 1
+            if diagnostics is not None:
+                _write_metrics_row(output / "update_metrics.csv", {"updates": updates, "img_id": batch["img_id"],
+                                                                   "loss": losses[-1], **diagnostics})
             if stage == "overfit" and (updates % 25 == 0 or updates >= training.get("max_updates", 300)):
-                overfit_report = overfit_metrics(model, dataset, device, training["batch_size"])
+                cases = [] if debug_updates else None
+                overfit_report = overfit_metrics(model, dataset, device, training["batch_size"], case_rows=cases)
                 _write_metrics_row(output / "overfit_metrics.csv", {"updates": updates, **overfit_report})
+                for case in cases or []:
+                    _write_metrics_row(output / "case_history.csv", {"updates": updates, **case})
+                if best_overfit is None or overfit_rank(overfit_report) > overfit_rank(best_overfit):
+                    best_overfit = {"updates": updates, **overfit_report}
+                    save_checkpoint(payload(epoch + 1), output / "best.pt")
+                    write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"], **best_overfit})
                 model.train()
                 if overfit_report["passed"] or updates >= training.get("max_updates", 300):
                     break
@@ -333,9 +384,6 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                 save_checkpoint(payload(epoch + 1), output / "best.pt")
             else:
                 stale += 1
-        if stage == "overfit":
-            # The overfit checkpoint is a debugging artifact, not a validation-selected model.
-            save_checkpoint(payload(epoch + 1), output / "best.pt")
         save_checkpoint(payload(epoch + 1), output / "last.pt")
         _write_metrics_row(output / "metrics.csv", row)
         print(json.dumps(row), flush=True)
@@ -345,6 +393,11 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
             break
     if stage == "overfit":
         overfit_report = overfit_metrics(model, dataset, device, training["batch_size"], output)
+        if best_overfit is None or overfit_rank(overfit_report) > overfit_rank(best_overfit):
+            best_overfit = {"updates": updates, **overfit_report}
+            save_checkpoint(payload(epoch + 1), output / "best.pt")
+            write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"], **best_overfit})
+        save_checkpoint(payload(epoch + 1), output / "last.pt")
         overfit_report.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True)
         write_json(output / "gate.json", overfit_report)
         return overfit_report

@@ -769,9 +769,10 @@ La diagnosi non sostituisce il gate e non sblocca i piloti.
 La prima diagnosi ha confermato risultati quasi identici in float32 e
 bfloat16 (Dice 0,70994 e 0,70982). Sui positivi il recall medio è 94,22%
 ma la precision media è 61,04%; prevale l'eccesso di predizioni positive.
-La loss continua a scendere al limite dei 300 aggiornamenti. È disponibile
-**una replica controllata**, per verificare se il decoder converge meglio
-nello stesso budget, cambiando soltanto il suo LR da 3e-4 a 1e-3:
+La loss continuava a scendere al limite dei 300 aggiornamenti. È stata
+eseguita **una replica controllata**, per verificare se il decoder converge
+meglio nello stesso budget, cambiando soltanto il suo LR da 3e-4 a 1e-3.
+Il comando seguente documenta la prova, che è già risultata negativa:
 
 ```powershell
 python -m tesi_m3d.train_segmentation `
@@ -790,6 +791,98 @@ non avviare una serie di tentativi arbitrari o il full. Le configurazioni
 pilota continuano a richiedere il gate originale e non vengono sbloccate
 automaticamente da questa prova. Se passa, occorre riesaminare il risultato
 prima di collegarne il report ai piloti.
+
+**Esito della replica: non procedere ai piloti.** A 300 aggiornamenti il
+Dice medio è 0,51008 e gli FP nei negativi sono 0,17503%. Il recall medio
+dei positivi scende dal 94,22% della prima prova al 41,02%: gli FP minori
+si accompagnano alla perdita di gran parte del target. Il miglior Dice
+nei controlli salvati è 0,73410 a 275 aggiornamenti, con FP 1,19321%:
+non supera il gate. Nelle due run già concluse `best.pt` veniva sovrascritto
+a ogni epoca e coincide con l'ultimo checkpoint; non contiene il modello a 275
+aggiornamenti. Non tentare di recuperarlo dal solo CSV né aumentare LR,
+epoche o soglie per sbloccare il protocollo. La prossima fase richiede
+debug del training (componenti della loss, gradienti e apprendimento di
+crop fissi isolati), senza promuovere nessuna delle due run a modello
+validato. Vedere la sezione 10.3 del registro per i conteggi e i limiti.
+
+### 18.2.1 Debug guidato dopo i due overfit falliti
+
+Per eseguire i quattro controlli senza modificare a mano il trainer:
+
+```powershell
+python -m tesi_m3d.debug_segmentation `
+  --config configs\segmentation_overfit.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --output-dir outputs\segmentation_debug
+```
+
+Usare il config originale, con LR decoder 3e-4. Il comando legge il manifest
+già sottoposto ad audit, non riprende i checkpoint delle run fallite e non
+modifica i loro output. Si arresta automaticamente al primo controllo
+fallito; exit code 2 indica che il criterio diagnostico non è superato.
+Un errore tecnico è scritto in `report.json` se avviene durante le fasi e
+viene anche mostrato nel terminale. Una directory di output non vuota viene
+rifiutata: per una nuova esecuzione scegliere un altro `--output-dir`.
+
+1. **Aggiornamenti effettivi.** Nel primo aggiornamento sul positivo
+   verifica norme dei gradienti e delle variazioni dei pesi >0 per encoder
+   e decoder, valori finiti e statistiche BatchNorm immutate. I dettagli
+   sono in `positive/update_check.json`; gli stessi controlli vengono
+   ripetuti all'inizio della fase con il negativo.
+2. **Un positivo fisso.** Memorizza il crop 0 della prima scansione
+   manipolata del manifest (attualmente `inj_2092`), senza augmentation,
+   per massimo 300 aggiornamenti. Procede solo con Dice >=0,90 a soglia 0,5.
+3. **Positivo e negativo fissi.** Riparte da MedicalNet e dallo stesso seed
+   21, aggiungendo il crop 4 della stessa scansione, verificato privo di
+   foreground. Massimo altri 300 aggiornamenti; richiede Dice positivo
+   >=0,90 e FP voxel sul negativo <1%, alla stessa soglia 0,5.
+4. **Sei scansioni.** Solo se entrambi i test isolati passano, riparte ancora
+   da MedicalNet e seed 21 con il trainer originale, gli otto crop per
+   scansione e massimo 300 aggiornamenti. Non avvia piloti o full.
+
+Ogni fase usa la stessa loss 0,5 BCE + 0,5 Dice, AdamW e LR del config.
+Il batch effettivo dei test isolati è rispettivamente 1 e 2 crop, perché
+servono a isolare l'apprendimento; questi risultati non sono un confronto
+scientifico con il training su sei scansioni. Le fasi sono indipendenti:
+non proseguono dai pesi adattati nella fase precedente. Il caricamento
+MedicalNet e il controllo SHA256 rimangono obbligatori; non c'è fallback
+a encoder casuale. Il massimo complessivo è 900 aggiornamenti distribuiti
+su tre inizializzazioni, con arresto anticipato ai gate.
+
+Leggere prima **`outputs/segmentation_debug/report.json`**:
+
+- `stopped_at: positive_update_check` o `positive_negative_update_check`:
+  gradienti, aggiornamenti o BatchNorm non superano il controllo iniziale;
+- `stopped_at: positive`: non memorizza nemmeno il positivo isolato;
+- `stopped_at: positive_negative`: l'aggiunta del negativo impedisce di
+  rispettare entrambi i criteri;
+- `stopped_at: six_scans`: i test isolati passano, il gruppo completo no;
+- `passed: true`, `stopped_at: null`: tutti i controlli sono superati,
+  da riesaminare prima di collegare il gate delle sei scansioni ai piloti.
+
+In `positive/` e `positive_negative/`, `updates.csv` contiene loss, BCE,
+Dice, norme dei gradienti prima del clipping e variazioni effettive dei pesi
+di encoder/decoder. `checks.csv` registra le metriche dopo l'aggiornamento,
+in float32, al passo 0, 1 e ogni 25 passi (oltre al limite finale).
+`selection.json` nella root identifica crop, conteggi target e SHA256
+degli input/target. `initial_images/` e `images/` mostrano i crop prima e
+dopo il test. Le metriche non definite, come FP senza negativo, sono `null`
+nel JSON e celle vuote nei CSV; non sono successi aggiuntivi.
+
+In `six_scans/`, `update_metrics.csv` registra le componenti della loss e
+gli aggiornamenti per scansione; `case_history.csv` registra Dice e FP per
+caso ogni 25 aggiornamenti. Nelle **nuove** run overfit `best.pt` conserva
+il controllo migliore, dando precedenza a un gate superato, poi al Dice
+maggiore e infine agli FP minori. `best_gate.json` ne indica il passo;
+`last.pt` e `gate.json` descrivono lo stato finale. Queste modifiche non
+recuperano i checkpoint intermedi delle vecchie run. Per il resume
+dell'overfit usare soltanto `last.pt`: il best può trovarsi a metà epoca.
+
+I checkpoint dei test isolati hanno task `segmentation_debug` e non sono
+modelli validati per inferenza o ammissione ai piloti. Non sostituire i
+vecchi gate con il report generale del debug. Per condividere gli esiti,
+sincronizzare JSON, CSV e PNG dell'intera cartella, senza i file `.pt`.
+La strumentazione aggiunge lavoro: i tempi non sono un benchmark di training.
 
 ### 18.3 Baseline comune e due piloti controllati
 

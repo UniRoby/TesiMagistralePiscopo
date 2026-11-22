@@ -446,9 +446,107 @@ fissato, è preparata una sola replica con
 LR decoder 1e-3 invece di 3e-4, nuova inizializzazione identica tramite
 seed 21 e MedicalNet, stessi crop e massimo 300 aggiornamenti, output
 separati. Un test verifica che nessun altro parametro sperimentale cambi.
-L'esito non è ancora disponibile. I piloti restano bloccati dal gate
-originale: non promuovere la replica senza esaminarne report e immagini.
+L'esito successivo è riportato nella sezione 10.3. I piloti restano bloccati
+dal gate originale: non promuovere la replica senza esaminarne report e immagini.
 Il risultato resta sul train e non dimostra generalizzazione.
+
+### 10.3 Replica con LR decoder 1e-3: criterio Dice ancora fallito
+
+**Verifica eseguita.** Sincronizzati e analizzati
+[`gate.json`](../outputs/segmentation_overfit_decoder_lr/gate.json),
+[`overfit_metrics.csv`](../outputs/segmentation_overfit_decoder_lr/overfit_metrics.csv),
+[`crops.csv`](../outputs/segmentation_overfit_decoder_lr/crops.csv) e immagini
+della replica a LR decoder 1e-3. Manifest identico alla prima prova;
+configurazione effettiva diversa solo per LR decoder e percorsi degli
+output. I conteggi target dei 48 crop coincidono con la prima diagnostica.
+Completati 300 aggiornamenti, gradienti finiti e gate `passed: false`.
+
+| Misura alla soglia 0,5 | Prima run, LR 3e-4 | Replica, LR 1e-3 |
+| --- | ---: | ---: |
+| Dice medio sui 16 crop positivi | 0,70994 | 0,51008 |
+| Recall medio sui crop positivi | 94,22% | 41,02% |
+| Precision micro nei crop positivi | 64,43% | 87,94% |
+| Recall micro nei crop positivi | 90,02% | 40,34% |
+| FP voxel nei 32 crop negativi | 1,69957% | 0,17503% |
+| FP voxel nei 16 crop reali | 1,32985% | 0,19712% |
+| Loss di training dell'ultima epoca | 0,29618 | 0,17756 |
+
+**Errori residui.** I positivi della replica hanno TP=110.499, FP=15.150 e
+FN=163.420 su 273.919 voxel target complessivi dei crop. Nessuno dei 16
+crop positivi raggiunge Dice >=0,90. Due crop di `inj_1419` (0 e 3)
+producono zero voxel predetti positivi, pur contenendo rispettivamente
+19.264 e 9.600 voxel target; i massimi score sono circa 0,108 e 0,123.
+Il crop 3 di `rem_133` trova solo 1.710 dei 16.848 voxel annotati, senza
+FP: Dice 0,18429. Le figure confermano target persi o predizioni troppo
+piccole. Un crop reale di `inj_1713` conserva 8.100 FP (3,08990%).
+La riduzione degli FP aggregati non equivale a localizzazione migliore:
+in questo checkpoint si accompagna soprattutto a sensibilità minore.
+
+**Cronologia disponibile.** I controlli fino a 175 aggiornamenti riportano
+Dice e FP negativi nulli: non conservano mappe sufficienti per descrivere
+tutte le predizioni intermedie. A 250 aggiornamenti: Dice 0,68887, FP
+0,93126%; a 275: Dice 0,73410, FP 1,19321%; a 300: Dice 0,51008, FP
+0,17503%. Nessun controllo salvato soddisfa entrambi i criteri del gate.
+Il Dice finale peggiore, nonostante la loss media più bassa, conferma che
+la sola loss non può decidere il superamento del controllo spaziale.
+Non prova da solo un errore nel calcolo della loss o una causa specifica
+delle oscillazioni.
+
+**Limite dei checkpoint overfit di questa run.** Nel trainer usato `best.pt`
+veniva riscritto a ogni epoca overfit, come `last.pt`; era un artefatto di debug,
+non il miglior checkpoint selezionato con le metriche intermedie. Il CSV
+non consente di ricostruire i pesi a 275 aggiornamenti. Anche quel controllo
+non superava il gate, quindi recuperarlo non sbloccherebbe il protocollo.
+
+**Decisione.** La singola replica non conferma che aumentare il LR decoder
+risolva il controllo di apprendimento. Fermare le prove di LR e mantenere
+bloccati piloti e full; nessuna promozione, aumento di budget o cambio di
+soglia. Il prossimo intervento deve isolare il comportamento del training:
+componenti BCE/Dice, gradienti e aggiornamenti effettivi, apprendimento di
+crop fissi isolati prima del gruppo di sei scansioni. L'implementazione
+successiva è descritta nella sezione 10.4; non è una causa diagnosticata.
+Non è stata eseguita nuova inferenza GPU né training locale: l'analisi
+si basa sui report e sulle immagini sincronizzati dal laboratorio.
+
+### 10.4 Debug guidato dei quattro controlli
+
+**Implementazione.** L'entrypoint
+[`debug_segmentation`](../src/tesi_m3d/debug_segmentation.py) esegue il
+controllo di gradienti/aggiornamenti e BatchNorm, la memorizzazione del primo
+crop positivo del primo caso overfit, la coppia con il primo crop negativo
+dello stesso caso e, soltanto dopo i due successi, la prova sulle sei
+scansioni. Si usa il config originale a LR decoder 3e-4, soglia 0,5 e nessuna
+augmentation. Ogni fase riparte da seed 21 e MedicalNet ufficiale; massimo
+300 aggiornamenti per fase. I batch isolati sono 1 e 2 crop; non sono una
+replica controllata del gruppo di sei scansioni né una metrica di validation.
+Crop e target sono identificati nel report tramite indici, conteggi e hash.
+
+Il codice della loss e dell'aggiornamento è condiviso con il trainer normale:
+le componenti BCE/Dice non sono una seconda implementazione. Sono registrati
+norme dei gradienti e variazioni dei pesi per encoder/decoder. I gate bloccano
+le fasi dipendenti e non modificano i vecchi report né avviano piloti/full.
+La sezione 18.2.1 della guida contiene un unico comando Windows e gli output
+da sincronizzare, senza checkpoint pesanti.
+
+**Correzione dei nuovi checkpoint overfit.** `best.pt` ora viene salvato al
+controllo migliore: precedenza a gate passato, poi Dice maggiore e FP minori.
+`best_gate.json` identifica metriche e passo. `last.pt` rimane l'ultimo stato;
+`gate.json` è calcolato su quest'ultimo e non viene sostituito dal migliore.
+Il resume overfit accetta solo `last.pt`, perché il best può essere a metà
+epoca; impedisce inoltre aggiornamenti oltre il limite già raggiunto.
+La selezione dei checkpoint pilota/full tramite AP densa resta invariata.
+I checkpoint delle prove isolate sono marcati `segmentation_debug`, non
+utilizzabili come segmentatori validati o come gate sulle sei scansioni.
+
+**Verifica e limite.** Test sintetici controllano aggiornamenti effettivi,
+componenti della loss, memorizzazione di positivo e coppia con un modello
+minimo, reinizializzazione identica fra fasi, arresti prima delle fasi
+dipendenti, integrità del gate originale e conservazione di un best
+intermedio quando l'ultimo stato peggiora. Un aggiornamento CPU con pesi
+MedicalNet ufficiali e crop 64 cubo ha inoltre verificato gradienti e
+variazioni dei pesi non nulli per entrambi i gruppi, con BatchNorm immutate.
+Questo non dimostra che MedicalNet memorizzi i crop CT: serve l'esecuzione
+sul PC del laboratorio. Non è dichiarato risolto il problema di localizzazione.
 
 ## Come aggiornare questo registro
 

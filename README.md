@@ -21,6 +21,12 @@ se superati i criteri di localizzazione. Comandi Windows e condizioni di stop:
 [segmentazione MedicalNet](docs/LAB_WORKFLOW.md#18-recupero-della-localizzazione-segmentazione-medicalnet).
 Il nuovo decoder parte da zero; l'encoder richiede sempre i pesi MedicalNet.
 
+Se l'overfit fallisce, il comando `python -m tesi_m3d.debug_segmentation`
+controlla gli aggiornamenti dei pesi, prova un crop positivo fisso e poi una
+coppia positivo/negativo; torna alle sei scansioni solo dopo questi successi.
+Comando completo e lettura del report:
+[debug guidato](docs/LAB_WORKFLOW.md#1821-debug-guidato-dopo-i-due-overfit-falliti).
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.
