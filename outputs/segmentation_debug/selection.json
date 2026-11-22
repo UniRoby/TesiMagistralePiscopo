@@ -1,0 +1,25 @@
+{
+  "record": {
+    "img_id": "inj_2092",
+    "ty": "inj",
+    "mod": "pix2pix",
+    "orig_id": "LIDC-IDRI-0055",
+    "sdir_id": "3000581",
+    "coord_z": 50,
+    "coord_y": 203,
+    "coord_x": 340,
+    "split": "train"
+  },
+  "crop_indices": [
+    0,
+    4
+  ],
+  "threshold": 0.5,
+  "selection": "first manipulated scan, first positive and first negative crop",
+  "image_sha256": "04cb7bc2671e25c896bb77119be2051ebfc9bce368271b2f17726f5e75f9f84e",
+  "mask_sha256": "d60863403bf10f351a15fa158353d2d88a04e0bbbe912f1f2177d9f4d7b933b3",
+  "target_voxels": [
+    13468,
+    0
+  ]
+}

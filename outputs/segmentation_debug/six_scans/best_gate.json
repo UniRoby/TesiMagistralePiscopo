@@ -1,0 +1,7 @@
+{
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "updates": 250,
+  "positive_crop_dice": 0.7329289949601714,
+  "negative_crop_fp_fraction": 0.008204221725463867,
+  "passed": false
+}

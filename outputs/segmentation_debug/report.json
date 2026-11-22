@@ -1,0 +1,54 @@
+{
+  "task": "segmentation_debug",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "passed": false,
+  "stopped_at": "six_scans",
+  "stages": {
+    "positive": {
+      "updates": 50,
+      "positive_crop_dice": 0.9105779528617859,
+      "negative_crop_fp_fraction": null,
+      "bce": 0.2527163326740265,
+      "soft_dice_loss": 0.702201247215271,
+      "passed": true
+    },
+    "positive_update_check": {
+      "encoder_grad_norm": 0.3470468521118164,
+      "decoder_grad_norm": 2.9002249240875244,
+      "bce": 0.6782326698303223,
+      "soft_dice_loss": 0.9099934697151184,
+      "grad_norm_before_clip": 2.920915365219116,
+      "encoder_update_norm": 0.12919741868972778,
+      "decoder_update_norm": 0.2434854656457901,
+      "batchnorm_statistics_unchanged": true,
+      "passed": true
+    },
+    "positive_negative": {
+      "updates": 50,
+      "positive_crop_dice": 0.9042205214500427,
+      "negative_crop_fp_fraction": 2.6702880859375e-05,
+      "bce": 0.27042657136917114,
+      "soft_dice_loss": 0.7130570411682129,
+      "passed": true
+    },
+    "positive_negative_update_check": {
+      "encoder_grad_norm": 0.2973405122756958,
+      "decoder_grad_norm": 2.8497328758239746,
+      "bce": 0.6749999523162842,
+      "soft_dice_loss": 0.9099988341331482,
+      "grad_norm_before_clip": 2.8652031421661377,
+      "encoder_update_norm": 0.12889815866947174,
+      "decoder_update_norm": 0.24437525868415833,
+      "batchnorm_statistics_unchanged": true,
+      "passed": true
+    },
+    "six_scans": {
+      "positive_crop_dice": 0.7114571802877201,
+      "negative_crop_fp_fraction": 0.017572402954101562,
+      "passed": false,
+      "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+      "updates": 300,
+      "finite_gradients": true
+    }
+  }
+}

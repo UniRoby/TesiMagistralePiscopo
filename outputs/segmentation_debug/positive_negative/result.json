@@ -1,0 +1,8 @@
+{
+  "updates": 50,
+  "positive_crop_dice": 0.9042205214500427,
+  "negative_crop_fp_fraction": 2.6702880859375e-05,
+  "bce": 0.27042657136917114,
+  "soft_dice_loss": 0.7130570411682129,
+  "passed": true
+}
