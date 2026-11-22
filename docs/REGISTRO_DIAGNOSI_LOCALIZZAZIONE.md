@@ -548,6 +548,138 @@ variazioni dei pesi non nulli per entrambi i gruppi, con BatchNorm immutate.
 Questo non dimostra che MedicalNet memorizzi i crop CT: serve l'esecuzione
 sul PC del laboratorio. Non è dichiarato risolto il problema di localizzazione.
 
+### 10.5 Esito del debug: aggiornamenti e crop isolati superati, sei scansioni fallite
+
+**Verifica eseguita.** Analizzati
+[`report.json`](../outputs/segmentation_debug/report.json), selezione dei
+crop, curve per aggiornamento e per caso, conteggi voxel e figure. Il
+workflow si arresta a `six_scans`; i controlli precedenti passano.
+
+| Controllo | Aggiornamenti | Dice binario positivo | FP voxel sui negativi | Esito |
+| --- | ---: | ---: | ---: | --- |
+| Positivo isolato | 50 | 0,91058 | non definito | superato |
+| Positivo e negativo isolati | 50 | 0,90422 | 0,0026703% (7 voxel) | superato |
+| Sei scansioni, ultimo stato | 300 | 0,71146 | 1,75724% | fallito |
+| Sei scansioni, miglior controllo | 250 | 0,73293 | 0,82042% | fallito: Dice <0,90 |
+
+Encoder e decoder hanno gradienti e variazioni dei pesi finiti e non nulli
+in tutti i 300 aggiornamenti registrati sulle sei scansioni, oltre che nei
+due test isolati. Le norme dei gradienti dell'encoder vanno da 0,000528 a
+2,19867, quelle del decoder da 0,22425 a 2,88077. Il clipping globale a
+norma 1 interviene in 29/300 aggiornamenti: non tronca sistematicamente
+tutta la run. I due controlli iniziali confermano statistiche BatchNorm
+immutate. Questo esclude un blocco completo dei due gruppi di parametri
+nei passi osservati, non certifica ogni singolo parametro o l'intero dataset.
+La loss registrata coincide con 0,5 BCE + 0,5 Dice entro circa 6e-8.
+
+**Stesso crop, comportamento diverso.** Il positivo isolato è il crop 0
+di `inj_2092`, con 13.468 voxel target; il negativo è il crop 4 della stessa
+scansione, senza foreground. Le figure CT/GT nelle tre sezioni della mask
+coincidono esattamente fra positivo, coppia e primo crop delle sei scansioni.
+Nel gruppo di sei il medesimo positivo ha Dice 0,64155, con TP=13.452 e
+FP=15.016: viene quasi tutto trovato ma la previsione si allarga. Non è
+quindi un crop intrinsecamente impossibile da rappresentare con il modello.
+Il risultato isolato non esclude errori di annotazione in altri casi e non
+dimostra riconoscimento della manipolazione: una rete può memorizzare il
+riquadro di un solo esempio.
+
+**Dice binario e Soft Dice vanno distinti.** Nei test isolati la Dice loss
+finale è ancora 0,70220 e 0,71306: il Soft Dice è rispettivamente 0,29780 e
+0,28694, non 0,91 e 0,90. Non è una contraddizione aritmetica: il gate
+soglia le probabilità a 0,5, mentre la loss usa tutte le probabilità, anche
+quelle sotto soglia sull'ampio sfondo. Il criterio binario è superato,
+ma la loss non dimostra convergenza o probabilità vicine a una mask 0/1.
+Non sono disponibili mappe numeriche 3D complete per ricostruire qui la
+distribuzione degli score; non attribuire una calibrazione specifica alle
+sole immagini PNG.
+
+**Errore sul gruppo completo.** All'ultimo stato i 16 crop positivi hanno
+TP=249.009, FP=128.997, FN=24.910. Precision media per crop 61,21%, recall
+medio 90,23% (micro: precision 65,87%, recall 90,91%). Nessun positivo su
+16 raggiunge Dice >=0,90, quindi il gate non dipende da un unico outlier.
+Il peggiore è ancora il crop 3 di `inj_2092`: target 1.300 voxel, TP=484,
+FP=12.610 e Dice 0,06725. Nei 32 negativi si contano 147.408 FP;
+14/32 superano individualmente l'1%. Le medie per caso sono:
+
+| Scansione | Dice medio positivi | FP nei suoi crop negativi |
+| --- | ---: | ---: |
+| inj_2092 | 0,54717 | 0,63190% |
+| inj_1419 | 0,78054 | 5,37214% |
+| rem_133 | 0,71805 | 1,19238% |
+| rem_15 | 0,80007 | 1,90649% |
+| real inj_1713 | non definito | 0,56334% |
+| real rem_605 | non definito | 1,91417% |
+
+La cronologia mostra variazioni simultanee su più casi: a 150 aggiornamenti
+Dice medio 0,45018 e FP 6,83966%; a 175 Dice 0,11750 e FP 0,05168%.
+Non è una crescita stabile del controllo spaziale. Il best a 250 è ora
+conservato secondo `best_gate.json`; le immagini finali sincronizzate
+riguardano invece il passo 300. La scelta del best risulta coerente con la
+cronologia, ma neppure il best supera il gate.
+
+**Interpretazione e prossimo intervento motivato.** Il problema compare
+nel passaggio alla composizione multi-crop/multi-scansione del training.
+L'attuale aggiornamento usa otto crop di un solo volume: 200/300 passi
+contengono quattro positivi e quattro negativi; 100/300 contengono solo
+negativi reali e ricevono soltanto BCE. Nei passi finali dei manipolati
+la Dice loss media è ancora circa 0,67195. Questa struttura, il peso
+effettivo del foreground e l'interferenza tra aggiornamenti sono le prime
+ipotesi da isolare. Le norme non misurano l'allineamento fra gradienti:
+non dimostrano che i reali causino dimenticanza o che la BCE sia errata.
+
+Il confronto successivo motivato è con batch composti da crop di più
+scansioni, sugli stessi 48 crop fissi, stesse 50 esposizioni per crop e
+300 aggiornamenti. Prima di implementarlo va mantenuta esplicita la
+ponderazione della loss: con la normalizzazione attuale, portare foreground
+in ogni batch aumenterebbe da solo il peso Dice complessivo (ora assente
+nei passi reali). Chiamare questo confronto "solo shuffle" nasconderebbe
+un cambiamento dell'obiettivo. Non si propone un altro LR, né nuove epoche,
+soglie o un cambio di architettura sulla sola base di questi dati.
+
+**Decisione e limite.** Piloti/full restano bloccati. Il debug ha ristretto
+il problema e dimostrato rappresentabilità del crop selezionato, non
+validità della localizzazione su nuove scansioni. Nessuna nuova esecuzione
+GPU o modifica del training in questa analisi: i pesi non sono presenti
+localmente, le conclusioni sono sui report e sulle figure sincronizzati.
+
+### 10.6 Confronto appaiato della composizione dei batch: implementato
+
+**Intervento.** L'entrypoint
+[`compare_segmentation_batches`](../src/tesi_m3d/compare_segmentation_batches.py)
+esegue grouped e mixed su un solo pool di 48 crop fissi della coorte
+overfit originale. Ogni epoca visita tutti i crop una volta: 50 epoche e
+300 aggiornamenti per variante, nessun arresto anticipato che alteri le
+esposizioni. Entrambe ripartono da MedicalNet e seed 21, con hash completo
+dei pesi/buffer iniziali confrontato a fine esecuzione. Non si riusa uno
+dei checkpoint falliti e non si modifica il gate originale dei piloti.
+
+**Composizione e loss.** Grouped ripete l'ordine originale dei volumi;
+mixed include in ogni aggiornamento due/tre positivi e negativi di almeno
+tre scansioni, inclusi entrambi i reali, senza duplicare o saltare crop.
+La BCE rimane mediata su otto crop; il Dice usa sempre denominatore quattro
+per conservare il peso di ogni crop positivo sull'epoca. Questo coincide
+con la loss originale nei batch fake e dà zero Dice nei batch reali.
+Usare la normale media sui positivi presenti nel batch misto ne aumenterebbe
+il peso complessivo del 50%; il confronto evita questa confusione.
+L'estensione del trainer è un parametro opzionale: gli altri entrypoint
+mantengono la normalizzazione precedente.
+
+**Tracciabilità e verifica.** Hash dei singoli input e target, piano degli
+aggiornamenti, esposizioni per crop, componenti della loss, gradienti,
+metriche per caso, best e last sono salvati separatamente per variante.
+Test sintetici verificano determinismo e copertura del sampler, presenza
+di scansioni diverse, identità dell'obiettivo e dei gradienti su un'epoca
+a pesi fermi, equivalenza dell'accumulo 1×8/2×4, inizializzazioni identiche,
+budget completato anche se il gate passa prima e protezione dei vecchi
+output. Il comando e la lettura del risultato sono nella sezione 18.2.2
+della guida Windows.
+
+**Stato e limiti.** Implementazione verificabile localmente; il confronto
+sui CT e sulla GPU Windows non è ancora eseguito. Il cambio della
+composizione può modificare la traiettoria di AdamW e del clipping anche a
+obiettivo globale conservato: è l'ipotesi sperimentale, non una correzione
+scientifica già dimostrata. Nessuna promozione a pilota/full automatica.
+
 ## Come aggiornare questo registro
 
 Per ogni punto chiuso, sostituire «Da compilare» con: **verifica eseguita**

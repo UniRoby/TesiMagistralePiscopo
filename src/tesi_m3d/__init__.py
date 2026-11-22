@@ -15,6 +15,7 @@ __all__ = [
     "prepare_segmentation",
     "train_segmentation",
     "debug_segmentation",
+    "compare_segmentation_batches",
     "evaluate_segmentation",
     "infer_segmentation",
     "patches",

@@ -27,6 +27,11 @@ coppia positivo/negativo; torna alle sei scansioni solo dopo questi successi.
 Comando completo e lettura del report:
 [debug guidato](docs/LAB_WORKFLOW.md#1821-debug-guidato-dopo-i-due-overfit-falliti).
 
+Per isolare l'effetto della composizione dei batch è disponibile un
+[confronto appaiato](docs/LAB_WORKFLOW.md#1822-confronto-appaiato-batch-per-volume-e-batch-misti):
+stessi 48 crop fissi, pesi iniziali identici e stessa ponderazione della loss,
+300 aggiornamenti per variante, senza cambiare LR o soglia.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

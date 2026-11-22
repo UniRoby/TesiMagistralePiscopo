@@ -884,6 +884,93 @@ vecchi gate con il report generale del debug. Per condividere gli esiti,
 sincronizzare JSON, CSV e PNG dell'intera cartella, senza i file `.pt`.
 La strumentazione aggiunge lavoro: i tempi non sono un benchmark di training.
 
+**Esito della prima esecuzione sincronizzata.** Aggiornamenti dei pesi e
+BatchNorm superano i controlli; positivo e coppia passano entrambi a 50
+aggiornamenti (Dice 0,91058 e 0,90422; nella coppia solo 7 voxel FP sul
+negativo). Il workflow arriva alle sei scansioni e si ferma: Dice finale
+0,71146, FP 1,75724%. Il best è al passo 250, Dice 0,73293 e FP 0,82042%:
+anche questo non passa. Il Soft Dice degli isolati rimane circa 0,30,
+quindi il superamento binario non equivale a convergenza della loss.
+Non rilanciare il debug identico né i piloti. L'analisi della composizione
+dei batch e dei suoi effetti sulla ponderazione della loss è nella sezione
+10.5 del registro; il confronto implementato successivamente è nella sezione 18.2.2.
+
+### 18.2.2 Confronto appaiato: batch per volume e batch misti
+
+Il debug ha superato positivo e coppia ma fallito sulle sei scansioni.
+Per isolare l'effetto della composizione degli aggiornamenti, eseguire dalla
+root del repository, nell'ambiente Python attivo:
+
+```powershell
+python -m tesi_m3d.compare_segmentation_batches `
+  --config configs\segmentation_overfit.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --output-dir outputs\segmentation_batch_comparison
+```
+
+Il comando esegue **due nuove run appaiate**, senza riprendere le vecchie:
+
+- `grouped/`: otto crop della stessa scansione per aggiornamento, nello
+  stesso ordine deterministico usato dall'overfit originale;
+- `mixed/`: ogni aggiornamento contiene otto crop di almeno tre scansioni,
+  con due o tre crop positivi e almeno un negativo di ciascuno dei due reali.
+
+I 48 crop vengono preparati una sola volta con il sampler originale fisso,
+senza augmentation, e tenuti in RAM (circa 96 MiB per immagini e target 64³).
+Non vengono più riletti CT, mask o percentili durante le due run. Ogni crop
+compare esattamente una volta per epoca in entrambe le varianti: con il
+config originale, 50 esposizioni ciascuno e **300 aggiornamenti per run,
+600 complessivi su due inizializzazioni indipendenti**. Non ci sono arresti
+anticipati al gate: si conserva il primo successo, ma si completa lo stesso
+budget per mantenere il confronto appaiato. Nessun pilota/full viene avviato.
+
+Encoder MedicalNet obbligatorio, stesso seed 21, LR encoder 3e-5 e decoder
+3e-4, AdamW, AMP e soglia 0,5 del config originale. Un hash dello stato
+iniziale completo verifica che i pesi e i buffer delle due run coincidano.
+`crop_pool.csv` identifica tutti i crop tramite caso, indice, conteggio
+foreground e SHA256 di immagine e target. Il confronto usa lo stesso pool
+per training e valutazione, incluse le figure e i controlli per caso.
+
+**Loss conservata, non solo formula conservata.** La BCE rimane mediata su
+otto crop. Il denominatore del contributo Dice viene fissato a **quattro
+positivi per aggiornamento** in entrambe le varianti; sui batch di soli
+reali il contributo resta zero. Così, a pesi fermi, la somma delle loss su
+un'epoca è in entrambi i casi:
+
+`0,5 × somma(BCE dei 48 crop)/8 + 0,5 × somma(Dice loss dei 16 positivi)/4`.
+
+Normalizzare invece sui due/tre positivi presenti in ciascun batch misto
+porterebbe il peso Dice complessivo da quattro a sei batch, +50%. Il test
+di confronto controlla esplicitamente l'uguaglianza delle loss e dei
+gradienti a pesi fermi. Con aggiornamenti AdamW/clipping intermedi i
+percorsi saranno diversi: è l'effetto del batching che si vuole misurare.
+Nei CSV `soft_dice_loss` è la componente ponderata con questo denominatore;
+nei batch misti non equivale a `1 - Soft Dice medio dei positivi`.
+
+Alla fine sincronizzare l'intera cartella, **senza i file `.pt`**. Leggere
+prima `comparison.json`: contiene risultati finali e migliori delle due
+run, hash iniziali, budget, esposizioni e differenze mixed meno grouped.
+`delta_last_dice` positivo indica Dice finale maggiore; `delta_last_fp_fraction`
+negativo indica meno FP. `passed` riguarda il gate dell'ultimo stato mixed,
+non il solo fatto che sia migliore di grouped. Un best che passa prima del
+termine è riportato separatamente, senza sostituire le metriche finali.
+
+Ogni variante salva `gate.json`, `best_gate.json`, `report.json`, metriche
+per aggiornamento e per caso, immagini finali, `best.pt` e `last.pt`.
+Il best viene conservato ai controlli; il last viene scritto al termine,
+evitando di riscrivere un checkpoint completo a ciascuna delle 50 epoche.
+`update_metrics.csv` contiene gli indici degli otto crop e la composizione
+di ogni aggiornamento; `exposures.csv` verifica le 50 visite per crop.
+Tempi e picco di memoria sono in `report.json`; i tempi includono
+inizializzazione, valutazioni e checkpoint, con dati già in RAM.
+
+Exit code 2 indica confronto completato con gate finale mixed non superato.
+Se `comparison.json` contiene `error`, il confronto è incompleto: non usare
+le differenze come risultato. Una cartella non vuota viene rifiutata;
+per ripetere scegliere un nuovo `--output-dir`. Non usare `--resume`.
+I gate e i checkpoint precedenti non vengono modificati. I piloti restano
+collegati al gate originale finché il nuovo risultato non viene riesaminato.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

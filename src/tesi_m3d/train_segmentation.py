@@ -105,7 +105,8 @@ def make_optimizer(model, training):
                              weight_decay=training.get("weight_decay", 1e-4))
 
 
-def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumulation=4, diagnostics=None):
+def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumulation=4, diagnostics=None,
+                 foreground_normalizer=None):
     count = len(batch["image"])
     if microbatch < 1 or accumulation < 1 or count != microbatch * accumulation or len(batch["mask"]) != count:
         raise ValueError("crop count must match microbatch * accumulation")
@@ -113,12 +114,15 @@ def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumul
     losses, components = [], []
     before = {name: p.detach().clone() for name, p in model.named_parameters() if p.requires_grad} if diagnostics is not None else None
     n_positive = int(batch["mask"].flatten(1).any(1).sum())
+    if foreground_normalizer is not None and (not np.isfinite(foreground_normalizer) or foreground_normalizer <= 0):
+        raise ValueError("foreground_normalizer must be finite and positive")
+    dice_denominator = n_positive if foreground_normalizer is None else foreground_normalizer
     for start in range(0, count, microbatch):
         image = batch["image"][start:start + microbatch].to(device, non_blocking=True)
         mask = batch["mask"][start:start + microbatch].to(device, non_blocking=True)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
             # Preserve the effective-batch Dice weighting when reducing microbatch size.
-            bce, dice = segmentation_loss_components(model(image), mask, foreground_normalizer=n_positive / accumulation)
+            bce, dice = segmentation_loss_components(model(image), mask, foreground_normalizer=dice_denominator / accumulation)
             loss = 0.5 * bce + 0.5 * dice
         if not torch.isfinite(loss):
             raise FloatingPointError("non-finite segmentation loss")
