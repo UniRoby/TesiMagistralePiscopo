@@ -674,11 +674,140 @@ budget completato anche se il gate passa prima e protezione dei vecchi
 output. Il comando e la lettura del risultato sono nella sezione 18.2.2
 della guida Windows.
 
-**Stato e limiti.** Implementazione verificabile localmente; il confronto
-sui CT e sulla GPU Windows non è ancora eseguito. Il cambio della
+**Stato al momento dell'implementazione.** Verificata localmente; risultati
+successivi sui CT e sulla GPU Windows nella sezione 10.7. Il cambio della
 composizione può modificare la traiettoria di AdamW e del clipping anche a
 obiettivo globale conservato: è l'ipotesi sperimentale, non una correzione
 scientifica già dimostrata. Nessuna promozione a pilota/full automatica.
+
+### 10.7 Risultato grouped/mixed: beneficio parziale, gate ancora fallito
+
+**Evidenze sincronizzate.** Analizzati
+[`comparison.json`](../outputs/segmentation_batch_comparison/comparison.json),
+i CSV degli aggiornamenti, delle esposizioni, dei crop e dei casi, le curve
+ai controlli ogni 25 passi e sei figure finali di entrambe le varianti
+complessivamente. Manifest `0de4718f…`, pool `80c77851…`, stato iniziale
+`9a053aa1…`: gli hash riportati coincidono fra le due run; l'hash del ledger
+del pool è stato anche ricalcolato. Config identici, 48 crop (16 positivi,
+32 negativi), target voxel coincidenti nei due `crops.csv`, 300 passi e
+50 visite a ogni crop in ciascuna run. Ogni epoca copre esattamente i 48
+indici una volta. Nei mixed ogni passo ha otto crop, due/tre positivi,
+almeno due negativi reali e almeno tre scansioni. Gradienti e variazioni
+dei pesi di encoder/decoder sono finiti e non nulli in tutti i 600 passi;
+la loss registrata coincide con metà BCE più metà componente Dice.
+
+| Misura sui crop fissi, soglia 0,5 | Grouped | Mixed |
+|---|---:|---:|
+| Dice medio dei positivi, passo 300 | 0,714908 | 0,739454 |
+| FP sui voxel dei crop negativi, passo 300 | 1,23613% | 0,69098% |
+| Dice medio del best registrato, passo 250 | 0,748079 | 0,760742 |
+| FP negativi del best | 0,70795% | 0,62721% |
+| Precision media sui 16 positivi, passo 300 | 59,77% | 61,73% |
+| Recall media sui 16 positivi, passo 300 | 93,54% | 96,06% |
+| Positivi con Dice almeno 0,90, passo 300 | 0/16 | 0/16 |
+| Crop negativi con FP oltre 1%, passo 300 | 9/32 | 7/32 |
+| Un gate superato ai controlli registrati | No | No |
+
+Mixed guadagna 0,02455 di Dice finale e riduce del 44,1% relativo la quota
+FP sui negativi. Il vantaggio di Dice fra i best scende a 0,01266; entrambi
+sono al passo 250 e peggiorano dopo. La curva mixed anticipa l'emersione
+del foreground (Dice 0,461 al passo 100 contro zero grouped), ma resta
+oscillante. Il vantaggio finale interessa 10 positivi su 16; sei peggiorano.
+Il caso `rem_133`, per esempio, migliora appena nel Dice medio ma peggiora
+nei suoi crop negativi da 0,13762% a 0,86279% FP. Non è un beneficio uniforme.
+Sui soli negativi dei due reali, FP aggregati 0,73044% → 0,43316%; sui
+negativi delle scansioni fake, 1,74181% → 0,94881%. Queste sono misure su
+crop di training, non falsi positivi dell'inferenza su scansioni complete.
+
+**Errore residuo.** Sui positivi mixed: TP 261.865, FP 128.330, FN 12.054.
+Il foreground viene largamente recuperato, ma la precisione rimane bassa.
+`inj_2092` crop 3 (1.300 voxel target) passa da Dice 0,17286 a 0,33723:
+mixed predice 4.773 voxel, con TP 1.024, FP 3.749 e FN 276.
+`rem_133` crop 2 (3.042 voxel target) passa da 0,50694 a 0,60988 e
+mantiene 3.869 FP contro 3.032 TP. Le figure dei due crop mostrano regioni
+lisce più estese dei target cuboidali e troncate al bordo del crop; anche
+nei peggiori negativi `inj_1419` e reale `rem_605` si vedono attivazioni ai
+bordi. È un indizio da misurare, non prova di un errore del padding o del
+sampler. Il primo crop di `inj_1419` è migliore (Dice 0,88902), ma ancora
+con alone FP. I valori di Soft Dice ricostruiti dai passi finali restano
+molto inferiori al Dice binario: circa 0,357 grouped e 0,370 mixed sui
+positivi degli ultimi quattro giri, misurati durante il training a pesi
+variabili, non rivalutando un singolo checkpoint.
+
+**Decisione.** Gate fallito anche per il best: Dice richiesto almeno 0,90,
+FP negativi sotto 1%. Il batching misto è un candidato per le prossime
+diagnosi, non una soluzione sufficiente né una modifica da promuovere ora
+al full. Nessuna nuova ricerca di LR, estensione delle epoche o modifica
+della soglia per far passare il test. Il prossimo controllo motivato è
+verificare la rappresentabilità dei due crop peggiori (`inj_2092/3` e
+`rem_133/2`) isolatamente e con un negativo fisso dello stesso caso,
+conservando input/target verificati tramite hash, inizializzazione,
+preprocessing, LR e limite di 300 aggiornamenti per prova. Finora il debug
+isolato riguardava solo `inj_2092/0`, molto più grande: il suo successo
+non dimostra apprendibilità dei piccoli target parziali al bordo.
+Nel controllo andrà quantificata anche la distribuzione di FP/FN rispetto
+ai bordi, senza spostare o correggere automaticamente le annotazioni.
+Un successo isolato restringerebbe il problema alla gestione congiunta di
+questi esempi; un fallimento richiederebbe verifiche di geometria e
+rappresentazione prima di un altro confronto del batching. Nessuno dei due
+esiti autorizza da solo il passaggio a pilota/full.
+
+**Limiti.** Una coppia di run e un solo seed non dimostrano robustezza né
+generalizzazione. Tempi 54,06/51,13 s e picchi allocati 4.646/1.698 MiB
+sono riportati, ma non attribuiti al sampler: grouped è sempre eseguito
+prima, nello stesso processo, e inizializzazione/workspace possono avere
+costi diversi. Il tempo esclude la preparazione comune dei CT e include
+inizializzazione, valutazioni e checkpoint. I pesi `.pt` non sono presenti
+localmente: verificati report, coerenza interna dei CSV e figure finali,
+senza rieseguire inferenza o controllare le immagini del best al passo 250.
+
+### 10.8 Controllo dei due crop peggiori: implementato, esito CT da acquisire
+
+**Intervento.** `debug_segmentation_hard_crops` rigenera esattamente
+`inj_2092/3` e `rem_133/2` negli indici originali della coorte, confronta
+immagini e mask con il ledger del confronto grouped/mixed e prova ciascuno
+da solo e con il primo negativo fisso (crop 4) dello stesso caso.
+Quattro inizializzazioni fresche, ciascuna confrontata con l'hash iniziale
+del riferimento; nessun checkpoint allenato viene usato come partenza.
+Si riusa `run_fixed_stage`, mantenendone l'arresto anticipato per il vecchio
+debug; solo il nuovo comando completa l'intero budget, massimo 300 passi
+per prova, conservando primo superamento osservato, best e last.
+I fallimenti scientifici non impediscono le altre prove; quelli tecnici
+interrompono e vengono registrati. I checkpoint restano di tipo diagnostico
+e il gate del protocollo non viene modificato.
+
+**Misure.** Le figure iniziali/finali sono accompagnate da TP/FP/FN,
+precision, recall e tasso FP sul background per distanza dal bordo
+(0–3, 4–7, 8–15, almeno 16 voxel), più l'intero crop. Le fasce sono
+disgiunte e ne vengono verificati copertura e conteggi su fixture nota;
+si registra anche quali facce tocca il target. Il conteggio distingue
+geometria dei target da estensione delle predizioni, senza correggere o
+traslare annotazioni. Un errore concentrato ai bordi, da solo, non dimostra
+un difetto del padding.
+
+**Verifica locale.** Test su TIFF sintetici verificano identità degli input,
+indici originali (compreso `rem_133` al posto 2), negativi vuoti, quattro
+prove complete, preservazione del gate e rifiuto di config, manifest,
+ledger, CT, mask o stati iniziali differenti. Un controllo con i pesi
+ufficiali MedicalNet e due crop sintetici 64³ ha completato un aggiornamento
+CPU con gradienti e variazioni dei pesi positivi in encoder/decoder,
+statistiche BatchNorm invariate e tabelle spaziali salvate. Non è un test
+di qualità scientifica o di memoria CUDA.
+La verifica pertinente comprende 57 test superati (segmentazione, debug,
+confronto dei batch e nuovi crop); escluso il test dei worker persistenti,
+non coinvolti da questo comando che accede direttamente ai due volumi.
+
+**Limiti e decisione.** L'ambiente locale (PyTorch 2.15.0+cu132, MONAI
+1.5.2, CPU) ricrea lo stato `46820f3d…`, diverso da `9a053aa1…` del confronto
+Windows: verificata quindi anche la necessità di non assumere identità
+dell'inizializzazione dal solo seed. Eseguire nell'ambiente originale del
+laboratorio; un hash diverso blocca il confronto prima del training.
+Il protocollo isolato usa fino a 300 esposizioni per crop contro le 50
+delle sei scansioni e la normale loss sui soli uno/due crop selezionati:
+un eventuale successo non isola causalmente l'effetto del batching e non
+prova generalizzazione. I risultati sui due target reali devono ancora
+essere acquisiti. Piloti/full restano bloccati. Comando, file da sincronizzare
+e criteri di lettura nella sezione 18.2.3 della guida Windows.
 
 ## Come aggiornare questo registro
 

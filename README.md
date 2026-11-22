@@ -32,6 +32,11 @@ Per isolare l'effetto della composizione dei batch è disponibile un
 stessi 48 crop fissi, pesi iniziali identici e stessa ponderazione della loss,
 300 aggiornamenti per variante, senza cambiare LR o soglia.
 
+Il confronto ha migliorato parzialmente i risultati, ma il gate resta fallito.
+Il prossimo controllo è il [debug dei due crop peggiori](docs/LAB_WORKFLOW.md#1823-debug-dei-due-crop-peggiori):
+`python -m tesi_m3d.debug_segmentation_hard_crops`, quattro prove indipendenti
+con verifica degli hash e conteggio degli errori rispetto ai bordi del crop.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

@@ -971,6 +971,95 @@ per ripetere scegliere un nuovo `--output-dir`. Non usare `--resume`.
 I gate e i checkpoint precedenti non vengono modificati. I piloti restano
 collegati al gate originale finché il nuovo risultato non viene riesaminato.
 
+**Esito sincronizzato e riesaminato.** Il confronto è completo e appaiato:
+stessi hash iniziali/pool, 300 aggiornamenti e 50 visite per crop. Al passo
+300 grouped ha Dice 0,71491 e FP negativi 1,23613%; mixed Dice 0,73945 e
+FP 0,69098%. I best sono entrambi al passo 250: Dice 0,74808/0,76074,
+FP 0,70795%/0,62721%. Nessuna variante supera il gate Dice 0,90.
+Non rilanciare identico il confronto e non avviare la sezione 18.3:
+piloti/full restano bloccati. Il dettaglio degli errori residui e il
+controllo successivo sui due crop positivi peggiori sono nella sezione 10.7
+del registro; il comando implementato è nella sezione 18.2.3 seguente.
+
+### 18.2.3 Debug dei due crop peggiori
+
+Nel medesimo ambiente Windows del confronto, dalla root del repository:
+
+```powershell
+python -m tesi_m3d.debug_segmentation_hard_crops `
+  --config configs\segmentation_overfit.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --reference-dir outputs\segmentation_batch_comparison `
+  --output-dir outputs\segmentation_hard_crops
+```
+
+Usare gli stessi `$ctRoot` e `$realCtRoot` già sottoposti all'audit, definiti
+nella sezione 18.1. La directory reference deve contenere `comparison.json`,
+`manifest.json`, `effective_config.json` e `crop_pool.csv` del confronto
+completo; non servono i suoi `.pt`. Il comando verifica manifest, config,
+hash del ledger e hash individuali di immagine/target rigenerati. Conserva
+gli indici originali nella coorte: cambiare l'indice cambierebbe il sampler.
+Ogni prova ricrea MedicalNet con seed 21 e confronta l'hash di pesi/buffer
+iniziali con quello del confronto precedente, prima di allenare.
+Se non coincide, fermarsi e conservare il messaggio: stesso seed non
+garantisce lo stesso stato fra ambienti/versioni diversi. Non eliminare il
+controllo e non riscrivere gli hash del riferimento per aggirarlo.
+
+Vengono eseguite quattro prove fresche, senza riprendere pesi allenati:
+
+| Caso | Prova singola | Prova con negativo |
+|---|---|---|
+| `inj_2092` | positivo crop 3, 1.300 voxel target | stesso positivo + crop 4 |
+| `rem_133` | positivo crop 2, 3.042 voxel target | stesso positivo + crop 4 |
+
+Crop 4 è il primo negativo fisso dello stesso caso, non il negativo scelto
+perché più facile o più difficile. La sua mask deve essere completamente
+vuota. Gli input selezionati sono preparati una volta e tenuti in RAM;
+nessuna rilettura per aggiornamento. Nessuna augmentation, clipping o
+variazione di LR. Restano loss 0,5 BCE + 0,5 Soft Dice e soglia 0,5, con
+valutazione FP32. Il batch effettivo contiene uno o due crop, con microbatch
+al massimo quello del config; non è necessario accumulare otto crop.
+
+Con il config originale ogni prova completa **300 aggiornamenti**, anche
+se supera prima i criteri: **1.200 aggiornamenti complessivi** e 300 visite
+a ciascun crop presente nella singola prova. Un fallimento scientifico
+non salta le altre prove; un errore tecnico (gradienti non finiti,
+preflight encoder/decoder/BatchNorm fallito o hash errati) interrompe.
+Si conservano best, last e primo controllo che supera Dice almeno 0,90
+e, nella coppia, FP sul negativo sotto 1%. I controlli sono ai passi
+0, 1, ogni 25 e al termine. Il criterio del singolo non verifica negativi.
+
+Sincronizzare `outputs/segmentation_hard_crops/` **senza i `.pt`**:
+
+- `report.json`: stato delle quattro prove, best/last, preflight, versioni,
+  eventuale `error` e `active_stage`; `passed` richiede tutte le metriche finali.
+- `selection.json`: identità, hash, target voxel, bounding box e facce del
+  crop toccate dalla mask, in coordinate locali z/y/x.
+- Per ogni caso e prova: `checks.csv`, `updates.csv`, `update_check.json`,
+  `best_metrics.json`, `result.json`, immagini iniziali/finali nei tre piani,
+  `best.pt` e `last.pt`. Le figure descrivono il last, non il best intermedio.
+- `initial_images/spatial_errors.csv` e `images/spatial_errors.csv`:
+  TP/FP/FN nell'intero crop e nelle fasce disgiunte a distanza 0–3, 4–7,
+  8–15 e almeno 16 voxel dalla faccia più vicina. Per confrontare bordi e
+  interno usare anche `background_fp_fraction` (FP/voxel negativi della
+  fascia), perché le fasce hanno dimensioni diverse. Metriche non definite
+  sono celle vuote, senza assegnare Dice perfetto ai negativi vuoti.
+
+Exit code 2 con quattro prove complete e senza `error` indica criteri
+finali non tutti superati; non è un crash. Una cartella di output non vuota
+viene rifiutata: non usare `--resume` e non cancellare i vecchi esperimenti.
+
+**Interpretazione.** Successo isolato dimostra rappresentabilità di quel
+crop in queste condizioni; successo nella coppia verifica anche il vincolo
+del negativo selezionato. Un successo dopo il passo 50 usa più esposizioni
+per crop del confronto precedente. Cambiano inoltre il numero di crop
+nella media BCE e il denominatore Dice (un positivo anziché quattro): è
+una diagnosi di memorizzazione, non una prova causale del solo batching.
+Non concludere automaticamente che il problema sia dimenticanza, padding
+o capacità del decoder. Gli errori per fascia e le figure aiutano a
+decidere quale ipotesi controllare dopo. Nessun risultato di questo comando
+riscrive `gate.json` o abilita piloti/full.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

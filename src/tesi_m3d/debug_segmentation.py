@@ -9,13 +9,44 @@ from pathlib import Path
 
 import torch
 
-from .diagnose_localization import write_json
+from .compare_segmentation_batches import tensor_digest
+from .diagnose_localization import write_csv, write_json
 from .segmentation import build_segmenter, segmentation_loss_components
 from .segmentation_data import SegmentationDataset, manifest_records
 from .segmentation_metrics import preview_planes, save_preview
 from .train import _write_metrics_row, load_yaml_config, resolve_cache_dir, set_global_seed
 from .train_segmentation import (check_prerequisites, make_optimizer, overfit_rank, read_json, run_training,
                                  save_checkpoint, train_volume, validate_config)
+
+
+def spatial_errors(target, probability):
+    """Count errors in disjoint shells by distance from the nearest crop face."""
+    shape = target.shape[-3:]
+    distance = torch.full(shape, max(shape), dtype=torch.long)
+    for axis, size in enumerate(shape):
+        coordinate = torch.arange(size)
+        view = [1, 1, 1]
+        view[axis] = size
+        distance = torch.minimum(distance, torch.minimum(coordinate, size - 1 - coordinate).view(view))
+    regions = [("all", torch.ones(shape, dtype=torch.bool))]
+    regions += [(name, (distance >= low) & (distance < high)) for name, low, high in
+                (("border_0_3", 0, 4), ("border_4_7", 4, 8), ("border_8_15", 8, 16),
+                 ("interior_16_plus", 16, max(shape)))]
+    rows = []
+    for index, (truth, prob) in enumerate(zip(target[:, 0].bool(), probability[:, 0])):
+        detected = prob >= 0.5
+        for region, selected in regions:
+            n = int(selected.sum())
+            n_truth, n_pred = int((truth & selected).sum()), int((detected & selected).sum())
+            tp = int((truth & detected & selected).sum())
+            fp, fn = n_pred - tp, n_truth - tp
+            rows.append({"crop": "positive" if index == 0 else "negative", "region": region,
+                         "region_voxels": n, "target_voxels": n_truth, "predicted_voxels": n_pred,
+                         "true_positive_voxels": tp, "false_positive_voxels": fp, "false_negative_voxels": fn,
+                         "dice": 2 * tp / (n_truth + n_pred) if n_truth else None,
+                         "precision": tp / n_pred if n_pred else None, "recall": tp / n_truth if n_truth else None,
+                         "background_fp_fraction": fp / (n - n_truth) if n > n_truth else None})
+    return rows
 
 
 def measure_fixed(model, batch, device, microbatch, output=None):
@@ -39,31 +70,43 @@ def measure_fixed(model, batch, device, microbatch, output=None):
     if output is not None:
         output = Path(output)
         output.mkdir(parents=True, exist_ok=True)
+        write_csv(output / "spatial_errors.csv", spatial_errors(target, probability))
         for index, kind in enumerate(("positive", "negative")[:len(target)]):
             planes = preview_planes(batch["image"][index, 0].numpy(), target[index, 0].numpy(), probability[index, 0].numpy())
             save_preview(output / f"{kind}.png", planes, 0.5)
     return report
 
 
-def run_fixed_stage(config, manifest, batch, output, *, device="cpu"):
+def run_fixed_stage(config, manifest, batch, output, *, device="cpu", complete_budget=False,
+                    expected_initial_state_sha256=None):
     """Fresh MedicalNet initialization per stage; diagnostic weights never unlock pilots."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     training = config["training"]
     set_global_seed(training.get("seed", 21))
     model = build_segmenter(config["model"]).to(device)
+    digest = hashlib.sha256()
+    for name, tensor in model.state_dict().items():
+        digest.update(name.encode())
+        digest.update(tensor_digest(tensor).encode())
+    initial_hash = digest.hexdigest()
+    if expected_initial_state_sha256 is not None and initial_hash != expected_initial_state_sha256:
+        raise ValueError(f"fixed stage must start from the reference model state: expected "
+                         f"{expected_initial_state_sha256}, got {initial_hash}; use the original training environment")
     optimizer = make_optimizer(model, training)
     microbatch = min(training["batch_size"], len(batch["image"]))
     accumulation = len(batch["image"]) // microbatch
     running = {name: value.clone() for name, value in model.named_buffers()
                if name.endswith(("running_mean", "running_var", "num_batches_tracked"))}
-    best, update_check = None, None
+    best, update_check, first_passed = None, None, None
+    selection = {key + "_sha256": tensor_digest(batch[key]) for key in ("image", "mask")}
     report = measure_fixed(model, batch, device, microbatch, output / "initial_images")
     _write_metrics_row(output / "checks.csv", {"updates": 0, **report})
 
     def payload(updates, metrics):
         return {"task": "segmentation_debug", "config": config, "manifest": manifest,
-                "model_state_dict": model.state_dict(), "updates": updates, "metrics": metrics}
+                "model_state_dict": model.state_dict(), "updates": updates, "metrics": metrics,
+                "initial_state_sha256": initial_hash, "fixed_batch": selection}
 
     for updates in range(1, training.get("max_updates", 300) + 1):
         model.train()
@@ -81,15 +124,19 @@ def run_fixed_stage(config, manifest, batch, output, *, device="cpu"):
             report = measure_fixed(model, batch, device, microbatch)
             report["passed"] = report["passed"] and update_check["passed"]
             _write_metrics_row(output / "checks.csv", {"updates": updates, **report})
+            if report["passed"] and first_passed is None:
+                first_passed = updates
             if best is None or overfit_rank(report) > overfit_rank(best):
                 best = {"updates": updates, **report}
                 save_checkpoint(payload(updates, report), output / "best.pt")
                 write_json(output / "best_metrics.json", best)
             print(json.dumps({"stage": output.name, "updates": updates, **report}), flush=True)
-            if report["passed"] or not update_check["passed"]:
+            if (report["passed"] and not complete_budget) or not update_check["passed"]:
                 break
     report = {"updates": updates, **measure_fixed(model, batch, device, microbatch, output / "images")}
     report["passed"] = report["passed"] and update_check["passed"]
+    report.update(initial_state_sha256=initial_hash, first_gate_passed_update=first_passed,
+                  exposures_per_crop=updates)
     save_checkpoint(payload(updates, report), output / "last.pt")
     write_json(output / "result.json", report)
     return report, update_check
