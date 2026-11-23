@@ -1,0 +1,11 @@
+{
+  "encoder_grad_norm": 0.23253434896469116,
+  "decoder_grad_norm": 2.9554455280303955,
+  "bce": 0.6721704602241516,
+  "soft_dice_loss": 0.9775879979133606,
+  "grad_norm_before_clip": 2.9645791053771973,
+  "encoder_update_norm": 0.1277853101491928,
+  "decoder_update_norm": 0.24452579021453857,
+  "batchnorm_statistics_unchanged": true,
+  "passed": true
+}

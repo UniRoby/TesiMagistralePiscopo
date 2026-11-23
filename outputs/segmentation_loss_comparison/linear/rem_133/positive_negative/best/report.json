@@ -1,0 +1,64 @@
+{
+  "checkpoint_sha256": "401f7e390ca0ce7ea4bafce7b64f981c99f948b161b1abc511150ee8b3bb00a7",
+  "updates": 250,
+  "evaluation": "float32_no_autocast",
+  "training_loss": {
+    "bce_weight": 0.5,
+    "dice_weight": 0.5,
+    "squared_pred": false,
+    "empty_crops": "BCE_only",
+    "monitoring": "common_linear_Dice_and_threshold_0.5"
+  },
+  "threshold": 0.5,
+  "metrics": {
+    "positive_crop_dice": 0.9688747007182761,
+    "negative_crop_fp_fraction": 0.0,
+    "bce": 0.1562623530626297,
+    "soft_dice_loss": 0.8631340265274048
+  },
+  "metric_delta_from_saved": {
+    "positive_crop_dice": 7.801405965679464e-09,
+    "negative_crop_fp_fraction": 0.0,
+    "bce": 0.0,
+    "soft_dice_loss": 0.0
+  },
+  "reproduced_within_1e_4": true,
+  "crops": [
+    {
+      "crop": "positive",
+      "target_voxels": 3042,
+      "predicted_voxels": 3223,
+      "true_positive_voxels": 3035,
+      "false_positive_voxels": 188,
+      "false_negative_voxels": 7,
+      "hard_dice": 0.9688747007182761,
+      "soft_dice_float64": 0.1368659857642951,
+      "probability_mass_inside": 2965.954709738493,
+      "probability_mass_outside": 37333.05069041997,
+      "mean_probability_inside": 0.975001548237506,
+      "mean_probability_outside": 0.14408630844385598,
+      "background_mass_fraction": 0.9264012925309857,
+      "precision": 0.9416692522494571,
+      "recall": 0.997698882314267,
+      "negative_crop_fp_fraction": null
+    },
+    {
+      "crop": "negative",
+      "target_voxels": 0,
+      "predicted_voxels": 0,
+      "true_positive_voxels": 0,
+      "false_positive_voxels": 0,
+      "false_negative_voxels": 0,
+      "hard_dice": null,
+      "soft_dice_float64": null,
+      "probability_mass_inside": 0.0,
+      "probability_mass_outside": 38329.85646054894,
+      "mean_probability_inside": null,
+      "mean_probability_outside": 0.14621679863185477,
+      "background_mass_fraction": 1.0,
+      "precision": null,
+      "recall": null,
+      "negative_crop_fp_fraction": 0.0
+    }
+  ]
+}

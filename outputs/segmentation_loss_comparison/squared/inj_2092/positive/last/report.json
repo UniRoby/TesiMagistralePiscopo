@@ -1,0 +1,46 @@
+{
+  "checkpoint_sha256": "c3887709fab73c1efae4855e04145dbdbbf8f3f151b17ab138346300b8bb1543",
+  "updates": 300,
+  "evaluation": "float32_no_autocast",
+  "training_loss": {
+    "bce_weight": 0.5,
+    "dice_weight": 0.5,
+    "squared_pred": true,
+    "empty_crops": "BCE_only",
+    "monitoring": "common_linear_Dice_and_threshold_0.5"
+  },
+  "threshold": 0.5,
+  "metrics": {
+    "positive_crop_dice": 1.0,
+    "negative_crop_fp_fraction": null,
+    "bce": 0.11875458061695099,
+    "soft_dice_loss": 0.9189223647117615
+  },
+  "metric_delta_from_saved": {
+    "positive_crop_dice": 0.0,
+    "negative_crop_fp_fraction": null,
+    "bce": 0.0,
+    "soft_dice_loss": 0.0
+  },
+  "reproduced_within_1e_4": true,
+  "crops": [
+    {
+      "crop": "positive",
+      "target_voxels": 1300,
+      "predicted_voxels": 1300,
+      "true_positive_voxels": 1300,
+      "false_positive_voxels": 0,
+      "false_negative_voxels": 0,
+      "hard_dice": 1.0,
+      "soft_dice_float64": 0.08107764509984451,
+      "probability_mass_inside": 1294.4669272899628,
+      "probability_mass_outside": 29337.070558547974,
+      "mean_probability_inside": 0.9957437902230483,
+      "mean_probability_outside": 0.11246979251410028,
+      "background_mass_fraction": 0.9577407132146586,
+      "precision": 1.0,
+      "recall": 1.0,
+      "negative_crop_fp_fraction": null
+    }
+  ]
+}

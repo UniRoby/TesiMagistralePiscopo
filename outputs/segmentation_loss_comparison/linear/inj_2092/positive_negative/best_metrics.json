@@ -1,0 +1,15 @@
+{
+  "updates": 300,
+  "positive_crop_dice": 0.9252669215202332,
+  "negative_crop_fp_fraction": 0.0,
+  "bce": 0.13252799212932587,
+  "soft_dice_loss": 0.9265190958976746,
+  "passed": true,
+  "training_loss": {
+    "bce_weight": 0.5,
+    "dice_weight": 0.5,
+    "squared_pred": false,
+    "empty_crops": "BCE_only",
+    "monitoring": "common_linear_Dice_and_threshold_0.5"
+  }
+}

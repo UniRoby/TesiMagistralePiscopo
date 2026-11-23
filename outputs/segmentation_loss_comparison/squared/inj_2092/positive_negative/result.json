@@ -1,0 +1,18 @@
+{
+  "updates": 300,
+  "positive_crop_dice": 1.0,
+  "negative_crop_fp_fraction": 0.0,
+  "bce": 0.11331508308649063,
+  "soft_dice_loss": 0.9147316813468933,
+  "passed": true,
+  "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+  "first_gate_passed_update": 200,
+  "exposures_per_crop": 300,
+  "training_loss": {
+    "bce_weight": 0.5,
+    "dice_weight": 0.5,
+    "squared_pred": true,
+    "empty_crops": "BCE_only",
+    "monitoring": "common_linear_Dice_and_threshold_0.5"
+  }
+}
