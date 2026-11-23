@@ -1,0 +1,11 @@
+{
+  "updates": 300,
+  "positive_crop_dice": 0.9820823073387146,
+  "negative_crop_fp_fraction": null,
+  "bce": 0.13465526700019836,
+  "soft_dice_loss": 0.8457359075546265,
+  "passed": true,
+  "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+  "first_gate_passed_update": 150,
+  "exposures_per_crop": 300
+}

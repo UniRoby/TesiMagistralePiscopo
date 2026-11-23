@@ -1,0 +1,144 @@
+{
+  "task": "segmentation_hard_crops",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+  "reference_crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+  "max_updates_per_stage": 300,
+  "runtime": {
+    "torch": "2.13.0+cu130",
+    "monai": "1.5.2",
+    "device": "cuda"
+  },
+  "passed": false,
+  "active_stage": null,
+  "stages": {
+    "inj_2092/positive": {
+      "last": {
+        "updates": 300,
+        "positive_crop_dice": 0.8925964832305908,
+        "negative_crop_fp_fraction": null,
+        "bce": 0.1421460211277008,
+        "soft_dice_loss": 0.9325590133666992,
+        "passed": false,
+        "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+        "first_gate_passed_update": null,
+        "exposures_per_crop": 300
+      },
+      "best": {
+        "updates": 300,
+        "positive_crop_dice": 0.8925964832305908,
+        "negative_crop_fp_fraction": null,
+        "bce": 0.1421460211277008,
+        "soft_dice_loss": 0.9325590133666992,
+        "passed": false
+      },
+      "update_check": {
+        "encoder_grad_norm": 0.27116188406944275,
+        "decoder_grad_norm": 3.2388572692871094,
+        "bce": 0.6725649833679199,
+        "soft_dice_loss": 0.988775372505188,
+        "grad_norm_before_clip": 3.2501885890960693,
+        "encoder_update_norm": 0.12759235501289368,
+        "decoder_update_norm": 0.2436494678258896,
+        "batchnorm_statistics_unchanged": true,
+        "passed": true
+      }
+    },
+    "inj_2092/positive_negative": {
+      "last": {
+        "updates": 300,
+        "positive_crop_dice": 0.8198482990264893,
+        "negative_crop_fp_fraction": 0.0,
+        "bce": 0.1371442824602127,
+        "soft_dice_loss": 0.9285113215446472,
+        "passed": false,
+        "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+        "first_gate_passed_update": null,
+        "exposures_per_crop": 300
+      },
+      "best": {
+        "updates": 250,
+        "positive_crop_dice": 0.899653971195221,
+        "negative_crop_fp_fraction": 0.0,
+        "bce": 0.15767434239387512,
+        "soft_dice_loss": 0.9373555183410645,
+        "passed": false
+      },
+      "update_check": {
+        "encoder_grad_norm": 0.22879211604595184,
+        "decoder_grad_norm": 2.8828208446502686,
+        "bce": 0.6721768379211426,
+        "soft_dice_loss": 0.9887751340866089,
+        "grad_norm_before_clip": 2.891885280609131,
+        "encoder_update_norm": 0.12774939835071564,
+        "decoder_update_norm": 0.24452628195285797,
+        "batchnorm_statistics_unchanged": true,
+        "passed": true
+      }
+    },
+    "rem_133/positive": {
+      "last": {
+        "updates": 300,
+        "positive_crop_dice": 0.9820823073387146,
+        "negative_crop_fp_fraction": null,
+        "bce": 0.13465526700019836,
+        "soft_dice_loss": 0.8457359075546265,
+        "passed": true,
+        "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+        "first_gate_passed_update": 150,
+        "exposures_per_crop": 300
+      },
+      "best": {
+        "updates": 300,
+        "positive_crop_dice": 0.9820823073387146,
+        "negative_crop_fp_fraction": null,
+        "bce": 0.13465526700019836,
+        "soft_dice_loss": 0.8457359075546265,
+        "passed": true
+      },
+      "update_check": {
+        "encoder_grad_norm": 0.2584335207939148,
+        "decoder_grad_norm": 3.296725273132324,
+        "bce": 0.6770305633544922,
+        "soft_dice_loss": 0.9779371023178101,
+        "grad_norm_before_clip": 3.3068389892578125,
+        "encoder_update_norm": 0.12694008648395538,
+        "decoder_update_norm": 0.24401426315307617,
+        "batchnorm_statistics_unchanged": true,
+        "passed": true
+      }
+    },
+    "rem_133/positive_negative": {
+      "last": {
+        "updates": 300,
+        "positive_crop_dice": 0.9686355590820312,
+        "negative_crop_fp_fraction": 0.0,
+        "bce": 0.1368173062801361,
+        "soft_dice_loss": 0.8455946445465088,
+        "passed": true,
+        "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+        "first_gate_passed_update": 200,
+        "exposures_per_crop": 300
+      },
+      "best": {
+        "updates": 300,
+        "positive_crop_dice": 0.9686355590820312,
+        "negative_crop_fp_fraction": 0.0,
+        "bce": 0.1368173062801361,
+        "soft_dice_loss": 0.8455946445465088,
+        "passed": true
+      },
+      "update_check": {
+        "encoder_grad_norm": 0.24398179352283478,
+        "decoder_grad_norm": 3.09263014793396,
+        "bce": 0.6753893494606018,
+        "soft_dice_loss": 0.9779329299926758,
+        "grad_norm_before_clip": 3.1022393703460693,
+        "encoder_update_norm": 0.12721501290798187,
+        "decoder_update_norm": 0.24464386701583862,
+        "batchnorm_statistics_unchanged": true,
+        "passed": true
+      }
+    }
+  }
+}
