@@ -55,7 +55,7 @@ def spatial_errors(target, probability):
 
 
 def measure_fixed(model, batch, device, microbatch, output=None):
-    """Use the gate's float32 evaluation and fixed 0.5 threshold."""
+    """Use common linear Dice monitoring, float32 evaluation and threshold 0.5."""
     model.eval()
     with torch.no_grad():
         logits = torch.cat([model(batch["image"][i:i + microbatch].to(device)).float().cpu()
@@ -83,11 +83,15 @@ def measure_fixed(model, batch, device, microbatch, output=None):
 
 
 def run_fixed_stage(config, manifest, batch, output, *, device="cpu", complete_budget=False,
-                    expected_initial_state_sha256=None):
+                    expected_initial_state_sha256=None, squared_pred=False):
     """Fresh MedicalNet initialization per stage; diagnostic weights never unlock pilots."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     training = config["training"]
+    if not isinstance(squared_pred, bool):
+        raise ValueError("squared_pred must be boolean")
+    training_loss = {"bce_weight": 0.5, "dice_weight": 0.5, "squared_pred": squared_pred,
+                     "empty_crops": "BCE_only", "monitoring": "common_linear_Dice_and_threshold_0.5"}
     set_global_seed(training.get("seed", 21))
     model = build_segmenter(config["model"]).to(device)
     digest = hashlib.sha256()
@@ -111,14 +115,15 @@ def run_fixed_stage(config, manifest, batch, output, *, device="cpu", complete_b
     def payload(updates, metrics):
         return {"task": "segmentation_debug", "config": config, "manifest": manifest,
                 "model_state_dict": model.state_dict(), "updates": updates, "metrics": metrics,
-                "initial_state_sha256": initial_hash, "fixed_batch": selection}
+                "initial_state_sha256": initial_hash, "fixed_batch": selection, "training_loss": training_loss}
 
     for updates in range(1, training.get("max_updates", 300) + 1):
         model.train()
         diagnostics = {}
         loss = train_volume(model, batch, optimizer, device=device, microbatch=microbatch,
-                            accumulation=accumulation, diagnostics=diagnostics)
-        _write_metrics_row(output / "updates.csv", {"updates": updates, "loss": loss, **diagnostics})
+                            accumulation=accumulation, diagnostics=diagnostics, squared_pred=squared_pred)
+        _write_metrics_row(output / "updates.csv", {"updates": updates, "loss": loss,
+                          "squared_pred": squared_pred, **diagnostics})
         if updates == 1:
             unchanged = all(torch.equal(value, dict(model.named_buffers())[name]) for name, value in running.items())
             update_check = {**diagnostics, "batchnorm_statistics_unchanged": unchanged,
@@ -132,7 +137,7 @@ def run_fixed_stage(config, manifest, batch, output, *, device="cpu", complete_b
             if report["passed"] and first_passed is None:
                 first_passed = updates
             if best is None or overfit_rank(report) > overfit_rank(best):
-                best = {"updates": updates, **report}
+                best = {"updates": updates, **report, "training_loss": training_loss}
                 save_checkpoint(payload(updates, report), output / "best.pt")
                 write_json(output / "best_metrics.json", best)
             print(json.dumps({"stage": output.name, "updates": updates, **report}), flush=True)
@@ -141,7 +146,7 @@ def run_fixed_stage(config, manifest, batch, output, *, device="cpu", complete_b
     report = {"updates": updates, **measure_fixed(model, batch, device, microbatch, output / "images")}
     report["passed"] = report["passed"] and update_check["passed"]
     report.update(initial_state_sha256=initial_hash, first_gate_passed_update=first_passed,
-                  exposures_per_crop=updates)
+                  exposures_per_crop=updates, training_loss=training_loss)
     save_checkpoint(payload(updates, report), output / "last.pt")
     write_json(output / "result.json", report)
     return report, update_check

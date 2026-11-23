@@ -1146,6 +1146,110 @@ restano intatti. L'output deve essere nuovo e fuori dalle due directory
 sorgenti: nessun `--resume`. Al termine non avvia piloti/full e non dichiara
 automaticamente risolto il problema della loss.
 
+**Esito sincronizzato.** Tutti gli otto checkpoint riproducono le metriche
+salvate (massimo scarto `5,96e-8`). Il fondo diffuso è confermato sui crop
+completi dai CSV: medie circa 0,127–0,146, con almeno il 99,68% del
+background dei positivi sopra 0,1. Nella coppia injection, dal best al
+last la loss combinata migliora 0,54751 → 0,53283, ma il Dice binario
+peggiora 0,89965 → 0,81985 e gli FP passano 290 → 567. Non rilanciare
+lo stesso audit o allungare il training: il confronto motivato è ora
+una singola variante del termine Dice, descritta nella sezione 10.11
+del registro e implementata nella sezione 18.2.5. Piloti/full restano bloccati.
+
+Le mappe `.npz` non sono arrivate: erano escluse dal `.gitignore` globale.
+È stata aggiunta un'eccezione per i soli `probabilities.npz` di questa
+directory diagnostica. Dopo aver aggiornato il codice sul PC del
+laboratorio, includere nella normale sincronizzazione anche quei file
+già prodotti; non occorre rieseguire il comando. Gli aggregati consentono
+l'analisi precedente; le mappe servono per ulteriori verifiche sui voxel.
+
+### 18.2.5 Confronto Dice lineare/quadratico
+
+Sul PC del laboratorio, nello stesso ambiente usato per gli overfit:
+
+```powershell
+python -m tesi_m3d.compare_segmentation_losses `
+  --config configs\segmentation_overfit.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --reference-dir outputs\segmentation_batch_comparison `
+  --output-dir outputs\segmentation_loss_comparison
+```
+
+È un confronto delle **quattro prove fisse sui due crop difficili**,
+non ancora il gate sulle sei scansioni. Esegue due rami:
+
+- `linear/`: nuova baseline con il Dice originale;
+- `squared/`: stessa BCE e Dice con denominatore `sum(p²)+sum(y²)`.
+
+Ogni ramo prova `inj_2092/3` e `rem_133/2`, ciascuno da solo e con il
+negativo fisso crop 4 dello stesso volume. Con il config originale sono
+**otto training indipendenti da 300 aggiornamenti**, 2.400 complessivi;
+ciascun crop presente in una prova riceve 300 esposizioni. Si completa
+il budget anche dopo un gate superato; un fallimento scientifico non
+salta le prove successive. Un errore tecnico interrompe e viene salvato.
+
+I quattro crop vengono rigenerati una volta, verificati tramite gli hash
+del riferimento e riusati in RAM. Config, preprocessing, seed 21,
+encoder/decoder, LR, optimizer, clipping dei gradienti e AMP sono identici
+fra i rami. Ogni training riparte da MedicalNet e decoder fresco: l'hash
+iniziale completo deve coincidere con quello del confronto precedente.
+Non si riprendono i vecchi best/last. Servono i pesi ufficiali MedicalNet
+e l'ambiente originale: un hash iniziale diverso blocca prima del training.
+Non serve trasferire i `.pt` degli esperimenti precedenti.
+
+L'unica differenza di training è la normalizzazione spaziale del Dice:
+
+`linear: (2*sum(p*y)+eps)/(sum(p)+sum(y)+eps)`;
+
+`squared: (2*sum(p*y)+eps)/(sum(p*p)+sum(y*y)+eps)`.
+
+Restano `eps=1e-5`, pesi 0,5 BCE/0,5 Dice, media sui soli crop con
+foreground per il termine Dice e BCE anche sui negativi vuoti. Stesso
+batch effettivo di uno/due crop delle prove precedenti, stesso microbatch.
+Non modifica la loss dei normali entrypoint: il default resta lineare.
+
+**Valutatore comune.** Ogni 25 passi (più 0, 1 e termine) le due varianti
+sono misurate in FP32 con soglia 0,5 e gli stessi criteri: Dice positivo
+almeno 0,90 e, nelle coppie, FP sul negativo sotto 1%. Best scelto con
+gate/Dice binario/FP, mai dalla loss di training. `checks.csv` riporta
+sempre il Soft Dice lineare comune; in `updates.csv`, `soft_dice_loss`
+è invece la componente di training del ramo indicato da `squared_pred`.
+Non confrontare direttamente quei valori fra i rami per decretare il
+successo. `training_loss` nei report/checkpoint rende esplicita la formula.
+
+**Probabilità già incluse.** Dopo ogni training vengono ripristinati e
+valutati automaticamente best e last, senza altri aggiornamenti:
+quantili, masse dentro/fuori, TP/FP/FN, precision/recall, figure e mappe
+float32 complete. Non è necessario lanciare un altro audit separato.
+I vecchi checkpoint diagnostici senza `training_loss` restano leggibili;
+per i nuovi si controlla anche la corrispondenza di questa informazione.
+
+Sincronizzare **`outputs/segmentation_loss_comparison/` senza i `.pt`**,
+includendo CSV, JSON, PNG e `.npz` (già ammessi dal `.gitignore` solo in
+questa directory). `comparison.json` contiene:
+
+- `complete`, eventuale `error`, `active_stage` e `active_checkpoint`;
+- i due rami con quattro prove ciascuno, best/last, preflight, primo
+  superamento osservato, esposizioni e valutazioni probabilistiche;
+- `deltas_squared_minus_linear`, per prova e best/last: differenze di
+  Dice, precision/recall, FP/FN, media del fondo e FP sui negativi;
+- `all_reproduced_within_1e_4`, per la riproduzione delle 16 valutazioni.
+
+Per ogni ramo/caso/prova si trovano i checkpoint diagnostici, i CSV di
+training e controllo, `initial_images/` e `images/` del last; le directory
+`best/` e `last/` contengono mappe, figure e statistiche del rispettivo
+checkpoint, come nell'audit precedente.
+
+`passed` richiede il superamento delle quattro prove **finali** del ramo
+quadratico: non significa superiorità sulla baseline, né superamento del
+gate sulle sei scansioni. Exit code 2 con `complete: true` e senza `error`
+indica confronto concluso con criteri finali non tutti superati. Gli
+eventuali best riusciti sono riportati separatamente. Prima di decidere
+il passo successivo confrontare anche controllo removal, precision/recall,
+FP e fondo: un punteggio migliore della nuova loss non basta.
+Nessun vecchio gate viene riscritto e nessun pilota/full viene avviato.
+Una directory non vuota viene rifiutata; nessun `--resume`.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

@@ -65,6 +65,7 @@ def evaluate_checkpoint(path, batch, config, manifest, expected, initial_hash, o
     if (payload.get("task") != "segmentation_debug" or payload.get("config") != config
             or payload.get("manifest") != manifest or payload.get("fixed_batch") != fingerprint
             or payload.get("initial_state_sha256") != initial_hash or payload.get("updates") != expected["updates"]
+            or ("training_loss" in expected and payload.get("training_loss") != expected["training_loss"])
             or any(payload.get("metrics", {}).get(k) != expected[k] for k in keys)):
         raise ValueError(f"checkpoint identity/config/crop hashes/metrics mismatch: {path}")
     model = build_segmenter(config["model"], state_dict=payload["model_state_dict"]).to(device).eval()
@@ -76,6 +77,7 @@ def evaluate_checkpoint(path, batch, config, manifest, expected, initial_hash, o
         raise ValueError(f"non-finite or incorrectly shaped checkpoint logits: {path}")
     probability = logits.sigmoid()
     bce, dice_loss = segmentation_loss_components(logits, batch["mask"])
+    training_loss = payload.get("training_loss")
     del model, payload
     output.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(output / "probabilities.npz", probability=probability.numpy(), mask=batch["mask"].numpy().astype(np.uint8))
@@ -93,6 +95,7 @@ def evaluate_checkpoint(path, batch, config, manifest, expected, initial_hash, o
                "bce": float(bce), "soft_dice_loss": float(dice_loss)}
     delta = {k: metrics[k] - expected[k] if metrics[k] is not None else None for k in metrics}
     result = {"checkpoint_sha256": file_digest(path), "updates": expected["updates"], "evaluation": "float32_no_autocast",
+              "training_loss": training_loss,
               "threshold": .5, "metrics": metrics, "metric_delta_from_saved": delta,
               "reproduced_within_1e_4": all(v is None or abs(v) <= 1e-4 for v in delta.values()), "crops": summaries}
     write_csv(output / "distributions.csv", distributions)

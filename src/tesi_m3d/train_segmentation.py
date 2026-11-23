@@ -106,7 +106,7 @@ def make_optimizer(model, training):
 
 
 def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumulation=4, diagnostics=None,
-                 foreground_normalizer=None):
+                 foreground_normalizer=None, squared_pred=False):
     count = len(batch["image"])
     if microbatch < 1 or accumulation < 1 or count != microbatch * accumulation or len(batch["mask"]) != count:
         raise ValueError("crop count must match microbatch * accumulation")
@@ -122,7 +122,8 @@ def train_volume(model, batch, optimizer, *, device="cpu", microbatch=2, accumul
         mask = batch["mask"][start:start + microbatch].to(device, non_blocking=True)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=str(device).startswith("cuda")):
             # Preserve the effective-batch Dice weighting when reducing microbatch size.
-            bce, dice = segmentation_loss_components(model(image), mask, foreground_normalizer=dice_denominator / accumulation)
+            bce, dice = segmentation_loss_components(model(image), mask, foreground_normalizer=dice_denominator / accumulation,
+                                                      squared_pred=squared_pred)
             loss = 0.5 * bce + 0.5 * dice
         if not torch.isfinite(loss):
             raise FloatingPointError("non-finite segmentation loss")

@@ -122,7 +122,7 @@ def test_all_eight_checkpoint_measurements_preserve_sources_and_restore_without_
         diagnosis.run_diagnosis(root, run_dir=source, reference_dir=reference, output_dir=source / "child")
 
 
-@pytest.mark.parametrize("change", ["task", "initial_state", "fixed_batch", "updates", "state_dict", "config"])
+@pytest.mark.parametrize("change", ["task", "initial_state", "fixed_batch", "updates", "state_dict", "config", "training_loss"])
 def test_wrong_checkpoint_binding_is_reported_without_completing(tmp_path, monkeypatch, change):
     root, reference, source, _ = make_run(tmp_path, monkeypatch)
     path = source / "inj_2092/positive/best.pt"
@@ -132,6 +132,7 @@ def test_wrong_checkpoint_binding_is_reported_without_completing(tmp_path, monke
     elif change == "fixed_batch": payload["fixed_batch"]["mask_sha256"] = "changed"
     elif change == "updates": payload["updates"] += 1
     elif change == "state_dict": payload["model_state_dict"].pop("output.weight")
+    elif change == "training_loss": payload["training_loss"]["squared_pred"] = True
     else: payload["config"]["preprocessing"]["clip"] = True
     torch.save(payload, path)
     output = tmp_path / "rejected"
@@ -158,6 +159,23 @@ def test_missing_checkpoints_fail_before_loading_ct_and_prediction_drift_is_visi
     result = diagnosis.run_diagnosis(root, run_dir=source, reference_dir=reference, output_dir=output)
     assert result["complete"] and not result["all_reproduced_within_1e_4"]
     assert not result["checkpoints"]["inj_2092/positive/best"]["reproduced_within_1e_4"]
+
+
+def test_legacy_checkpoints_without_training_loss_metadata_still_restore(tmp_path, monkeypatch):
+    root, reference, source, _ = make_run(tmp_path, monkeypatch)
+    saved = json.loads((source / "report.json").read_text())
+    for stage in saved["stages"].values():
+        for name in ("best", "last"):
+            stage[name].pop("training_loss", None)
+    write_json(source / "report.json", saved)
+    for path in source.rglob("*.pt"):
+        payload = torch.load(path, weights_only=False)
+        payload.pop("training_loss", None)
+        payload["metrics"].pop("training_loss", None)
+        torch.save(payload, path)
+    result = diagnosis.run_diagnosis(root, run_dir=source, reference_dir=reference, output_dir=tmp_path / "legacy")
+    assert result["complete"] and result["all_reproduced_within_1e_4"]
+    assert all(r["training_loss"] is None for r in result["checkpoints"].values())
 
 
 def test_nonfinite_logits_are_rejected(tmp_path, monkeypatch):

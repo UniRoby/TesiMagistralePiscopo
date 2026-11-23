@@ -946,12 +946,167 @@ con metriche riprodotte: BCE/Soft Dice loss coincidenti, scarto del Dice
 binario circa `3,3e-10`. È una verifica del percorso di misura, non un
 risultato sul dataset del laboratorio.
 
-**Stato e limiti.** Gli otto `.pt` allenati non sono sincronizzati: la
-misura scientifica deve essere eseguita sul PC del laboratorio con il
-comando della sezione 18.2.4. Non basta il dato quantizzato delle PNG per
+**Stato al momento dell'implementazione.** Gli otto `.pt` allenati non
+sono sincronizzati; il comando è destinato al PC del laboratorio. Gli
+audit successivi sono analizzati nella sezione 10.11. Non basta il dato quantizzato delle PNG per
 assegnare una causa alla loss. Nessuna variazione a training, loss,
 normalizzazione, soglie o selezione dei checkpoint; piloti/full restano
 bloccati in attesa delle misure e della loro interpretazione.
+
+### 10.11 Audit delle probabilità: fondo diffuso confermato, loss e contorno divergono
+
+**Evidenze e verifiche.** Ricevuti report, distribuzioni, tabelle spaziali
+e PNG di tutti gli otto checkpoint. `complete: true`, nessun errore,
+`all_reproduced_within_1e_4: true`; massimo scarto dalle metriche salvate
+`5,96e-8`. Config, manifest e selezione corrispondono alla run hard-crops.
+Verificata coerenza dei 12 crop valutati: TP/FP/FN, masse dentro/fuori,
+conteggi delle soglie descrittive, medie e quantili ordinati; le fasce
+sommano al totale e foreground più background ricompongono il crop.
+Il Soft Dice ricalcolato dalle masse coincide con quello derivato dalla
+loss FP32 entro `1e-7`. Ispezionate le figure positive best/last della
+coppia injection e il best della coppia removal.
+
+| Crop positivo / checkpoint | Dice binario | Soft Dice | Media dentro mask | Media fuori mask | Massa predetta fuori mask |
+|---|---:|---:|---:|---:|---:|
+| Injection sola, best=last (300) | 0,89260 | 0,06744 | 0,96186 | 0,13238 | 96,51% |
+| Injection + negativo, best (250) | 0,89965 | 0,06264 | 0,97670 | 0,14556 | 96,76% |
+| Injection + negativo, last (300) | 0,81985 | 0,07149 | 0,98375 | 0,12728 | 96,29% |
+| Removal sola, best=last (300) | 0,98208 | 0,15426 | 0,98787 | 0,12703 | 91,63% |
+| Removal + negativo, best=last (300) | 0,96864 | 0,15441 | 0,98985 | 0,12717 | 91,63% |
+
+`best=last` qui indica stesso aggiornamento e metriche/distribuzioni
+coincidenti, non un confronto diretto dei tensori dei pesi. La quota di
+massa esterna non è una quota di voxel falsamente positivi: somma anche
+probabilità inferiori a 0,5 su centinaia di migliaia di voxel negativi.
+Nei crop negativi, estratti dagli stessi volumi manipolati e con mask
+vuota, il fondo medio è 0,12763–0,14631 per injection
+e 0,12943 per removal; tutti restano senza voxel sopra 0,5. Non sono nuove
+scansioni reali né un test di generalizzazione.
+
+**Fondo diffuso, non solo alone.** Nei positivi almeno il 99,68% del
+background ha probabilità almeno 0,1 (circa 99,997% nell'injection sola).
+Nella coppia injection il p99 del fondo scende da 0,15398 a 0,13404,
+mentre il massimo sale da 0,89460 a 0,98189: il grosso del fondo migliora,
+ma una piccola coda diventa più confidente. Anche la fascia interna,
+senza target e senza FP binari, ha media 0,14472 nel best e 0,12821 nel
+last. Il residuo non è limitato ai bordi del crop o al contorno annotato.
+
+La massa fuori mask dell'injection best è 37.967,21 contro 1.269,71
+dentro; nel last 33.199,37 contro 1.278,87. Dai soli conteggi si può anche
+porre un limite: ciascun FP binario contribuisce al massimo uno alla
+massa, quindi almeno il 99,23% della massa esterna nel best e il 98,29%
+nel last proviene da voxel sotto 0,5. Non è una misura esatta di tale
+quota, ma un limite inferiore indipendente dalle mappe mancanti.
+È sufficiente a spiegare il piccolo Soft Dice, senza ipotizzare un suo
+calcolo errato. Non dimostra da solo la causa degli errori di contorno.
+
+**Confronto temporale decisivo: injection nella coppia.**
+
+| Misura | Best, passo 250 | Last, passo 300 |
+|---|---:|---:|
+| BCE | 0,15767 | 0,13714 |
+| Soft Dice loss | 0,93736 | 0,92851 |
+| Loss combinata 0,5/0,5 | 0,54751 | 0,53283 |
+| TP / FP / FN | 1.300 / 290 / 0 | 1.297 / 567 / 3 |
+| FP con probabilità almeno 0,9 | 0 | 187 |
+| Dice binario | 0,89965 | 0,81985 |
+
+La massa di fondo diminuisce del 12,56% e la loss combinata del 2,68%,
+mentre gli FP aumentano del 95,52%. Le figure mostrano un alone esterno
+più ampio. Non è semplice incertezza dei voxel debolmente positivi:
+187 FP del last hanno probabilità almeno 0,9. Abbassare il fondo diffuso
+non garantisce quindi di restringere il contorno. È documentato un
+disaccordo locale fra miglioramento dell'obiettivo continuo e qualità
+binaria a 0,5; non è dimostrato che la sola loss spieghi l'insuccesso
+sulle sei scansioni o che vi sia un errore nell'ottimizzatore.
+
+**Confronto motivato (implementazione nella sezione 10.12).** Conservare
+MedicalNet, decoder, preprocessing, seed, crop, sampling, LR, BCE e budget;
+cambiare soltanto il termine Dice, confrontando la forma attuale con
+quella a denominatore quadratico:
+
+`D_quad = (2*sum(p*y)+eps) / (sum(p*p)+sum(y*y)+eps)`.
+
+Per target binari `y*y=y`. Una probabilità di fondo 0,13 contribuisce
+0,0169 invece di 0,13; una probabilità alta 0,98 contribuisce ancora
+0,9604. Questo modifica il peso relativo del fondo diffuso rispetto alle
+predizioni molto confidenti, non prova che il contorno migliorerà.
+La variante è disponibile come `squared_pred=True` nella
+[DiceLoss di MONAI 1.5.2](https://monai.readthedocs.io/en/1.5.2/losses.html#diceloss),
+verificata anche nell'installazione locale. Resta una sola ipotesi da
+confrontare con baseline appaiata, non una ricerca di loss/LR. Si conserva
+la supervisione BCE dei crop vuoti e il Dice sui soli foreground.
+Confrontare Dice binario, precision/recall e FP con il valutatore comune;
+non confrontare i valori numerici delle due loss come prova di successo,
+perché la definizione cambia. Un eventuale successo isolato richiede
+ancora il gate delle sei scansioni prima dei piloti. Nessun training
+avviato in questa analisi; piloti/full restano bloccati.
+
+**Sincronizzazione e limiti.** Nessun `.npz` è arrivato localmente: la
+regola globale `*.npz` nel `.gitignore` escludeva anche queste mappe.
+I controlli sopra riguardano gli aggregati e le figure, non un nuovo
+calcolo sui voxel grezzi o una nuova inferenza. Aggiunta un'eccezione
+limitata a `outputs/segmentation_probability_diagnostics/**/probabilities.npz`
+per consentire il trasferimento richiesto. La modifica è limitata a
+questo percorso. Non occorre ripetere l'audit per sincronizzare i
+file già prodotti nel laboratorio. Le conclusioni restano limitate a
+questi crop di training, senza rivendicare generalizzazione.
+
+### 10.12 Confronto appaiato Dice lineare/quadratico: implementazione
+
+**Intervento.** `compare_segmentation_losses` esegue una nuova baseline
+lineare e una variante con solo denominatore Dice quadratico, sulle
+quattro prove fisse di `inj_2092/3` e `rem_133/2` (solo e coppia con
+negativo crop 4). Otto training indipendenti, massimo 300 aggiornamenti
+ciascuno, stesse esposizioni fra i rami e nessuno stop per semplice gate
+superato/fallito. Si riusano preparazione e controllo SHA256 dei crop e
+`run_fixed_stage`: ogni prova riparte da MedicalNet e deve riprodurre
+l'hash iniziale del riferimento. Gli input sono preparati una sola volta
+e conservati in RAM. Nessuna modifica a sampler, geometria, preprocessing,
+LR, BCE, optimizer, augmentation, seed o budget.
+
+**Loss ed evidenze confrontabili.** Il parametro opzionale `squared_pred`
+è inoltrato solo dal nuovo confronto attraverso i componenti condivisi;
+il default rimane falso. Dice su foreground, BCE su tutti i crop, pesi
+0,5/0,5, smoothing `1e-5` e accumulo dei gradienti invariati. La formula
+selezionata viene salvata in `training_loss` nei checkpoint/report e
+marcata nei CSV di aggiornamento. Monitoraggio e selezione del best usano
+sempre le stesse metriche binarie e il Soft Dice lineare comune, indipendenti
+dalla loss scelta. Nessun confronto numerico delle loss diverse è usato
+come criterio di successo. Le differenze squared meno linear riportano
+Dice, precision/recall, FP/FN e probabilità media del fondo, oltre ai FP
+sui negativi.
+
+**Audit automatico.** I 16 checkpoint best/last vengono ripristinati e
+valutati automaticamente al termine delle rispettive prove con il
+valutatore delle probabilità complete. Controllata anche l'identità della
+loss nei nuovi checkpoint; quelli precedenti senza questo metadato restano
+leggibili. Quantili, masse, figure e array float32 sono già nell'output
+del confronto. Eccezione Git limitata ai suoi `probabilities.npz`, senza
+includere i pesi. Nessun vecchio output, checkpoint o gate viene sovrascritto.
+
+**Verifica locale.** Superati 90 test pertinenti (escluso il worker
+persistente, non usato da queste prove con accesso diretto ai volumi).
+Formula confrontata con `DiceLoss` MONAI, default lineare invariato,
+crop vuoti supervisionati solo da BCE e gradienti equivalenti per
+accumulo 1×8/2×4, anche con normalizzatore foreground fisso. Fixture TIFF
+verificano otto inizializzazioni identiche, stessi hash dei batch,
+completamento dei budget, 16 esportazioni best/last, metadati della loss,
+leggibilità dei vecchi checkpoint e protezione dei risultati precedenti;
+gli errori tecnici lasciano un confronto esplicitamente incompleto.
+Un aggiornamento CPU con encoder MedicalNet ufficiale, due crop sintetici
+64³ e Dice quadratico ha prodotto gradienti/aggiornamenti positivi in
+encoder e decoder, BatchNorm invariata e metriche comuni riprodotte dal
+checkpoint (scarto Dice circa `2,6e-11`, BCE e loss Dice coincidenti).
+Non è una prova di qualità della localizzazione o di memoria CUDA.
+
+**Decisione e limiti.** È un esperimento diagnostico su crop di training,
+non il gate originale sulle sei scansioni né una nuova modalità promossa
+al training completo. Un esito positivo richiederà ancora quel controllo.
+I risultati CT/GPU devono essere acquisiti nell'ambiente del laboratorio;
+il diverso stato iniziale ricreato nell'ambiente locale resta motivo di
+blocco prima del training, senza fallback. Comando e interpretazione
+nella sezione 18.2.5 della guida Windows. Piloti/full restano bloccati.
 
 ## Come aggiornare questo registro
 

@@ -98,23 +98,28 @@ def build_segmenter(config=None, *, state_dict=None):
     return model
 
 
-def segmentation_loss_components(logits, mask, *, foreground_normalizer=None):
+def segmentation_loss_components(logits, mask, *, foreground_normalizer=None, squared_pred=False):
     if logits.shape != mask.shape or logits.ndim != 5 or logits.shape[1] != 1:
         raise ValueError("segmentation logits and targets must have matching Bx1xDxHxW shapes")
+    if not isinstance(squared_pred, bool):
+        raise ValueError("squared_pred must be boolean")
     logits, mask = logits.float(), mask.float()
     bce = F.binary_cross_entropy_with_logits(logits, mask)
     probability = logits.sigmoid().flatten(1)
     target = mask.flatten(1)
     positive = target.sum(1) > 0
-    dice = (2 * (probability * target).sum(1) + 1e-5) / (probability.sum(1) + target.sum(1) + 1e-5)
+    prediction_sum = probability.square().sum(1) if squared_pred else probability.sum(1)
+    target_sum = target.square().sum(1) if squared_pred else target.sum(1)
+    dice = (2 * (probability * target).sum(1) + 1e-5) / (prediction_sum + target_sum + 1e-5)
     # Empty crops are supervised by BCE, never rewarded as perfect Dice examples.
     denominator = positive.sum().clamp_min(1) if foreground_normalizer is None else max(float(foreground_normalizer), 1e-8)
     dice_loss = ((1 - dice) * positive).sum() / denominator
     return bce, dice_loss
 
 
-def segmentation_loss(logits, mask, *, foreground_normalizer=None):
-    bce, dice = segmentation_loss_components(logits, mask, foreground_normalizer=foreground_normalizer)
+def segmentation_loss(logits, mask, *, foreground_normalizer=None, squared_pred=False):
+    bce, dice = segmentation_loss_components(logits, mask, foreground_normalizer=foreground_normalizer,
+                                            squared_pred=squared_pred)
     return 0.5 * bce + 0.5 * dice
 
 

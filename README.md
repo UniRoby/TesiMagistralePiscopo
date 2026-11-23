@@ -42,6 +42,11 @@ checkpoint best/last, senza training, usare
 [`diagnose_segmentation_probabilities`](docs/LAB_WORKFLOW.md#1824-probabilità-complete-sui-checkpoint-bestlast).
 Salva distribuzioni, masse probabilistiche e mappe float32 degli otto checkpoint.
 
+Il [confronto appaiato delle loss](docs/LAB_WORKFLOW.md#1825-confronto-dice-linearequadratico)
+esegue `python -m tesi_m3d.compare_segmentation_losses`: baseline lineare e
+variante quadratica sulle stesse quattro prove, con valutazione automatica
+delle probabilità best/last. Nessuna promozione automatica a piloti/full.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

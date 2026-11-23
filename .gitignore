@@ -31,6 +31,8 @@ checkpoints/
 *.pth
 *.onnx
 *.npz
+!outputs/segmentation_probability_diagnostics/**/probabilities.npz
+!outputs/segmentation_loss_comparison/**/probabilities.npz
 *.npy
 *.nii
 *.nii.gz
