@@ -1,0 +1,57 @@
+{
+  "checkpoint_sha256": "6fe69a894512ee4040a5ea4da2ca7cb7251e6648c1062a527e3daf2a37623046",
+  "updates": 250,
+  "evaluation": "float32_no_autocast",
+  "threshold": 0.5,
+  "metrics": {
+    "positive_crop_dice": 0.8996539792387543,
+    "negative_crop_fp_fraction": 0.0,
+    "bce": 0.15767432749271393,
+    "soft_dice_loss": 0.9373555183410645
+  },
+  "metric_delta_from_saved": {
+    "positive_crop_dice": 8.04353339489694e-09,
+    "negative_crop_fp_fraction": 0.0,
+    "bce": -1.4901161193847656e-08,
+    "soft_dice_loss": 0.0
+  },
+  "reproduced_within_1e_4": true,
+  "crops": [
+    {
+      "crop": "positive",
+      "target_voxels": 1300,
+      "predicted_voxels": 1590,
+      "true_positive_voxels": 1300,
+      "false_positive_voxels": 290,
+      "false_negative_voxels": 0,
+      "hard_dice": 0.8996539792387543,
+      "soft_dice_float64": 0.06264446937476263,
+      "probability_mass_inside": 1269.7067124843597,
+      "probability_mass_outside": 37967.206756293774,
+      "mean_probability_inside": 0.9766974711418152,
+      "mean_probability_outside": 0.14555522364437662,
+      "background_mass_fraction": 0.9676399950904727,
+      "precision": 0.8176100628930818,
+      "recall": 1.0,
+      "negative_crop_fp_fraction": null
+    },
+    {
+      "crop": "negative",
+      "target_voxels": 0,
+      "predicted_voxels": 0,
+      "true_positive_voxels": 0,
+      "false_positive_voxels": 0,
+      "false_negative_voxels": 0,
+      "hard_dice": null,
+      "soft_dice_float64": null,
+      "probability_mass_inside": 0.0,
+      "probability_mass_outside": 38354.12855820358,
+      "mean_probability_inside": null,
+      "mean_probability_outside": 0.1463093893364089,
+      "background_mass_fraction": 1.0,
+      "precision": null,
+      "recall": null,
+      "negative_crop_fp_fraction": 0.0
+    }
+  ]
+}

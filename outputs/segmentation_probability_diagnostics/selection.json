@@ -1,0 +1,84 @@
+{
+  "reference_dir": "outputs\\segmentation_batch_comparison",
+  "reference_crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+  "threshold": 0.5,
+  "selection": "prespecified inj_2092/3 and rem_133/2; first clean negative crop 4 of each scan",
+  "crops": [
+    {
+      "pool_index": 3,
+      "scan_index": 0,
+      "crop_index": 3,
+      "mod": "pix2pix",
+      "img_id": "inj_2092",
+      "target_voxels": 1300,
+      "image_sha256": "8f1b0dcf59f8c410ee60e870190b50354a25dd0317c7084ffdef2e4bebd7d5bb",
+      "mask_sha256": "565e513a3e9be79a37ab8e957ac78c85a6a673a18d12fb72519cd9785a77d602",
+      "bbox_zyx_inclusive": [
+        [
+          24,
+          54,
+          0
+        ],
+        [
+          36,
+          63,
+          9
+        ]
+      ],
+      "target_touches_faces": [
+        "y_high",
+        "x_low"
+      ]
+    },
+    {
+      "pool_index": 4,
+      "scan_index": 0,
+      "crop_index": 4,
+      "mod": "pix2pix",
+      "img_id": "inj_2092",
+      "target_voxels": 0,
+      "image_sha256": "a3592269f1b4c59c87751e77b1cc88e7f597cfb360c9a751f4181922da1e8872",
+      "mask_sha256": "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58",
+      "bbox_zyx_inclusive": null,
+      "target_touches_faces": []
+    },
+    {
+      "pool_index": 18,
+      "scan_index": 2,
+      "crop_index": 2,
+      "mod": "pix2pix",
+      "img_id": "rem_133",
+      "target_voxels": 3042,
+      "image_sha256": "26a87ff65eec341f28d7886ecd0ebbbd6b9c6d5596559469bbbbf49e69925ab3",
+      "mask_sha256": "0478c49567354f569c2d78450f7c9a08881ab70a9d81872554438f4fde587be2",
+      "bbox_zyx_inclusive": [
+        [
+          8,
+          0,
+          0
+        ],
+        [
+          20,
+          8,
+          25
+        ]
+      ],
+      "target_touches_faces": [
+        "y_low",
+        "x_low"
+      ]
+    },
+    {
+      "pool_index": 20,
+      "scan_index": 2,
+      "crop_index": 4,
+      "mod": "pix2pix",
+      "img_id": "rem_133",
+      "target_voxels": 0,
+      "image_sha256": "abe4fe4d19dc1a0c925202a23b7fe92f114ed4b5f42b224bffc2666b3a2502d5",
+      "mask_sha256": "30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58",
+      "bbox_zyx_inclusive": null,
+      "target_touches_faces": []
+    }
+  ]
+}

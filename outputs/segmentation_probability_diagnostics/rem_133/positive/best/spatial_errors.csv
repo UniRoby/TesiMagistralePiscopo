@@ -1,0 +1,6 @@
+crop,region,region_voxels,target_voxels,predicted_voxels,true_positive_voxels,false_positive_voxels,false_negative_voxels,dice,precision,recall,background_fp_fraction
+positive,all,262144,3042,3153,3042,111,0,0.9820823244552058,0.9647954329210275,1.0,0.0004284027139890854
+positive,border_0_3,86528,1612,1658,1612,46,0,0.9859327217125382,0.9722557297949337,1.0,0.0005417118093174431
+positive,border_4_7,65024,1196,1261,1196,65,0,0.9735449735449735,0.9484536082474226,1.0,0.0010183618474650623
+positive,border_8_15,77824,234,234,234,0,0,1.0,1.0,1.0,0.0
+positive,interior_16_plus,32768,0,0,0,0,0,,,,0.0
