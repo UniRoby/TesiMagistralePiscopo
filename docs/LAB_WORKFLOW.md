@@ -1060,6 +1060,92 @@ o capacità del decoder. Gli errori per fascia e le figure aiutano a
 decidere quale ipotesi controllare dopo. Nessun risultato di questo comando
 riscrive `gate.json` o abilita piloti/full.
 
+**Esito sincronizzato.** Le quattro prove sono complete, con gli hash
+attesi. `rem_133/2` raggiunge Dice 0,98208 da solo e 0,96864 con il
+negativo (primo gate ai passi 150/200); `inj_2092/3` resta a 0,89260
+da solo e 0,81985 nella coppia, best 0,89965 al passo 250. Entrambi i
+negativi finali hanno zero voxel sopra soglia 0,5. Il gate globale rimane
+fallito; il best injection non va arrotondato a 0,90. Non rilanciare lo
+stesso test e non avviare piloti/full. Il successo removal mostra che un
+piccolo target su due bordi può essere rappresentato. Il basso Soft Dice
+e il fondo probabilistico residuo visibile nelle sezioni motivano un
+controllo senza training sui checkpoint best/last già conservati, prima
+di cambiare loss o architettura. Analisi, limiti e misure nella sezione
+10.9 del registro; il comando di sola valutazione è nella sezione 18.2.4.
+
+### 18.2.4 Probabilità complete sui checkpoint best/last
+
+Sul PC del laboratorio, con gli stessi percorsi già sottoposti ad audit:
+
+```powershell
+python -m tesi_m3d.diagnose_segmentation_probabilities `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --run-dir outputs\segmentation_hard_crops `
+  --reference-dir outputs\segmentation_batch_comparison `
+  --output-dir outputs\segmentation_probability_diagnostics
+```
+
+Servono gli **otto checkpoint allenati** `best.pt` e `last.pt` delle quattro
+prove, rimasti sul PC del laboratorio, insieme ai relativi JSON. Il comando
+controlla prima che esistano tutti; se mancano, non avvia una nuova run e
+non li ricrea. Usa config e manifest salvati, senza un nuovo `--config`.
+Richiede anche i JSON/ledger del riferimento grouped/mixed, come il debug.
+
+Rigenera una sola volta gli stessi due crop positivi e i due negativi,
+controllandone gli hash. Ogni checkpoint deve corrispondere a config,
+manifest, input/target, inizializzazione dichiarata, aggiornamenti e
+metriche dello stadio best/last atteso. Ripristina **encoder e decoder
+completi** con caricamento strict: non serve il file MedicalNet originale
+e non esiste fallback a pesi casuali. Non ricostruisce i pesi iniziali dal
+seed. Usa solo l'immagine come input del modello; la mask serve a misurare
+le probabilità dopo l'inferenza.
+
+Le otto valutazioni sono in FP32, senza autocast, `eval()` e senza
+gradienti. Nessun optimizer, aggiornamento, ricerca di soglie o modifica
+del gate. È una misura dei crop completi 64³ di training, non un'inferenza
+sliding-window sui volumi CT completi.
+
+L'output è separato dalla run e contiene:
+
+- `report.json`: completamento, versioni, otto risultati con SHA256 dei
+  checkpoint, metriche ricalcolate, differenze rispetto a quelle salvate,
+  massa e probabilità media dentro/fuori dalla mask per crop.
+- In `<caso>/<positive|positive_negative>/<best|last>/`, `distributions.csv`:
+  conteggi, massa, media, min/max e quantili p01/p05/p50/p95/p99, calcolati
+  su **tutti** i voxel float32 con quantili lineari e somme float64.
+  Separazione in foreground/background/totale, sia sull'intero crop sia
+  nelle fasce rispetto al bordo già descritte. Le frazioni sopra 0,1/0,5/0,9
+  sono statistiche descrittive, non nuove soglie selezionate.
+- `spatial_errors.csv` e immagini di ogni positivo/negativo ai tre piani
+  della mask e del picco, anche per i best prima non visualizzati.
+- `probabilities.npz`: array completi `probability` float32 e `mask` uint8,
+  forma `B×1×D×H×W`, con B=1 o 2. Nessuna quantizzazione a 8 bit delle
+  probabilità; coordinate locali identiche ai crop originali.
+
+Per leggere i risultati, confrontare prima `best` e `last` nella coppia
+injection. `probability_mass_outside` è la somma delle probabilità su tutti
+i voxel fuori mask, inclusi quelli sotto 0,5; non è il numero di FP binari.
+`background_mass_fraction` ne misura la quota sulla massa predetta totale.
+Il Soft Dice float64 viene ricalcolato per ogni crop positivo dalla massa
+interna e totale, con lo stesso smoothing `1e-5`; quello dei negativi è
+indefinito. Nel report si conserva anche la loss FP32 originale per
+verificare la riproduzione. Compartimenti vuoti hanno conteggio/massa zero
+e statistiche non definite vuote/null, mai un Dice perfetto artificiale.
+
+`complete: true` indica otto misure concluse, anche se il gate del training
+resta falso. `all_reproduced_within_1e_4` richiede che tutte le metriche
+ricalcolate differiscano da quelle salvate al massimo di `1e-4` assoluto;
+se falso, leggere le differenze per checkpoint prima di confrontare i
+risultati. Non è un nuovo gate scientifico. Un errore interrompe con
+`error` e `active_checkpoint` nel report se l'inferenza è già iniziata.
+Le assenze di checkpoint e gli errori preliminari vengono segnalati prima.
+
+Sincronizzare **l'intera `outputs/segmentation_probability_diagnostics/`**,
+inclusi i `.npz`; non produce nuovi `.pt`. La run e i checkpoint originali
+restano intatti. L'output deve essere nuovo e fuori dalle due directory
+sorgenti: nessun `--resume`. Al termine non avvia piloti/full e non dichiara
+automaticamente risolto il problema della loss.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

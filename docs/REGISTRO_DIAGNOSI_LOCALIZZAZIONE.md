@@ -761,7 +761,7 @@ inizializzazione, valutazioni e checkpoint. I pesi `.pt` non sono presenti
 localmente: verificati report, coerenza interna dei CSV e figure finali,
 senza rieseguire inferenza o controllare le immagini del best al passo 250.
 
-### 10.8 Controllo dei due crop peggiori: implementato, esito CT da acquisire
+### 10.8 Controllo dei due crop peggiori: implementazione
 
 **Intervento.** `debug_segmentation_hard_crops` rigenera esattamente
 `inj_2092/3` e `rem_133/2` negli indici originali della coorte, confronta
@@ -805,9 +805,153 @@ laboratorio; un hash diverso blocca il confronto prima del training.
 Il protocollo isolato usa fino a 300 esposizioni per crop contro le 50
 delle sei scansioni e la normale loss sui soli uno/due crop selezionati:
 un eventuale successo non isola causalmente l'effetto del batching e non
-prova generalizzazione. I risultati sui due target reali devono ancora
-essere acquisiti. Piloti/full restano bloccati. Comando, file da sincronizzare
+prova generalizzazione. Gli esiti successivi sui due target sono nella
+sezione 10.9. Piloti/full restano bloccati. Comando, file da sincronizzare
 e criteri di lettura nella sezione 18.2.3 della guida Windows.
+
+### 10.9 Due crop peggiori: risoluzione sufficiente in un caso, fondo probabilistico residuo
+
+**Verifica eseguita.** Analizzati
+[`segmentation_hard_crops/report.json`](../outputs/segmentation_hard_crops/report.json),
+selezione, tutte le curve e i 1.200 aggiornamenti, tabelle spaziali e sei
+figure finali (quattro positivi e due negativi). Esecuzione completata su
+CUDA, PyTorch 2.13.0+cu130 e MONAI 1.5.2, senza errori tecnici. Manifest e
+config coincidono con il riferimento grouped/mixed; i quattro SHA256 di
+immagini/target corrispondono alle righe originali 3, 4, 18, 20 del pool.
+Tutti gli stati iniziali riportano `9a053aa1…`. Ogni prova completa 300
+passi e 300 visite per crop; controlli ai passi 0, 1 e ogni 25. Verificati
+best/last contro i JSON dedicati, identità della loss e concordanza delle
+metriche finali con TP/FP/FN dei CSV. I conteggi delle fasce sommano al
+volume intero. Gradienti e aggiornamenti encoder/decoder finiti e non nulli
+in tutti i 1.200 passi; preflight BatchNorm invariato nelle quattro prove.
+
+| Caso/prova | Dice finale | Miglior Dice registrato | Primo gate osservato | FP sul negativo finale |
+|---|---:|---:|---:|---:|
+| `inj_2092/3` solo | 0,892596 | 0,892596 (300) | Mai | Non applicabile |
+| `inj_2092/3` + negativo | 0,819848 | 0,899654 (250) | Mai | 0% |
+| `rem_133/2` solo | 0,982082 | 0,982082 (300) | 150 | Non applicabile |
+| `rem_133/2` + negativo | 0,968636 | 0,968636 (300) | 200 | 0% |
+
+Il gate globale rimane falso: due prove injection non passano. Il best
+injection nella coppia dista appena 0,000346 dal criterio 0,90; è un
+quasi-superamento, non prova di incapacità del modello. Non arrotondarlo
+a un successo. Il last peggiora dopo il passo 250, mentre la loss continua
+a diminuire. Anche la removal singola oscilla (0,958 al passo 225,
+0,865 al 250, 0,982 al 300): loss e Dice binario non sono intercambiabili.
+Nei controlli al passo 50 injection ha ancora Dice zero in entrambe le
+prove, removal circa 0,763/0,788. I successi removal richiedono più delle
+50 esposizioni usate nel confronto delle sei scansioni.
+
+**Dimensioni, bordi e sovrastima.** Injection ha target 13×10×10 voxel,
+1.300/262.144 voxel (0,496% del crop), bbox locale z/y/x
+`[24,54,0]–[36,63,9]`, tocca y alto e x basso. Removal ha target
+13×9×26, 3.042 voxel (1,160%), bbox `[8,0,0]–[20,8,25]`, tocca y basso e
+x basso. Entrambi sono parziali rispetto alla mask completa del volume.
+Quindi anche il caso riuscito tocca due facce e ha una dimensione di soli
+nove voxel: questi dati non sostengono un impedimento assoluto dovuto
+alla risoluzione del decoder, né ai bordi in sé. Non isolano però gli
+effetti di dimensione, contrasto, contenuto e tipo di manipolazione.
+
+Al termine, injection sola: TP 1.284, FP 293, FN 16, precision 81,42%,
+recall 98,77%; nella coppia TP 1.297, FP 567, FN 3, precision 69,58%,
+recall 99,77%. Persiste un alone FP attorno al target, più esteso nel last
+della coppia. Removal sola: TP 3.042, FP 111, FN zero; nella coppia
+TP 3.042, FP 197, FN zero, con contorno quasi coincidente al cuboide.
+Nei due negativi selezionati non resta alcun voxel sopra soglia 0,5.
+Non equivale ad assenza di FP sui negativi non visti o sui volumi completi.
+
+Gli FP injection sola sono 166 nella fascia 0–3, 114 in 4–7 e 13 in
+8–15 voxel dal bordo; nella coppia 310, 214 e 43. L'interno ad almeno 16
+voxel non ha FP, ma non contiene neppure target. Removal concentra a sua
+volta gli errori vicino ai target ai bordi. Le fasce confondono vicinanza
+al bordo e vicinanza alla lesione in questi due esempi: non dimostrano un
+artefatto globale di padding. Il clipping globale è attivo in soli
+6/8/7/5 aggiornamenti su 300 (ordine delle quattro righe della tabella),
+non un blocco persistente dei gradienti.
+
+**Probabilità e loss: indizio più concreto della sola risoluzione.** I valori
+`soft_dice_loss` sono loss: il Soft Dice finale è **1 meno** quel valore.
+Injection sola/coppia: 0,06744/0,07149; removal: 0,15426/0,15441,
+nonostante il Dice binario quasi perfetto in quest'ultima. La formula
+locale confronta le probabilità sigmoid senza soglia con la mask; il
+denominatore somma anche le probabilità dei voxel di background.
+Non è lo stesso conteggio TP/FP/FN usato dal gate.
+
+Controllo aggiuntivo sulle PNG: letti i canali rossi dei pixel delle
+heatmap, salvati come `floor(255*p)`, nei tre piani centrati sulla mask.
+La mediana del background rappresentato è circa 0,125–0,129 in tutte le
+prove; quella del foreground circa 0,992–0,996. Nei primi piani dei due
+negativi la mediana è circa 0,129, pur con zero voxel sopra soglia.
+Sono statistiche di sezioni selezionate, quantizzate a 8 bit, non quantili
+delle mappe 3D complete. Confermano però nelle sezioni un fondo residuo
+diffuso sotto soglia: per target inferiori al 1,2% del crop la sua massa
+può dominare il denominatore del Soft Dice. Non attribuire il divario a
+un bug della loss o a una causa precisa del training senza le mappe complete.
+
+**Decisione e prossimo controllo.** Esclusa, nel solo caso removal verificato,
+l'incapacità assoluta di rappresentare con questa architettura un piccolo
+cuboide al bordo. Injection è quasi apprendibile al criterio richiesto,
+con errore residuo soprattutto di sovrastima. Non cambiare ora decoder,
+crop, LR o soglia sulla sola base del gate falso; non avviare piloti/full.
+Il prossimo controllo motivato è **senza training**, sui best/last già
+conservati in laboratorio: statistiche esatte delle probabilità complete
+su foreground/background, massa probabilistica dentro/fuori mask e
+Soft Dice ricalcolato, inclusi i due negativi, per distinguere fondo
+diffuso da errore di contorno e dal peggioramento binario dopo il best.
+Questo controllo deve precedere un eventuale confronto mirato della loss;
+non costituisce autorizzazione a una ricerca di iperparametri o ad abbassare
+il gate. I precedenti 300 passi sulle sei scansioni non sono appaiati per
+esposizioni né pesi dei singoli crop a queste prove isolate.
+
+**Limite.** Nessun `.pt` o array di probabilità completo è sincronizzato:
+non rieseguite inferenza o misure volumetriche delle probabilità; le figure
+descrivono il last, non il best della coppia injection. Nessuna conclusione
+di generalizzazione dalle prove di memorizzazione. Aggiornata la guida con
+l'esito; nessuna modifica a codice, loss, soglie, gate o output scientifici.
+
+### 10.10 Probabilità complete best/last: valutatore implementato
+
+**Intervento.** L'entrypoint `diagnose_segmentation_probabilities` valuta i
+best/last delle quattro prove difficili, senza training. Riusa il controllo
+di identità dei crop e le fasce spaziali del debug; controlla anche il
+legame fra ciascun checkpoint e batch/stadio/config/manifest/metriche.
+Caricamento completo strict degli stati encoder e decoder, valutazione
+FP32 senza autocast e gradienti. Non serve il checkpoint MedicalNet
+originale, perché i pesi sono già inclusi nei `.pt` allenati; nessuna
+inizializzazione casuale può sostituire uno stato incompleto. Verifica gli
+otto file prima di rileggere i CT e protegge run/riferimento da scritture.
+
+**Misure prodotte.** Quantili esatti su tutti i voxel di ogni crop,
+foreground/background/totale e fasce rispetto al bordo, somme delle
+probabilità in float64, medie e frazioni sopra livelli descrittivi fissi.
+Soft Dice ricalcolato dalle masse per i positivi e conteggi binari a 0,5;
+loss FP32 originale e scostamento dalle metriche salvate. Le distribuzioni
+distinguono un fondo diffuso da probabilità elevate concentrate in un
+alone; i compartimenti vuoti restano indefiniti. Mappe complete float32 e
+mask uint8 in `.npz`, figure di ogni best/last e hash dei checkpoint
+consentono una successiva analisi locale senza trasferire tutti i pesi.
+
+**Verifica.** Fixture con background 0,125 e un solo voxel positivo
+mostra Dice binario 1 e Soft Dice inferiore a 0,001: verificati formula,
+masse e quantili, senza confondere le due metriche. Test su TIFF sintetici
+coprono gli otto ripristini offline, preservazione byte per byte degli
+input, compartimenti vuoti, identificativi/hash errati, stati incompleti,
+logits non finiti, assenza dei `.pt`, output esistente e differenze dalle
+metriche salvate. Il comando riporta il completamento, non inventa un
+nuovo gate o sostituisce quello fallito del protocollo.
+Superati 75 test pertinenti (escluso il worker persistente, non usato dal
+comando). Anche un checkpoint sintetico
+con encoder MedicalNet ufficiale e crop 64³ è stato ripristinato offline
+con metriche riprodotte: BCE/Soft Dice loss coincidenti, scarto del Dice
+binario circa `3,3e-10`. È una verifica del percorso di misura, non un
+risultato sul dataset del laboratorio.
+
+**Stato e limiti.** Gli otto `.pt` allenati non sono sincronizzati: la
+misura scientifica deve essere eseguita sul PC del laboratorio con il
+comando della sezione 18.2.4. Non basta il dato quantizzato delle PNG per
+assegnare una causa alla loss. Nessuna variazione a training, loss,
+normalizzazione, soglie o selezione dei checkpoint; piloti/full restano
+bloccati in attesa delle misure e della loro interpretazione.
 
 ## Come aggiornare questo registro
 

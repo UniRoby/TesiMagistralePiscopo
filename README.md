@@ -37,6 +37,11 @@ Il prossimo controllo è il [debug dei due crop peggiori](docs/LAB_WORKFLOW.md#1
 `python -m tesi_m3d.debug_segmentation_hard_crops`, quattro prove indipendenti
 con verifica degli hash e conteggio degli errori rispetto ai bordi del crop.
 
+Per misurare le probabilità complete dentro/fuori dalle mask sui suoi
+checkpoint best/last, senza training, usare
+[`diagnose_segmentation_probabilities`](docs/LAB_WORKFLOW.md#1824-probabilità-complete-sui-checkpoint-bestlast).
+Salva distribuzioni, masse probabilistiche e mappe float32 degli otto checkpoint.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

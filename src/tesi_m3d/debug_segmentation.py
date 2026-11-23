@@ -19,9 +19,8 @@ from .train_segmentation import (check_prerequisites, make_optimizer, overfit_ra
                                  save_checkpoint, train_volume, validate_config)
 
 
-def spatial_errors(target, probability):
-    """Count errors in disjoint shells by distance from the nearest crop face."""
-    shape = target.shape[-3:]
+def crop_regions(shape):
+    """Whole crop and disjoint shells, in voxels from the nearest face."""
     distance = torch.full(shape, max(shape), dtype=torch.long)
     for axis, size in enumerate(shape):
         coordinate = torch.arange(size)
@@ -32,7 +31,13 @@ def spatial_errors(target, probability):
     regions += [(name, (distance >= low) & (distance < high)) for name, low, high in
                 (("border_0_3", 0, 4), ("border_4_7", 4, 8), ("border_8_15", 8, 16),
                  ("interior_16_plus", 16, max(shape)))]
+    return regions
+
+
+def spatial_errors(target, probability):
+    """Count errors in disjoint shells by distance from the nearest crop face."""
     rows = []
+    regions = crop_regions(target.shape[-3:])
     for index, (truth, prob) in enumerate(zip(target[:, 0].bool(), probability[:, 0])):
         detected = prob >= 0.5
         for region, selected in regions:
