@@ -395,7 +395,8 @@ def test_overfit_diagnosis_cli_does_not_start_training(tmp_path, monkeypatch):
     assert called[0][0] == ("last.pt", str(tmp_path))
 
 
-def test_full_training_recomputes_gates_and_selects_only_controlled_pilots(tmp_path):
+@pytest.mark.parametrize("squared", [False, True])
+def test_full_training_recomputes_gates_and_selects_only_controlled_pilots(tmp_path, squared):
     from tesi_m3d.segmentation_metrics import cohort_id
     _, records = make_fake_corpus(tmp_path / "data", n_records=1, n_real=1, scan_z=8, shape=(8, 8))
     manifest = {"manifest_id": "fixed", "cohorts": {name: [asdict(r) for r in records]
@@ -404,6 +405,8 @@ def test_full_training_recomputes_gates_and_selects_only_controlled_pilots(tmp_p
     (tmp_path / "audit.json").write_text(json.dumps({"passed": True, "manifest_id": "fixed", "cohorts": ["full_train"]}))
     overfit = {"passed": True, "manifest_id": "fixed", "positive_crop_dice": 0.95,
                "negative_crop_fp_fraction": 0, "finite_gradients": True}
+    if squared:
+        overfit["training_loss"] = {"squared_pred": True}
     (tmp_path / "overfit.json").write_text(json.dumps(overfit))
     base = {"manifest_id": "fixed", "split": "valid", "model_name": "resnet18_medicalnet",
             "cohort_id": cohort_id(records), "histogram_bins": BINS,
@@ -413,6 +416,12 @@ def test_full_training_recomputes_gates_and_selects_only_controlled_pilots(tmp_p
               "overfit_report": str(tmp_path / "overfit.json"), "baseline_report": str(tmp_path / "base.json"),
               "pilot_baseline_report": str(tmp_path / "base.json"),
               "pilot_reports": [str(tmp_path / "a.json"), str(tmp_path / "b.json")]}
+    if squared:
+        config["training"] = {"squared_pred": True}
+    mismatch = copy.deepcopy(config)
+    mismatch.setdefault("training", {})["squared_pred"] = not squared
+    with pytest.raises(ValueError, match="different Dice denominator"):
+        check_prerequisites(mismatch, manifest)
     report = {**base, "protocol_signature": "same", "preprocessing": {"clip": False}, "checkpoint_sha256": "a",
               "n_positive_volumes": 1, "micro_dice": 0.5, "peak_hits": 1, "dense_ap": 0.9,
               "gate": {"passed": True}}  # An old/edited passed flag cannot bypass recomputation.
@@ -576,3 +585,20 @@ def test_overfit_decoder_lr_retry_changes_only_lr_and_output():
     for key in ("output_dir", "overfit_report"):
         retry[key] = original[key]
     assert retry == original
+
+
+def test_squared_overfit_config_changes_only_dice_and_output():
+    from tesi_m3d.train_segmentation import validate_config
+    original = load_yaml_config("configs/segmentation_overfit.yaml")
+    squared = load_yaml_config("configs/segmentation_overfit_squared.yaml")
+    validate_config(squared)
+    assert squared["training"].pop("squared_pred") is True
+    assert squared["output_dir"] != original["output_dir"]
+    assert squared["overfit_report"] == squared["output_dir"] + "/gate.json"
+    for key in ("output_dir", "overfit_report"):
+        squared[key] = original[key]
+    assert squared == original
+    for invalid in ("true", 1, None):
+        squared["training"]["squared_pred"] = invalid
+        with pytest.raises(ValueError, match="squared_pred must be boolean"):
+            validate_config(squared)

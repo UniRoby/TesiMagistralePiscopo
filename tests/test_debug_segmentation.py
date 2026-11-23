@@ -134,9 +134,20 @@ def test_workflow_stops_before_dependent_stages_and_preserves_original_gate(tmp_
         debug.run_debug(config, tmp_path, output_dir=output)
 
 
-def test_six_scan_overfit_preserves_intermediate_best_and_logs_components(tmp_path, monkeypatch):
+@pytest.mark.parametrize("squared", [False, True])
+def test_six_scan_overfit_preserves_intermediate_best_and_logs_components(tmp_path, monkeypatch, squared):
     config, manifest, dataset = setup_workflow(tmp_path, monkeypatch)
     config["training"].update(epochs=9, max_updates=50, num_workers=0)
+    if squared:
+        config["training"]["squared_pred"] = True
+    train_volume = trainer.train_volume
+    calls = []
+
+    def train(*args, **kwargs):
+        calls.append(kwargs["squared_pred"])
+        return train_volume(*args, **kwargs)
+
+    monkeypatch.setattr(trainer, "train_volume", train)
     monkeypatch.setattr(trainer, "SegmentationDataset", dataset)
     monkeypatch.setattr(trainer, "check_prerequisites", lambda *a: None)
     monkeypatch.setattr(trainer, "build_segmenter", lambda *a, **kw: TinySegmenter())
@@ -155,13 +166,49 @@ def test_six_scan_overfit_preserves_intermediate_best_and_logs_components(tmp_pa
     assert best["updates"] == 25 and last["updates"] == 50
     assert best["best_overfit_metrics"]["positive_crop_dice"] == .8
     assert result["positive_crop_dice"] == .3
+    assert calls == [squared] * 50
+    for report in (result, best, last, json.loads((output / "best_gate.json").read_text())):
+        assert report["training_loss"] == {"squared_pred": squared, "bce_weight": .5, "dice_weight": .5,
+                                           "empty_crops": "BCE_only"}
     assert json.loads((output / "best_gate.json").read_text())["updates"] == 25
-    assert len(list(csv.DictReader((output / "update_metrics.csv").open()))) == 50
+    rows = list(csv.DictReader((output / "update_metrics.csv").open()))
+    assert len(rows) == 50
+    for row in rows:
+        assert float(row["loss"]) == pytest.approx(.5 * (float(row["bce"]) + float(row["soft_dice_loss"])))
     assert len(list(csv.DictReader((output / "case_history.csv").open()))) == 2
     with pytest.raises(ValueError, match="already reached max_updates"):
         trainer.run_training(config, tmp_path, output_dir=output, resume=output / "last.pt")
     with pytest.raises(ValueError, match="resume requires last.pt"):
         trainer.run_training(config, tmp_path, output_dir=output, resume=output / "best.pt")
+    if not squared:
+        config["training"]["squared_pred"] = False
+        with pytest.raises(ValueError, match="already reached max_updates"):
+            trainer.run_training(config, tmp_path, output_dir=output, resume=output / "last.pt")
+    config["training"]["squared_pred"] = not squared
+    with pytest.raises(ValueError, match="resume would change"):
+        trainer.run_training(config, tmp_path, output_dir=output, resume=output / "last.pt")
+
+
+@pytest.mark.parametrize("passed", [False, True])
+def test_training_cli_forwards_update_diagnostics_and_gate_exit(tmp_path, monkeypatch, passed):
+    import sys
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"passed": passed}
+
+    monkeypatch.setattr(trainer, "run_training", run)
+    monkeypatch.setattr(sys, "argv", ["train_segmentation", "--config", "configs/segmentation_overfit_squared.yaml",
+                                      "--data-root", str(tmp_path), "--device", "cuda", "--debug-updates"])
+    if passed:
+        trainer.main()
+    else:
+        with pytest.raises(SystemExit) as stopped:
+            trainer.main()
+        assert stopped.value.code == 2
+    assert calls[0][0][0]["training"]["squared_pred"] is True
+    assert calls[0][1]["debug_updates"] and calls[0][1]["device"] == "cuda"
 
 
 def test_workflow_writes_technical_failure_report_without_advancing(tmp_path, monkeypatch):

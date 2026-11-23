@@ -1103,10 +1103,131 @@ Non è una prova di qualità della localizzazione o di memoria CUDA.
 **Decisione e limiti.** È un esperimento diagnostico su crop di training,
 non il gate originale sulle sei scansioni né una nuova modalità promossa
 al training completo. Un esito positivo richiederà ancora quel controllo.
-I risultati CT/GPU devono essere acquisiti nell'ambiente del laboratorio;
+I risultati CT/GPU, inizialmente da acquisire nell'ambiente del laboratorio,
+sono ora analizzati nella sezione 10.13;
 il diverso stato iniziale ricreato nell'ambiente locale resta motivo di
 blocco prima del training, senza fallback. Comando e interpretazione
 nella sezione 18.2.5 della guida Windows. Piloti/full restano bloccati.
+
+### 10.13 Confronto Dice lineare/quadratico: risultati del laboratorio
+
+**Evidenze sincronizzate, 23 novembre 2026.**
+`outputs/segmentation_loss_comparison/comparison.json` riporta confronto
+completo, quattro prove finali quadratiche superate e riproduzione delle
+16 valutazioni best/last entro `1e-4`. Ambiente dichiarato: PyTorch
+`2.13.0+cu130`, MONAI `1.5.2`, CUDA. Sono presenti anche tutte le 16 mappe
+`probabilities.npz`; i pesi `.pt` non sono sincronizzati.
+
+**Controlli indipendenti.** Config effettivo e manifest coincidono con
+il riferimento `segmentation_batch_comparison`; identici hash iniziale
+`9a053aa1…` e pool `80c77851…`. Ogni prova registra 300 aggiornamenti
+consecutivi e 300 esposizioni per crop, per 2.400 aggiornamenti totali.
+Tutti i gradienti/aggiornamenti di encoder e decoder nei CSV sono finiti
+e positivi; i preflight confermano BatchNorm invariata. L'unica variante
+dichiarata della loss è `squared_pred`; BCE, pesi e composizione restano
+invariati. La composizione della loss nei CSV coincide entro `3e-8`.
+
+Ricalcolati direttamente dagli array float32, forma `B×1×64×64×64`,
+conteggi TP/FP/FN alla soglia 0,5, Dice, masse e media del fondo coincidono
+con il report entro `1e-9`. Probabilità finite in `[0,1]`, mask binarie,
+hash delle mask coincidenti con la selezione originale e mask identiche
+fra rami/checkpoint. Lo scarto massimo dichiarato fra metriche ripristinate
+e salvate è `2,78e-8`. Questo verifica gli output grezzi; senza pesi non
+è stata eseguita una nuova inferenza locale.
+
+| Prova | Dice lineare best / last | Dice quadratico best / last | FP / FN lineare last | FP / FN quadratico last |
+|---|---:|---:|---:|---:|
+| `inj_2092/3` solo | 0,904081 / 0,895934 | 1,000000 / 1,000000 | 302 / 0 | 0 / 0 |
+| `inj_2092/3` + negativo 4 | 0,925267 / 0,925267 | 1,000000 / 1,000000 | 210 / 0 | 0 / 0 |
+| `rem_133/2` solo | 0,995745 / 0,995745 | 1,000000 / 1,000000 | 26 / 0 | 0 / 0 |
+| `rem_133/2` + negativo 4 | 0,968875 / 0,965408 | 1,000000 / 1,000000 | 218 / 0 | 0 / 0 |
+
+Il quadratico recupera esattamente i 1.300 voxel injection e i 3.042
+voxel removal in tutte le prove finali: precision e recall pari a 1.
+I crop negativi best/last hanno zero voxel predetti in **entrambi** i
+rami: qui il guadagno riguarda l'estensione delle predizioni nei crop
+positivi, senza un peggioramento misurato sui due negativi fissi.
+Le figure nei tre piani sono coerenti: spariscono i voxel esterni alla
+mask presenti nella nuova baseline injection. I target restano le
+annotazioni cuboidali disponibili, non contorni precisi del tumore.
+
+**Andamento.** Primo superamento osservato ogni 25 passi, quadratico
+contro lineare: injection solo 225 contro 275, injection in coppia 200
+contro 300, removal solo 100 contro 150, removal in coppia 100 contro
+225. Il removal quadratico solo ridiscende a Dice 0,8933 al passo 125
+e supera nuovamente il criterio da 150; non si rivendica convergenza
+monotona. Il lineare injection solo supera a 275 e fallisce a 300.
+Tutti i best quadratici coincidono con il last a 300.
+
+**Probabilità residue.** La media fuori mask cala da 0,13188 a 0,11247
+(injection solo), da 0,12400 a 0,10627 (injection in coppia), da 0,12642
+a 0,11630 (removal solo) e da 0,12658 a 0,10926 (removal in coppia).
+Il fondo rimane diffuso: circa il 98,96–99,51% dei voxel fuori mask dei
+crop positivi quadratici ha probabilità almeno 0,1. Il Soft Dice lineare
+comune rimane fra 0,08108 e 0,17557, pur con Dice binario 1 a soglia 0,5.
+Le medie sui due negativi quadratici sono 0,10843 e 0,11264. Quindi non
+sono dimostrate né calibrazione delle probabilità né eliminazione della
+massa di fondo. Il massimo fondo injection in coppia è 0,49599, vicino
+alla soglia: zero errori a 0,5 non implica robustezza a qualsiasi soglia.
+Non confrontare le due loss di training come se fossero la stessa metrica.
+
+**Interpretazione e decisione.** Il denominatore quadratico è una
+modifica promettente per apprendere questi target piccoli e parziali ai
+bordi, senza cambiare risoluzione, decoder o dimensioni della mask.
+Il successo dimostra che questi due crop sono memorizzabili con il
+modello attuale; non identifica una causa unica di tutti i fallimenti.
+La nuova baseline lineare injection in coppia raggiunge 0,925267, meglio
+del precedente best 0,899654: esiste variabilità fra esecuzioni anche
+con gli stessi hash iniziali e input, di origine non isolata. Il confronto
+valido è quello appaiato appena concluso, non la sottrazione fra run storici.
+
+Il prossimo esperimento giustificato è il **gate originale su sei scansioni
+e 48 crop fissi**, da inizializzazione MedicalNet fresca, con il solo Dice
+quadratico e massimo 300 aggiornamenti. Mantenere manifest, preprocessing,
+campionamento, seed, LR, batch e criteri originali: Dice medio positivo
+almeno 0,90, FP sui negativi sotto 1%, gradienti finiti. Conservare best,
+last e dettagli per crop; non ripartire dai pesi già memorizzati qui.
+Al momento dell'analisi il normale `train_segmentation.run_training`
+non inoltrava ancora `squared_pred`; l'integrazione successiva è descritta
+nella sezione 10.14. Nessun vecchio gate è stato modificato;
+piloti/full ancora bloccati. Due crop positivi, due negativi e
+un seed non misurano la localizzazione su volumi interi o la generalizzazione.
+
+### 10.14 Gate originale con Dice quadratico: integrazione
+
+**Intervento, 23 novembre 2026.** Il trainer standard valida e inoltra
+`training.squared_pred` alla loss condivisa, con default falso per
+config/checkpoint precedenti. Aggiunto
+`configs/segmentation_overfit_squared.yaml`: solo denominatore Dice e
+percorsi output/gate diversi dall'overfit originale, stesso manifest,
+48 crop fissi, seed 21, MedicalNet obbligatorio, preprocessing, LR,
+campionamento e massimo 300 aggiornamenti complessivi. Nessun resume
+dai pesi memorizzati nelle prove isolate; i criteri del gate e lo stop
+al primo controllo superato rimangono invariati.
+
+Checkpoint, gate finale e best dichiarano i pesi della loss, la variante
+e il trattamento dei crop vuoti. Esposta in CLI l'opzione diagnostica
+già presente nel trainer `--debug-updates`, per conservare componenti,
+norme dei gradienti/aggiornamenti e storia per caso. CSV e immagini finali
+per crop rimangono quelli del last; best conservato separatamente.
+Il resume rifiuta il cambio di loss, ma considera equivalenti il default
+assente storico e il valore esplicito falso. I prerequisiti pilota/full
+richiedono lo stesso denominatore del gate superato: un gate storico
+senza metadato vale come lineare. Le configurazioni pilota/full non
+sono state modificate e non vengono avviate.
+
+**Verifica.** Test dei due rami nel percorso sulle sei scansioni verificano
+inoltro della variante, aggiornamenti reali, salvataggio di best intermedio
+e last, metadati in report/checkpoint, componenti nei CSV e rifiuto del cambio di loss nel
+resume. Verificati CLI e relativo exit code, differenze limitate del nuovo
+config, tipo booleano obbligatorio e blocco di gate con loss diversa.
+La suite con fixture TIFF copre ancora training, valutazione e ripristino
+dei checkpoint precedenti; la formula e l'accumulo quadratico restano
+coperti dai test del confronto con MONAI. Superati 95 test pertinenti;
+escluso il test dei worker persistenti, non usati dal nuovo config con
+`num_workers: 0`. Restano 18 warning MONAI già presenti. Comando Windows nella sezione
+18.2.6 della guida. Nessun training CT/GPU eseguito localmente: l'esito del
+gate quadratico sulle sei scansioni è ancora da acquisire nel laboratorio.
 
 ## Come aggiornare questo registro
 

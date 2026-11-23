@@ -47,6 +47,11 @@ esegue `python -m tesi_m3d.compare_segmentation_losses`: baseline lineare e
 variante quadratica sulle stesse quattro prove, con valutazione automatica
 delle probabilità best/last. Nessuna promozione automatica a piloti/full.
 
+Dopo il successo sui due crop, il [gate sulle sei scansioni con Dice quadratico](docs/LAB_WORKFLOW.md#1826-gate-sulle-sei-scansioni-con-dice-quadratico)
+usa `configs/segmentation_overfit_squared.yaml` con `train_segmentation`.
+Riparte da MedicalNet, conserva i criteri originali e salva risultati separati;
+le vecchie configurazioni continuano a usare il Dice lineare.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

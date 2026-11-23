@@ -58,6 +58,8 @@ def check_prerequisites(config, manifest, data_root=None, real_scan_root=None):
                 overfit.get("positive_crop_dice", 0) < 0.9 or overfit.get("negative_crop_fp_fraction", 1) >= 0.01 or
                 not overfit.get("finite_gradients")):
             raise ValueError("overfit gate failed or belongs to a different manifest; full/pilot training blocked")
+        if overfit.get("training_loss", {}).get("squared_pred", False) != config.get("training", {}).get("squared_pred", False):
+            raise ValueError("overfit gate used a different Dice denominator; full/pilot training blocked")
     if stage == "full":
         pilots = [read_json(path) for path in config["pilot_reports"]]
         if len(pilots) != 2 or {p["preprocessing"]["clip"] for p in pilots} != {False, True}:
@@ -257,6 +259,8 @@ def validate_config(config):
     if config["stage"] not in {"overfit", "pilot", "full"} or config["model"]["name"] != SEGMENTER_NAME:
         raise ValueError("invalid segmentation stage/model")
     training = config["training"]
+    if not isinstance(training.get("squared_pred", False), bool):
+        raise ValueError("training.squared_pred must be boolean")
     batch, accumulation = int(training["batch_size"]), int(training["accumulation_steps"])
     if batch not in (1, 2) or batch * accumulation != 8:
         raise ValueError("use batch_size=2, accumulation_steps=4 (or 1 and 8 after OOM)")
@@ -279,6 +283,9 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
     manifest = read_json(config["manifest"])
     check_prerequisites(config, manifest, data_root, real_scan_root)
     training, stage = config["training"], config["stage"]
+    squared_pred = training.get("squared_pred", False)
+    training_loss = {"bce_weight": 0.5, "dice_weight": 0.5, "squared_pred": squared_pred,
+                     "empty_crops": "BCE_only"}
     output = Path(output_dir or config["output_dir"])
     if resume and Path(resume).resolve().parent != output.resolve():
         raise ValueError("resume must use the original run directory; set --output-dir to the checkpoint parent")
@@ -295,6 +302,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         for cfg in (old, new):
             cfg.pop("output_dir", None)
             cfg.pop("cache_dir", None)
+            cfg["training"].setdefault("squared_pred", False)
             for key in ("epochs", "batch_size", "accumulation_steps", "num_workers"):
                 cfg["training"].pop(key, None)
         if old != new:
@@ -344,6 +352,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                 "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch, "updates": updates, "best_ap": best_ap, "stale_validations": stale,
                 "best_overfit_metrics": best_overfit,
+                "training_loss": training_loss,
                 "rng_state": _rng_state(), "amp": "bfloat16" if str(device).startswith("cuda") else "disabled"}
 
     overfit_report = None
@@ -356,7 +365,8 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         for batch in tqdm(loader, desc=f"seg epoch {epoch + 1}/{max_epochs}", unit="vol"):
             diagnostics = {} if debug_updates else None
             losses.append(train_volume(model, batch, optimizer, device=device, microbatch=training["batch_size"],
-                                       accumulation=training["accumulation_steps"], diagnostics=diagnostics))
+                                       accumulation=training["accumulation_steps"], diagnostics=diagnostics,
+                                       squared_pred=squared_pred))
             updates += 1
             if diagnostics is not None:
                 _write_metrics_row(output / "update_metrics.csv", {"updates": updates, "img_id": batch["img_id"],
@@ -370,7 +380,8 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                 if best_overfit is None or overfit_rank(overfit_report) > overfit_rank(best_overfit):
                     best_overfit = {"updates": updates, **overfit_report}
                     save_checkpoint(payload(epoch + 1), output / "best.pt")
-                    write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"], **best_overfit})
+                    write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
+                                                           "training_loss": training_loss, **best_overfit})
                 model.train()
                 if overfit_report["passed"] or updates >= training.get("max_updates", 300):
                     break
@@ -401,9 +412,11 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         if best_overfit is None or overfit_rank(overfit_report) > overfit_rank(best_overfit):
             best_overfit = {"updates": updates, **overfit_report}
             save_checkpoint(payload(epoch + 1), output / "best.pt")
-            write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"], **best_overfit})
+            write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
+                                                   "training_loss": training_loss, **best_overfit})
         save_checkpoint(payload(epoch + 1), output / "last.pt")
-        overfit_report.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True)
+        overfit_report.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True,
+                              training_loss=training_loss)
         write_json(output / "gate.json", overfit_report)
         return overfit_report
     # Free the training model/optimizer before restoring the selected checkpoint on the GPU.
@@ -430,6 +443,7 @@ def main():
     parser.add_argument("--cache-dir")
     parser.add_argument("--resume")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--debug-updates", action="store_true", help="log per-update loss, gradients and parameter changes")
     args = parser.parse_args()
     if args.diagnose_checkpoint:
         if args.resume:
@@ -439,7 +453,8 @@ def main():
         print(json.dumps(report, indent=2))
         return
     report = run_training(load_yaml_config(args.config), args.data_root, device=args.device,
-                          output_dir=args.output_dir, cache_dir=args.cache_dir, resume=args.resume, real_scan_root=args.real_scan_root)
+                          output_dir=args.output_dir, cache_dir=args.cache_dir, resume=args.resume,
+                          real_scan_root=args.real_scan_root, debug_updates=args.debug_updates)
     print(json.dumps(report, indent=2))
     if not report.get("passed", report.get("gate", {}).get("passed", False)):
         raise SystemExit(2)

@@ -1248,7 +1248,71 @@ eventuali best riusciti sono riportati separatamente. Prima di decidere
 il passo successivo confrontare anche controllo removal, precision/recall,
 FP e fondo: un punteggio migliore della nuova loss non basta.
 Nessun vecchio gate viene riscritto e nessun pilota/full viene avviato.
+
+**Risultato sincronizzato, 23 novembre 2026.** Confronto completo: il
+quadratico arriva a Dice 1,00 in tutte e quattro le prove, sia best sia
+last a 300 passi. La nuova baseline lineare last ottiene rispettivamente
+0,89593 / 0,92527 / 0,99574 / 0,96541 (injection solo/coppia, removal
+solo/coppia). Tutti i negativi best/last sono privi di FP in entrambi i
+rami. Verificati direttamente i voxel delle 16 mappe sincronizzate,
+gli hash delle mask, i budget e i CSV; dettagli e limiti nella sezione
+10.13 del registro. Rimane probabilità diffusa del fondo intorno a 0,11:
+il Dice binario perfetto non dimostra probabilità calibrate.
+
+Il prossimo controllo è il gate su **sei scansioni e 48 crop fissi**
+con il solo Dice quadratico, MedicalNet fresco e criteri/budget originali.
+Il comando di questa sezione verifica soltanto i due crop difficili.
+Il collegamento della variante al gate originale è ora disponibile nella
+sezione 18.2.6. Il gate originale resta fallito; non avviare ancora piloti/full.
 Una directory non vuota viene rifiutata; nessun `--resume`.
+
+### 18.2.6 Gate sulle sei scansioni con Dice quadratico
+
+Dopo aver sincronizzato il codice aggiornato sul PC del laboratorio,
+dalla root del repository e nell'ambiente Python già usato:
+
+```powershell
+python -m tesi_m3d.train_segmentation `
+  --config configs\segmentation_overfit_squared.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot `
+  --device cuda --debug-updates
+```
+
+Usare i percorsi `$ctRoot` e `$realCtRoot` già verificati nell'audit della
+sezione 18.1. Non occorre rigenerare il manifest o rieseguire il confronto
+sui due crop. La nuova configurazione differisce dall'overfit originale
+soltanto per `training.squared_pred: true` e i percorsi dell'output/gate.
+L'opzione viene ora validata e inoltrata realmente alla loss; il default
+degli esperimenti precedenti resta lineare. Non usare `--resume`: si parte
+da encoder MedicalNet ufficiale e decoder fresco, senza pesi dei crop
+già memorizzati. Nessun fallback a encoder casuale.
+
+Stesse sei scansioni, otto crop fissi per scansione, niente augmentation,
+batch fisico 2 e accumulo 4, LR e preprocessing originali. Massimo 300
+aggiornamenti complessivi (50 esposizioni per crop a budget completo),
+con stop anticipato se il gate passa a un controllo ogni 25 passi.
+Il successo richiede ancora Dice medio dei crop positivi almeno 0,90,
+FP sui crop negativi sotto 1% e gradienti finiti. Le soglie non cambiano.
+
+Sincronizzare **`outputs/segmentation_overfit_squared/` senza i `.pt`**:
+
+- `gate.json` e `best_gate.json`, con la loss dichiarata in `training_loss`;
+- `effective_config.json`, `manifest.json`, `metrics.csv`, `overfit_metrics.csv`;
+- `update_metrics.csv` (BCE, Dice quadratico, gradienti/aggiornamenti),
+  `case_history.csv`, `crops.csv`, `cases.csv` e `images/`.
+
+`--debug-updates` abilita i diagnostici durante il training; `crops.csv`,
+`cases.csv` e le immagini finali riguardano il last. Best e last vengono
+salvati separatamente; `best_gate.json` documenta la selezione intermedia.
+L'output è `outputs/segmentation_overfit_squared`, senza sovrascrivere le
+prove precedenti. Una run già presente viene rifiutata.
+
+Exit code 2 con `gate.json` valido e `passed: false` indica gate scientifico
+fallito. Attendere l'analisi prima dei piloti, anche se il gate passa.
+Il trainer rifiuta di cambiare denominatore Dice durante un resume e di
+usare per pilota/full un gate ottenuto con un denominatore differente.
+Le configurazioni pilota/full esistenti restano lineari e non vengono
+promosse automaticamente a questa variante.
 
 ### 18.3 Baseline comune e due piloti controllati
 
