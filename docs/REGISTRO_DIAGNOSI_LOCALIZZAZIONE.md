@@ -1226,8 +1226,135 @@ dei checkpoint precedenti; la formula e l'accumulo quadratico restano
 coperti dai test del confronto con MONAI. Superati 95 test pertinenti;
 escluso il test dei worker persistenti, non usati dal nuovo config con
 `num_workers: 0`. Restano 18 warning MONAI già presenti. Comando Windows nella sezione
-18.2.6 della guida. Nessun training CT/GPU eseguito localmente: l'esito del
-gate quadratico sulle sei scansioni è ancora da acquisire nel laboratorio.
+18.2.6 della guida. Nessun training CT/GPU eseguito localmente; gli output
+successivamente acquisiti dal laboratorio sono analizzati nella sezione 10.15.
+
+### 10.15 Gate quadratico sulle sei scansioni: miglioramento parziale, ancora fallito
+
+**Evidenze sincronizzate.** `outputs/segmentation_overfit_squared/` contiene
+gate finale e best, config/manifest, 50 epoche, 300 aggiornamenti, 12
+valutazioni, 72 righe di storia per caso, 48 crop finali, sei riepiloghi
+per scansione e 16 figure. La loss dichiarata è 0,5 BCE + 0,5 Dice
+quadratico, BCE anche sui negativi. Il config differisce dall'overfit
+originale solo per `squared_pred: true` e percorsi output/gate; manifest
+identico, 16 crop positivi e 32 negativi, conteggi dei target coincidenti
+con quelli dei precedenti esperimenti. Ogni scansione compare in 50
+aggiornamenti; il totale è 300, non 300 esposizioni per crop.
+
+**Controlli.** Ricalcolati Dice e FPR dai conteggi di `crops.csv`, con
+identità TP+FN=target e TP+FP=predizione per tutti i crop: coincidono con
+`gate.json`. Numerazione degli aggiornamenti completa, gradienti e
+aggiornamenti dei due gruppi sempre finiti e positivi, identità della
+loss nei CSV entro `1e-6`. Il best selezionato corrisponde al controllo
+275. Questo verifica la coerenza degli aggregati, non una nuova inferenza:
+non sono sincronizzati pesi o array di probabilità di questa run, né il
+trainer salva qui l'hash iniziale completo o gli hash dei crop.
+
+| Misura | Overfit lineare originale | Overfit quadratico last |
+|---|---:|---:|
+| Dice medio dei 16 crop positivi (criterio del gate) | 0,709937 | 0,782871 |
+| FPR sui 32 crop negativi | 1,69959% | 0,37899% |
+| Dice micro sui voxel dei crop positivi | 0,751059 | 0,762823 |
+| Precision micro nei crop positivi | 0,644326 | 0,875212 |
+| Recall micro nei crop positivi | 0,900175 | 0,676014 |
+| FPR sui soli 16 crop reali | 1,32985% | 0,10369% |
+
+Il best a 275 ha Dice medio 0,785942 e FPR 0,56068%: anch'esso fallisce.
+Nessuno dei 12 controlli supera il gate; nessuno dei 16 crop positivi
+finali raggiunge individualmente Dice 0,90. Il criterio negativo globale
+è soddisfatto, quello Dice no. La riduzione del FPR negativo rispetto
+all'originale è circa il 77,7%, ma non equivale a un recupero uniforme
+della localizzazione: i falsi negativi nei crop positivi passano da
+27.344 a 88.746, su 273.919 voxel target, mentre i FP scendono da 136.112
+a 26.402. Migliorano 11 crop, peggiorano cinque. Sono confronti storici
+a config/manifest coerenti, non una nuova replica appaiata con controllo
+dello stato iniziale. Rispetto anche al precedente grouped lineare
+(Dice micro 0,773298) e mixed lineare (0,788615), il micro quadratico è
+inferiore: la crescita della media per crop non basta a promuovere la loss.
+
+**Errori residui.** Dice medio per volume: `inj_2092` 0,792656,
+`inj_1419` 0,681973, `rem_133` 0,804755, `rem_15` 0,852100.
+Il peggiore è ora `inj_1419/1`: target 59.200 voxel, Dice 0,460777,
+recall 0,331791, 39.558 FN (44,6% di tutti i FN positivi) e 6.414 FP.
+La figura `01_pix2pix_inj_1419_worst_positive_crop1.png` mostra recupero
+parziale del riquadro annotato e ampie zone FN, non solo un sottile bordo.
+I suoi negativi producono 27.159 dei 31.792 FP negativi (85,4%); il crop
+5 ha FPR 5,896%, pur con media globale sotto 1%. I reali hanno ancora
+4.349 FP complessivi. Non dichiarare tutti i negativi corretti.
+
+I due crop prima isolati valgono ora 0,597976 (`inj_2092/3`: recall 1,
+1.748 FP) e 0,808953 (`rem_133/2`: 736 FP, 476 FN). Il loro Dice 1 nelle
+prove isolate era ottenuto dopo 300 esposizioni ciascuno, contro le 50
+di questa run: non è una prova appaiata di interferenza fra scansioni.
+Inoltre il nuovo peggior target è grande; il problema residuo non è
+spiegato soltanto dai target piccoli. La storia per caso resta oscillante:
+fra 250 e 300 `inj_1419` scende da 0,7804 a 0,6820, mentre injection2092
+e removal133 migliorano. Una competizione fra aggiornamenti per volume
+è un'ipotesi da verificare, non una causa dimostrata. Clipping attivo in
+86/300 passi, anche 21 degli ultimi 50: non è provato che causi gli errori.
+
+**Decisione.** Piloti/full ancora bloccati. Non abbassare il criterio,
+non cambiare soglia e non prolungare questa run oltre il budget deciso.
+Il prossimo confronto motivato è **grouped contro mixed con Dice
+quadratico in entrambi i rami**, stesso pool di 48 crop verificato con
+hash, stessa inizializzazione fresca, 300 aggiornamenti/50 esposizioni,
+ponderazione Dice foreground fissa a quattro e stesso valutatore. Cambia
+solo la composizione dei batch; valutare anche recall e dettagli per crop,
+senza accettare come successo soltanto la riduzione dei FP. Il precedente
+`compare_segmentation_batches.run_arm` non inoltra `squared_pred` e usa
+ancora il Dice lineare: lanciare quel comando con il nuovo YAML non
+realizzerebbe il confronto desiderato. L'integrazione successiva è descritta
+nella sezione 10.16. Nessun training avviato in questa analisi; nessuna
+conclusione sulla validation o sulla generalizzazione.
+
+### 10.16 Confronto grouped/mixed quadratico: implementazione
+
+**Intervento.** Riutilizzato `compare_segmentation_batches` con
+`configs/segmentation_overfit_squared.yaml` e output distinto
+`outputs/segmentation_batch_comparison_squared`. Il runner ora inoltra
+`training.squared_pred` alla loss in entrambi i rami; default falso per
+le configurazioni precedenti. I pesi BCE/Dice, la variante e il trattamento
+BCE-only dei crop vuoti sono registrati in checkpoint, gate e report;
+ogni riga del CSV di aggiornamento identifica il denominatore usato.
+Nessun nuovo entrypoint, config duplicato o dipendenza.
+
+Il pool condiviso conserva i 48 crop originali, identificati dagli hash
+di immagine e target. Due inizializzazioni fresche MedicalNet, stesso
+seed e stato completo: il mixed verifica l'hash del grouped prima del
+training. Restano fissi normalizzatore Dice foreground quattro, BCE su
+otto crop, preprocessing, LR, batch fisico/accumulo, 300 aggiornamenti
+per ramo e 50 esposizioni per crop. Si cambia solo la composizione dei
+batch; un gate superato non accorcia il budget del ramo.
+
+**Evidenze best/last.** Oltre ai precedenti output del last, ogni ramo
+ricarica il best già salvato ed esporta `best/crops.csv`, `best/cases.csv`
+e figure con il valutatore comune FP32 a soglia 0,5. Questo consente di
+analizzare recall, precision e conteggi FP/FN anche sul best senza
+richiedere un nuovo comando diagnostico. Le metriche del best devono
+riprodursi entro `1e-4`, altrimenti l'errore interrompe il confronto.
+Il last viene salvato prima di caricare il best, conservando i veri pesi
+finali. Non vengono esportate nuove mappe di probabilità complete.
+
+`comparison.json` distingue `complete` dal gate `passed` del last mixed;
+rimangono ramo attivo ed eventuale errore tecnico. Il budget, le esposizioni
+e la riproduzione del best devono essere completati prima di dichiarare
+il confronto concluso. I checkpoint/gate precedenti non sono modificati,
+una directory non vuota viene rifiutata e non è previsto resume. Nessuna
+promozione automatica a piloti/full, nessuna conclusione sulla validation.
+
+**Verifica locale.** Test a pesi fermi coprono uguaglianza delle loss e
+dei gradienti per grouped/mixed anche con Dice quadratico e il fattore
+errato 1,5 senza normalizzatore fisso. Verificato accumulo 1×8/2×4 con
+entrambi i denominatori. Fixture TIFF esercitano i due rami, inoltro
+effettivo della variante, hash iniziali/pool, esposizioni, metadati,
+esportazioni dei best e mantenimento dei vecchi gate. Controllati budget
+completo anche dopo successo precoce, distinzione fra pesi best e last,
+blocco prima del training per hash iniziale diverso, rifiuto di metriche
+best non riproducibili e CLI del nuovo comando. Superati 102 test pertinenti,
+con un test dei worker persistenti escluso (non usati dal confronto) e
+18 warning MONAI già presenti. Comando Windows nella
+sezione 18.2.7 della guida. L'esecuzione CT/CUDA resta da svolgere nel
+laboratorio; non sono state avviate nuove run scientifiche localmente.
 
 ## Come aggiornare questo registro
 

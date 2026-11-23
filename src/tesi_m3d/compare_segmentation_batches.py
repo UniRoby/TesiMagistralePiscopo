@@ -14,7 +14,7 @@ import torch
 from .diagnose_localization import write_csv, write_json
 from .segmentation import build_segmenter
 from .segmentation_data import SegmentationDataset, VolumeOrder, category, manifest_records
-from .train import _write_metrics_row, load_yaml_config, resolve_cache_dir, set_global_seed
+from .train import _load_torch_payload, _write_metrics_row, load_yaml_config, resolve_cache_dir, set_global_seed
 from .train_segmentation import (check_prerequisites, make_optimizer, overfit_metrics, overfit_rank,
                                  read_json, save_checkpoint, train_volume, validate_config, _rng_state)
 
@@ -84,19 +84,24 @@ def epoch_batches(pool, seed, epoch, *, mixed):
     return result
 
 
-def run_arm(config, manifest, pool, output, *, mixed, device):
+def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_state_sha256=None):
     started = perf_counter()
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     training = config["training"]
+    squared_pred = training.get("squared_pred", False)
+    training_loss = {"bce_weight": 0.5, "dice_weight": 0.5, "squared_pred": squared_pred,
+                     "empty_crops": "BCE_only"}
     set_global_seed(training.get("seed", 21))
     model = build_segmenter(config["model"]).to(device)
-    optimizer = make_optimizer(model, training)
     digest = hashlib.sha256()
     for name, tensor in model.state_dict().items():
         digest.update(name.encode())
         digest.update(tensor_digest(tensor).encode())
     initial_hash = digest.hexdigest()
+    if expected_initial_state_sha256 is not None and initial_hash != expected_initial_state_sha256:
+        raise ValueError("comparison arms did not start from identical model states")
+    optimizer = make_optimizer(model, training)
     layout = "mixed" if mixed else "grouped"
     print(f"starting {layout}: {training['epochs']} epochs, {training['max_updates']} updates", flush=True)
     sampling = {"layout": layout, "fixed_foreground_normalizer": 4, "crop_pool_sha256": pool.digest}
@@ -108,7 +113,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device):
 
     def payload(epoch):
         return {"format_version": 1, "task": "segmentation", "experiment": "batch_composition_comparison",
-                "config": config, "manifest": manifest, "sampling": sampling,
+                "config": config, "manifest": manifest, "sampling": sampling, "training_loss": training_loss,
                 "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch, "updates": updates, "best_overfit_metrics": best,
                 "best_ap": -1.0, "stale_validations": 0, "rng_state": _rng_state(),
@@ -121,7 +126,8 @@ def run_arm(config, manifest, pool, output, *, mixed, device):
         if best is None or overfit_rank(metrics) > overfit_rank(best):
             best = {"updates": updates, **metrics}
             save_checkpoint(payload(epoch), output / "best.pt")
-            write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"], **best})
+            write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
+                                                   "training_loss": training_loss, **best})
 
     if str(device).startswith("cuda"):
         torch.cuda.reset_peak_memory_stats(device)
@@ -134,13 +140,13 @@ def run_arm(config, manifest, pool, output, *, mixed, device):
             # Keep each positive crop's original Dice weight when changing batch composition.
             loss = train_volume(model, batch, optimizer, device=device, microbatch=training["batch_size"],
                                 accumulation=training["accumulation_steps"], diagnostics=diagnostics,
-                                foreground_normalizer=4)
+                                foreground_normalizer=4, squared_pred=squared_pred)
             updates += 1
             exposures[indices] += 1
             _write_metrics_row(output / "update_metrics.csv", {"updates": updates, "epoch": epoch + 1,
                                "crop_indices": ";".join(map(str, indices)), "positive_crops": int(pool.positive[indices].sum()),
                                "real_crops": int(pool.real[indices].sum()), "scans": len(set(indices // 8)),
-                               "loss": loss, **diagnostics})
+                               "loss": loss, "squared_pred": squared_pred, **diagnostics})
             if updates % 25 == 0 or updates == training["max_updates"]:
                 cases = []
                 metrics = overfit_metrics(model, pool, device, training["batch_size"], case_rows=cases)
@@ -151,15 +157,25 @@ def run_arm(config, manifest, pool, output, *, mixed, device):
                 print(json.dumps({"layout": layout, "updates": updates, **metrics}), flush=True)
     final = overfit_metrics(model, pool, device, training["batch_size"], output)
     select_best(final, training["epochs"])
-    final.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True)
+    final.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True,
+                 training_loss=training_loss)
     write_json(output / "gate.json", final)
     save_checkpoint(payload(training["epochs"]), output / "last.pt")
     write_csv(output / "exposures.csv", [{"pool_index": i, "exposures": int(n)} for i, n in enumerate(exposures)])
     if updates != training["max_updates"] or not np.all(exposures == training["epochs"]):
         raise ValueError("comparison budget or crop exposures differ from protocol")
-    report = {**sampling, "initial_state_sha256": initial_hash, "updates": updates,
+    # Export the best with the same evaluator, after preserving the final weights.
+    model.load_state_dict(_load_torch_payload(output / "best.pt")["model_state_dict"], strict=True)
+    measured_best = overfit_metrics(model, pool, device, training["batch_size"], output / "best")
+    reproduced = (measured_best["passed"] == best["passed"] and all(
+        abs(measured_best[key] - best[key]) <= 1e-4
+        for key in ("positive_crop_dice", "negative_crop_fp_fraction")))
+    if not reproduced:
+        raise ValueError("best checkpoint metrics were not reproduced within 1e-4")
+    report = {**sampling, "training_loss": training_loss, "initial_state_sha256": initial_hash, "updates": updates,
               "epochs": training["epochs"], "exposures_per_crop": int(exposures[0]),
               "first_gate_passed_update": first_passed, "best": best, "last": final,
+              "best_reproduced_within_1e_4": reproduced,
               "seconds": perf_counter() - started,
               "max_memory_mib": torch.cuda.max_memory_allocated(device) / 2**20 if str(device).startswith("cuda") else None}
     write_json(output / "report.json", report)
@@ -190,18 +206,21 @@ def run_comparison(config, data_root, *, device="cpu", output_dir="outputs/segme
     write_json(output / "effective_config.json", config)
     write_json(output / "manifest.json", manifest)
     report = {"experiment": "batch_composition_comparison", "manifest_id": manifest["manifest_id"],
-              "crop_pool_sha256": pool.digest, "passed": False, "active_arm": "grouped", "arms": {}}
+              "crop_pool_sha256": pool.digest, "complete": False, "passed": False,
+              "active_arm": "grouped", "arms": {}}
     try:
         for layout in ("grouped", "mixed"):
             report["active_arm"] = layout
             report["arms"][layout] = run_arm(config, manifest, pool, output / layout,
-                                             mixed=layout == "mixed", device=device)
+                mixed=layout == "mixed", device=device,
+                expected_initial_state_sha256=report["arms"].get("grouped", {}).get("initial_state_sha256"))
             if str(device).startswith("cuda"):
                 torch.cuda.empty_cache()
         grouped, mixed = report["arms"]["grouped"], report["arms"]["mixed"]
         if grouped["initial_state_sha256"] != mixed["initial_state_sha256"]:
             raise ValueError("comparison arms did not start from identical model states")
-        report.update(active_arm=None, passed=mixed["last"]["passed"],
+        report.update(complete=True, active_arm=None, training_loss=grouped["training_loss"],
+                      passed=mixed["last"]["passed"],
                       delta_last_dice=mixed["last"]["positive_crop_dice"] - grouped["last"]["positive_crop_dice"],
                       delta_last_fp_fraction=mixed["last"]["negative_crop_fp_fraction"] - grouped["last"]["negative_crop_fp_fraction"])
         return report

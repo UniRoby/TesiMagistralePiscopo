@@ -52,6 +52,12 @@ usa `configs/segmentation_overfit_squared.yaml` con `train_segmentation`.
 Riparte da MedicalNet, conserva i criteri originali e salva risultati separati;
 le vecchie configurazioni continuano a usare il Dice lineare.
 
+Il gate quadratico sulle sei scansioni è ancora fallito. Il prossimo
+[confronto grouped/mixed con Dice quadratico](docs/LAB_WORKFLOW.md#1827-batch-per-volume-contro-misti-con-dice-quadratico)
+riusa `compare_segmentation_batches` e la stessa configurazione, con
+output `outputs/segmentation_batch_comparison_squared`: due rami da 300
+aggiornamenti, stessi 48 crop, con CSV e immagini di best e last.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

@@ -1314,6 +1314,83 @@ usare per pilota/full un gate ottenuto con un denominatore differente.
 Le configurazioni pilota/full esistenti restano lineari e non vengono
 promosse automaticamente a questa variante.
 
+**Esito del laboratorio.** Il gate quadratico è terminato a 300 passi:
+Dice medio positivo **0,782871**, FP negativi **0,37899%**, `passed: false`.
+Anche il best a 275 fallisce (Dice 0,785942). Precision micro nei crop
+positivi 0,8752, recall 0,6760: la riduzione dei FP si accompagna a target
+persi, soprattutto `inj_1419/1`. Dettagli e confronto con la baseline nella
+sezione 10.15 del registro. Non avviare piloti/full e non prolungare questa
+run. Il confronto successivo grouped/mixed con Dice quadratico e budget
+invariato è ora disponibile nella sezione 18.2.7.
+
+### 18.2.7 Batch per volume contro misti con Dice quadratico
+
+Aggiornare prima il codice sul PC del laboratorio. Dalla root del
+repository, nello stesso ambiente e con gli stessi percorsi dell'audit:
+
+```powershell
+python -m tesi_m3d.compare_segmentation_batches `
+  --config configs\segmentation_overfit_squared.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --output-dir outputs\segmentation_batch_comparison_squared
+```
+
+Si riusa la configurazione quadratica, ma **l'output è quello indicato da
+`--output-dir`**: i risultati del gate precedente non vengono sovrascritti.
+Non occorrono un nuovo audit, un nuovo manifest o altre dipendenze.
+Non aggiungere `--resume` o `--debug-updates`: il confronto non riprende
+run precedenti e registra già i diagnostici di tutti gli aggiornamenti.
+
+Il comando avvia **due nuove inizializzazioni MedicalNet**, con encoder
+preaddestrato obbligatorio e decoder fresco. Il pool di 48 crop viene
+preparato una sola volta, senza augmentation, verificato e identificato
+tramite hash di immagini/mask e condiviso fra i rami:
+
+- `grouped/`: otto crop della stessa scansione per aggiornamento;
+- `mixed/`: otto crop di almeno tre scansioni, con due/tre positivi e
+  almeno un negativo di ciascuno dei due reali.
+
+In entrambi i rami la loss è **0,5 BCE + 0,5 Dice quadratico**. BCE su tutti
+i crop, Dice solo sui positivi e normalizzatore foreground fisso a quattro:
+cambiare la composizione non aumenta il peso complessivo del Dice. Seed,
+preprocessing, LR, soglia 0,5, batch fisico 2 e accumulo 4 restano quelli
+del gate quadratico. Le due inizializzazioni devono avere lo stesso hash;
+un mismatch interrompe il mixed prima del primo aggiornamento.
+
+**300 aggiornamenti per ramo, 600 complessivi e 50 esposizioni per crop**,
+anche se un gate passa prima. Non equivale alle prove isolate da 300
+esposizioni per crop. Il controllo rimane Dice medio positivo almeno 0,90,
+FP negativi sotto 1% e gradienti finiti; non basta migliorare grouped.
+
+Sincronizzare **`outputs/segmentation_batch_comparison_squared/` senza
+i `.pt`**, mantenendo entrambe le sottocartelle e tutti i JSON, CSV e PNG.
+In particolare:
+
+- `comparison.json`: `complete`, ramo attivo, eventuale `error`, loss,
+  risultati best/last, hash iniziali e differenze mixed meno grouped;
+- `crop_pool.csv`, config e manifest: identità dei 48 crop;
+- in ciascun ramo, gate best/last, `report.json`, `exposures.csv`, metriche
+  per aggiornamento/caso, `crops.csv`, `cases.csv` e `images/` del last;
+- `best/crops.csv`, `best/cases.csv` e `best/images/`, prodotti ricaricando
+  il best con lo stesso valutatore FP32 e soglia 0,5. Le sue metriche devono
+  riprodursi entro `1e-4`, altrimenti il confronto risulta incompleto.
+
+`training_loss.squared_pred` deve essere `true` nei report/gate/checkpoint,
+e `squared_pred` deve essere `True` nei CSV di aggiornamento. Il vecchio
+config senza questa chiave continua a selezionare il Dice lineare.
+Non confrontare i valori di loss lineare/quadratica per dichiarare successo.
+Per capire se il mixed recupera anche le regioni perse, leggere precision,
+recall, FP e FN nei CSV dei crop best/last, soprattutto `inj_1419/1`.
+
+`complete: true` senza `error` indica che entrambi i budget e l'audit dei
+best sono conclusi. `passed` riguarda il **last mixed**: un best riuscito
+è documentato separatamente. Exit code 2 può quindi indicare un confronto
+tecnicamente completato ma con gate scientifico fallito. Un `error` o
+`complete: false` impone di risolvere il problema tecnico prima di usare
+le differenze. Una cartella non vuota viene rifiutata; per ripetere usare
+un nuovo output. Nessun vecchio gate viene modificato e nessun pilota/full
+parte automaticamente. Questo rimane un test su crop di training.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:
