@@ -152,6 +152,50 @@ def test_four_checkpoints_export_recomputable_metrics_without_training_or_source
         audit.run_diagnosis(root, run_dir=source, output_dir=source / "child")
 
 
+def test_audit_matches_reference_seed_grad_mode_and_sigmoid_before_cpu(source_run, tmp_path, monkeypatch):
+    root, source, _ = source_run
+    seed, restore = audit.set_global_seed, audit.build_segmenter
+    sigmoid, cpu = torch.Tensor.sigmoid, torch.Tensor.cpu
+    events, current = [], {}
+
+    def setup(value):
+        events.append(("seed", value))
+        seed(value)
+
+    def capture(module, inputs, output):
+        assert not torch.is_grad_enabled() and not torch.is_inference_mode_enabled()
+        current.clear()
+        current["logits"] = output
+
+    def build(*args, **kwargs):
+        assert events[-1] == ("seed", 21)
+        model = restore(*args, **kwargs)
+        model.register_forward_hook(capture)
+        return model
+
+    def predict(self):
+        result = sigmoid(self)
+        if self is current.get("logits"):
+            current["probability"] = result
+        return result
+
+    def transfer(self, *args, **kwargs):
+        assert self is not current.get("logits"), "sigmoid must precede CPU transfer, as in overfit_metrics"
+        if self is current.get("probability"):
+            events.append(("probability_to_cpu", None))
+        return cpu(self, *args, **kwargs)
+
+    monkeypatch.setattr(audit, "set_global_seed", setup)
+    monkeypatch.setattr(audit, "build_segmenter", build)
+    monkeypatch.setattr(torch.Tensor, "sigmoid", predict)
+    monkeypatch.setattr(torch.Tensor, "cpu", transfer)
+    result = audit.run_diagnosis(root, run_dir=source, output_dir=tmp_path / "parity")
+    assert events.count(("seed", 21)) == 4
+    assert events.count(("probability_to_cpu", None)) == 4 * 48 // 2
+    for report in result["checkpoints"].values():
+        assert report["reproduction_failures"] == [] and report["sigmoid_device"] == "cpu"
+
+
 @pytest.mark.parametrize("change", ["task", "config", "manifest", "sampling", "training_loss", "updates", "best_metrics", "state_dict"])
 def test_checkpoint_binding_rejects_wrong_payload_and_reports_active_checkpoint(source_run, tmp_path, change):
     root, source, _ = source_run
@@ -211,10 +255,12 @@ def test_prediction_drift_and_nonfinite_logits_stop_diagnosis(source_run, tmp_pa
     payload = torch.load(checkpoint, weights_only=False)
     payload["model_state_dict"]["output.bias"].fill_(9)
     torch.save(payload, checkpoint)
-    with pytest.raises(ValueError, match="not reproduced"):
+    with pytest.raises(ValueError, match="not reproduced.*delta_saved_peak_probability.*pool_index=0") as error:
         audit.run_diagnosis(root, run_dir=source, output_dir=tmp_path / "drift")
     report = json.loads((tmp_path / "drift/grouped/best/report.json").read_text())
     assert not report["reproduced_within_1e_4"]
+    assert all("delta_saved_peak_probability" in failure for failure in report["reproduction_failures"])
+    assert "report.json" in str(error.value)
 
     class Nonfinite(TinySegmenter):
         def forward(self, image): return image * float("nan")

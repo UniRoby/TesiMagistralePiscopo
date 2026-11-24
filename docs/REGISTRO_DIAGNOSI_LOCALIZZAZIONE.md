@@ -1496,6 +1496,39 @@ Superati 121 test pertinenti, escluso il worker persistente non usato;
 restano 18 warning MONAI già presenti. L'esecuzione CT/CUDA e la diagnosi scientifica restano da acquisire nel
 laboratorio. Piloti/full ancora bloccati.
 
+### 10.19 Blocco tecnico dell'audit a grouped/best: allineamento del valutatore
+
+**Evidenza.** Il comando nel laboratorio raggiunge 48/48 crop del primo
+checkpoint, poi interrompe per mancata riproduzione entro `1e-4`. Il solo
+traceback non identifica la misura fuori tolleranza. Gli artefatti del
+tentativo fallito non sono presenti nella copia locale: nessuna causa
+numerica specifica è stata confermata e nessuna nuova conclusione sul
+modello è ricavabile da questo errore.
+
+**Intervento.** Individuate e corrette differenze rispetto alla valutazione
+che aveva prodotto i CSV: l'audit non chiamava `set_global_seed` (che nella
+run CUDA abilita l'autotuning cuDNN), usava `inference_mode` anziché
+`no_grad` e trasferiva i logits su CPU prima della sigmoid. Ora ripete
+setup e ordine delle operazioni della sorgente. Invariati pesi, dati,
+soglia e tolleranza. Ogni scarto fuori tolleranza è salvato nel campo
+`reproduction_failures`; il messaggio di errore riporta i primi tre con
+identità del crop e percorso del report completo. Registrati anche
+`cudnn_benchmark` e `sigmoid_device` nel report del checkpoint.
+
+**Verifica locale.** Superati 56 test dei tre moduli di audit probabilità
+e confronto batch. La regressione controlla il setup prima del ripristino,
+`no_grad` senza `inference_mode` e sigmoid prima del trasferimento CPU;
+una variazione dei pesi con maschere binarie invariate continua a bloccare
+l'audit, indicando gli scarti dei picchi e il percorso del report.
+
+**Limite e decisione.** L'allineamento elimina differenze evitabili del
+valutatore, ma non dimostra che esse spieghino il blocco nel laboratorio;
+l'autotuning non garantisce identità numerica tra processi/kernel. Serve
+una nuova esecuzione sui checkpoint esistenti e, se fallisce ancora,
+l'analisi degli scarti salvati. Nessun nuovo training richiesto; non
+interpretare le soglie dell'audit incompleto. Ripartenza conservando
+la cartella fallita nella sezione 18.2.8 della guida Windows.
+
 ## Come aggiornare questo registro
 
 Per ogni punto chiuso, sostituire «Da compilare» con: **verifica eseguita**

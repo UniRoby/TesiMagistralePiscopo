@@ -1478,6 +1478,34 @@ i quattro checkpoint riprodotti. Con `complete: false` leggere `error` e
 flag `passed`: una valutazione tecnicamente completata non è un successo
 del modello. Una directory non vuota o interna alla run sorgente è rifiutata.
 
+**Se compare `checkpoint/crop metrics were not reproduced within 1e-4`.**
+È fallito il confronto con le metriche salvate, non un nuovo training.
+Il valutatore è stato allineato alla run sorgente: `set_global_seed`
+(che su CUDA abilita `cudnn.benchmark`), `torch.no_grad()` e sigmoid
+sul device del modello prima del trasferimento CPU. La tolleranza resta
+`1e-4`; questi allineamenti non garantiscono identità numerica fra kernel
+CUDA o versioni diverse. Il nuovo errore indica metrica, scarto e crop;
+il report del checkpoint conserva tutti i `reproduction_failures`.
+
+Dopo aver aggiornato il codice, conservare il tentativo fallito e ripetere
+solo la valutazione, con gli stessi `$ctRoot` e `$realCtRoot`:
+
+```powershell
+Rename-Item -Path outputs\segmentation_batch_probability_diagnostics `
+  -NewName segmentation_batch_probability_diagnostics_failed_01 -ErrorAction Stop
+
+python -m tesi_m3d.diagnose_segmentation_batch_probabilities `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --run-dir outputs\segmentation_batch_comparison_squared `
+  --output-dir outputs\segmentation_batch_probability_diagnostics
+```
+
+Il nome `_failed_01` deve essere libero: non sovrascrivere tentativi precedenti.
+Se fallisce ancora, sincronizzare la nuova directory anche incompleta,
+in particolare `report.json`, `grouped/best/report.json` e
+`grouped/best/crops.csv` (oppure il checkpoint indicato da `active_checkpoint`).
+Non allargare la tolleranza e non riaddestrare per aggirare il controllo.
+
 **Quando riprendere il training.** Dopo l'analisi di questi risultati si
 può scegliere una sola modifica motivata e riprovare l'overfit. Il passaggio
 ai piloti richiede ancora un gate valido sulle sei scansioni (Dice medio

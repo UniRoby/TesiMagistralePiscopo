@@ -16,7 +16,7 @@ from .diagnose_segmentation_probabilities import probability_statistics
 from .segmentation import build_segmenter, file_digest
 from .segmentation_data import SegmentationDataset, manifest_records
 from .segmentation_metrics import BINS, ScoreHistogram, preview_planes, save_preview
-from .train import _load_torch_payload, resolve_cache_dir
+from .train import _load_torch_payload, resolve_cache_dir, set_global_seed
 from .train_segmentation import check_prerequisites, read_json, validate_config
 
 THRESHOLDS = np.arange(1001, dtype=np.float64) / 1000
@@ -81,6 +81,8 @@ def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_ro
     for row, identity in zip(source_rows, pool.rows):
         if any(str(row[key]) != str(identity[key]) for key in ("mod", "img_id", "crop_index", "target_voxels")):
             raise ValueError("source crop identity or target count changed")
+    # Match run_arm's seed/cuDNN setup as well as overfit_metrics' inference path.
+    set_global_seed(config["training"].get("seed", 21))
     model = build_segmenter(config["model"], state_dict=payload["model_state_dict"]).to(device).eval()
     del payload
     if str(device).startswith("cuda"):
@@ -92,12 +94,12 @@ def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_ro
                 max(negative_indices, key=lambda i: float(source_rows[i]["negative_crop_fp_fraction"]))}
     rows, distributions, counts, histograms, previews = [], [], [], [], {}
     microbatch = config["training"]["batch_size"]
-    with torch.inference_mode():
+    with torch.no_grad():
         for start in range(0, 48, microbatch):
-            logits = model(pool.image[start:start + microbatch].to(device)).float().cpu()
+            logits = model(pool.image[start:start + microbatch].to(device)).float()
             if logits.shape != pool.mask[start:start + microbatch].shape or not torch.isfinite(logits).all():
                 raise ValueError("non-finite or incorrectly shaped checkpoint logits")
-            probabilities = logits.sigmoid().numpy()
+            probabilities = logits.sigmoid().cpu().numpy()
             for offset, probability in enumerate(probabilities[:, 0]):
                 i = start + offset
                 target = pool.mask[i, 0].numpy().astype(bool)
@@ -131,10 +133,15 @@ def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_ro
     fixed = curve[FIXED_INDEX]
     delta = {"positive_crop_dice": fixed["mean_positive_crop_dice"] - expected["positive_crop_dice"],
              "negative_crop_fp_fraction": fixed["negative_crop_fp_fraction"] - expected["negative_crop_fp_fraction"]}
-    reproduced = ((fixed["mean_positive_crop_dice"] >= .9 and fixed["negative_crop_fp_fraction"] < .01) == expected["passed"]
-        and all(abs(v) <= 1e-4 for v in delta.values()) and all(
-        r[key] is None or abs(r[key]) <= 1e-4 for r in rows
-        for key in ("delta_saved_dice", "delta_saved_negative_fp_fraction", "delta_saved_peak_probability")))
+    failures = [f"aggregate {key}: delta={value:+.8g}" for key, value in delta.items() if not abs(value) <= 1e-4]
+    if (fixed["mean_positive_crop_dice"] >= .9 and fixed["negative_crop_fp_fraction"] < .01) != expected["passed"]:
+        failures.append("fixed .5 gate decision differs from saved decision")
+    for row in rows:
+        for key in ("delta_saved_dice", "delta_saved_negative_fp_fraction", "delta_saved_peak_probability"):
+            if row[key] is not None and not abs(row[key]) <= 1e-4:
+                failures.append(f"{key}={row[key]:+.8g} (pool_index={row['pool_index']}, "
+                                f"scan={row['img_id']}, crop_index={row['crop_index']})")
+    reproduced = not failures
     aps = {}
     for name, chosen in (("all_crops", np.ones(48, dtype=bool)), ("positive_crops", pool.positive), ("real_crops", pool.real)):
         hist = ScoreHistogram()
@@ -144,8 +151,11 @@ def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_ro
     aps["mean_positive_crop_ap"] = float(np.mean(valid_aps)) if valid_aps else None
     result = {"checkpoint_sha256": file_digest(path), "updates": expected["updates"],
               "evaluation": "float32_no_autocast", "training_loss": arm["training_loss"],
+              "cudnn_benchmark": torch.backends.cudnn.benchmark,
+              "sigmoid_device": str(device),
               "fixed_threshold": fixed, "voxel_ap": aps, "diagnostic_train_only": diagnostic,
               "metric_delta_from_saved": delta, "reproduced_within_1e_4": reproduced,
+              "reproduction_failures": failures,
               "max_abs_saved_count_delta": max(abs(r[key]) for r in rows for key in
                   ("delta_saved_true_positive_voxels", "delta_saved_false_positive_voxels", "delta_saved_false_negative_voxels")),
               "preview_pool_indices": sorted(map(int, selected)), "seconds": perf_counter() - started,
@@ -156,7 +166,9 @@ def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_ro
     write_csv(output / "thresholds.csv", curve)
     write_json(output / "report.json", result)
     if not reproduced:
-        raise ValueError("checkpoint/crop metrics were not reproduced within 1e-4; do not interpret threshold diagnostics")
+        raise ValueError("checkpoint/crop metrics were not reproduced within 1e-4: "
+                         + "; ".join(failures[:3]) + f". All {len(failures)} failures: {output / 'report.json'}; "
+                         "do not interpret threshold diagnostics")
     diagnostic_rows = []
     for strategy in ("best_common_mean_dice", "best_common_with_negative_fp_below_1pct"):
         chosen = diagnostic[strategy]
