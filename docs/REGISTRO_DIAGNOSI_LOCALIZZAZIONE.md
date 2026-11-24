@@ -1353,8 +1353,148 @@ blocco prima del training per hash iniziale diverso, rifiuto di metriche
 best non riproducibili e CLI del nuovo comando. Superati 102 test pertinenti,
 con un test dei worker persistenti escluso (non usati dal confronto) e
 18 warning MONAI già presenti. Comando Windows nella
-sezione 18.2.7 della guida. L'esecuzione CT/CUDA resta da svolgere nel
-laboratorio; non sono state avviate nuove run scientifiche localmente.
+sezione 18.2.7 della guida. Non sono state avviate nuove run scientifiche
+localmente; i risultati successivamente sincronizzati sono nella sezione 10.17.
+
+### 10.17 Grouped/mixed quadratico: confronto completo, gate ancora fallito
+
+**Evidenze.** `outputs/segmentation_batch_comparison_squared/comparison.json`
+riporta `complete: true`, `passed: false`, nessun errore o ramo attivo.
+Entrambi i rami usano Dice quadratico, pesi BCE/Dice 0,5/0,5 e normalizzatore
+foreground quattro. Hash iniziale identico `9a053aa1…`, ledger del pool
+`80c77851…`: coincidono anche con il riferimento grouped/mixed lineare.
+Il manifest è identico. Ricalcolato l'hash del ledger CSV dopo conversione
+degli indici/conteggi a interi: coincide con quello dichiarato.
+
+**Controlli indipendenti.** Per ciascun ramo, 300 righe consecutive di
+aggiornamenti, 50 epoche, 48 crop visitati una volta per epoca e 50 volte
+complessive ciascuno, 12 controlli del gate. Ricontate dai CSV le composizioni:
+grouped sempre una scansione; mixed almeno tre, due/tre crop positivi e
+almeno un crop da ciascuno dei due reali. Gradienti e aggiornamenti di
+encoder/decoder finiti e positivi, identità loss=0,5 BCE+0,5 Dice entro
+`1e-6`, flag quadratico presente in tutte le righe. Ledger, manifest e
+report dei rami sono coerenti con il riepilogo. Per i quattro insiemi
+grouped/mixed best/last, ricalcolati dai 48 crop TP/FP/FN, Dice medio e
+FPR: coincidono con i report. Le riproduzioni dei best entro `1e-4` sono
+confermate dai report del laboratorio; qui non è stata rifatta inferenza.
+
+| Stato | Passo | Dice medio positivo | FPR negativi | Dice micro positivi | Precision / recall micro positivi |
+|---|---:|---:|---:|---:|---:|
+| Grouped best = last | 300 | 0,801162 | 1,08588% | 0,806533 | 0,807300 / 0,805767 |
+| Mixed best | 275 | 0,832099 | 1,23647% | 0,841116 | 0,821422 / 0,861777 |
+| Mixed last | 300 | 0,821193 | 0,49747% | 0,825644 | 0,884563 / 0,774083 |
+
+Nessuno dei 24 controlli supera il gate. Il grouped fallisce entrambi i
+criteri Dice/FPR; il last mixed passa soltanto quello FPR. Il best mixed
+ha Dice maggiore, ma FPR oltre 1%: non è un modello che supera il gate.
+Nel last mixed due crop positivi su 16 superano 0,90, contro zero grouped.
+
+**Guadagno e compromesso.** A fine budget il mixed guadagna 0,020031 di
+Dice medio e riduce i FP negativi da 91.090 a 41.731 (circa 54,2%).
+Nei crop positivi i FP scendono da 52.684 a 27.671, ma i FN salgono da
+53.204 a 61.883 su 273.919 voxel annotati. Migliorano dieci crop, peggiorano
+sei: non è un recupero uniforme delle regioni perse. Sui soli crop reali
+i FP passano da 28.490 a 6.038, FPR da 0,67925% a 0,14396%; il best mixed
+ha invece 31.951 FP reali (0,76177%). Fra best e last mixed i FN crescono
+da 37.862 a 61.883 mentre cala il fondo predetto: la scelta del checkpoint
+conta anche quando la media Dice differisce di circa un punto.
+
+**Casi residui.** Il last mixed ha Dice medio per scansione 0,807920
+(`inj_2092`), 0,778339 (`inj_1419`), 0,834421 (`rem_133`), 0,864090
+(`rem_15`). `inj_1419/1`, target 59.200 voxel, migliora da Dice 0,665829
+a 0,734023, ma conserva 23.158 FN e recall 0,608818. Il peggiore è
+`inj_1419/3`: Dice 0,634358, 4.567 FN, recall 0,524271; le figure mostrano
+una parte consistente del riquadro scoperta, non soltanto angoli smussati.
+I suoi quattro negativi hanno FPR medio 2,74887%, con massimo 4,21410%
+sul crop 7: il FPR globale sotto 1% non significa assenza di errori locali.
+I piccoli `inj_2092/3` e `rem_133/2` migliorano a 0,688669 e 0,803073,
+ma restano lontani dal Dice 1 delle prove isolate con più esposizioni.
+
+**Limiti e decisione.** Il batching misto aiuta in questa coppia di run,
+ma non risolve il recupero della localizzazione. Il grouped quadratico
+precedente aveva Dice 0,782871/FPR 0,37899%, ora 0,801162/1,08588%:
+le run non sono identiche nei risultati; la causa della variabilità non
+è stata isolata. L'effetto di due punti Dice non è una stima stabile su
+più seed. Non confrontare soltanto il nuovo mixed con il vecchio grouped.
+Il clipping interessa 104/300 passi grouped e 120/300 mixed; questo non
+dimostra che sia la causa degli errori. Nessuna conclusione sulla validation.
+
+Piloti/full ancora bloccati; non allungare il training o cambiare LR/loss
+senza nuova evidenza. Il prossimo controllo proposto è **senza training**,
+sui quattro checkpoint grouped/mixed best/last e su tutti i 48 crop:
+distribuzioni delle probabilità dentro/fuori mask, AP voxel e profili
+Dice/precision/recall/FPR al variare di una soglia comune. Serve a distinguere
+un problema di scala delle probabilità da regioni effettivamente non
+separate dal fondo. Un'eventuale soglia ottimizzata sul train è soltanto
+diagnostica: non riscrive il gate a 0,5 e non autorizza i piloti. L'audit
+precedente sui due crop isolati non copre questi quattro modelli. Questo
+controllo è ora implementato nella sezione 10.18. Nessun nuovo training avviato.
+
+Disponibili CSV e figure, assenti pesi e mappe complete di questa run:
+non sono state ricalcolate AP o curve di soglia da immagini PNG. Le figure
+supportano la diagnosi spaziale, ma non sostituiscono le probabilità grezze.
+
+### 10.18 Audit delle probabilità sui 48 crop e quattro checkpoint: implementazione
+
+**Intervento.** Aggiunto `diagnose_segmentation_batch_probabilities`, sola
+valutazione della run `segmentation_batch_comparison_squared`, con output
+`segmentation_batch_probability_diagnostics`. Ricostruisce una volta il
+pool con `FixedCropPool`, verifica tutte le identità e gli hash contro il
+ledger sorgente e usa i quattro stati completi grouped/mixed best/last.
+Nessuna inizializzazione da pesi casuali per l'inferenza: il modello viene
+ripristinato integralmente dal checkpoint, anche senza il file MedicalNet
+iniziale. Nessun optimizer, backward o modifica alle run di provenienza.
+
+Controllati task, config, manifest, sampling, loss, numero di aggiornamenti
+e metadati del best. A soglia 0,5 richiede riproduzione entro `1e-4` di
+Dice/FPR aggregati, Dice/FPR per crop e picchi di probabilità, con la stessa
+decisione numerica del gate. Gli scarti dei conteggi sono riportati. Un
+errore conserva contesto del checkpoint attivo e audit incompleto, senza
+promuovere risultati derivati da pesi/input non corrispondenti.
+
+**Misure.** Riutilizzati `probability_statistics`, `ScoreHistogram` e le
+figure nei tre piani. Quantili esatti e masse float64 dentro/fuori mask e
+per fasce dal bordo; AP voxel per crop, aggregata e media sui positivi,
+approssimata mediante 65.536 bin. I profili usano 1.001 soglie comuni,
+passo 0,001, con conteggi esatti `>=` sulle probabilità float32 promosse
+a float64, comprese le estremità 0 e 1. Dice medio positivo, Dice micro,
+precision/recall e FPR negativi/reali restano distinti. Le metriche non
+definite sui negativi sono `null`, non valori perfetti assegnati d'ufficio.
+
+Due soglie comuni diagnostiche massimizzano il Dice medio positivo sulla
+griglia, senza vincoli e con FPR negativo strettamente sotto 1%. Esportati
+anche i dettagli per crop a quelle soglie e la media degli ottimi per
+singolo crop, esplicitamente come oracolo sul train/griglia. Il secondo
+ottimo può essere assente se nessuna soglia è ammissibile. Una griglia a
+passo 0,001 non dimostra un ottimo su tutti i possibili valori. Un eventuale
+successo numerico diagnostico non sostituisce il gate a 0,5 né una futura
+calibrazione su validation. AP e profili dei crop sovrapposti non sono
+metriche sui volumi originali o prove di generalizzazione.
+
+**Artefatti riproducibili e limiti.** I quattro `metrics.npz` contengono
+conteggi per crop/soglia e istogrammi per crop/classe, senza mappe complete
+o coordinate delle probabilità. Consentono di ricalcolare localmente AP e
+curve senza trasferire checkpoint o rieseguire inferenza. Eccezione Git
+limitata a questi file nella nuova directory. Statistiche complete su
+tutti i 48 crop; le figure mostrano positivo/negativo peggiori determinati
+dai CSV originali, agli stessi piani per soglia fissa e diagnostica. Nessuna
+selezione manuale delle sole immagini riuscite, nessun accumulo delle 48
+mappe predette. Comando e interpretazione nella sezione 18.2.8 della guida.
+
+**Verifica locale.** Fixture controllano inclusione delle soglie 0/1 e dei
+pareggi, conteggi esatti sulla griglia, AP contro il riferimento esatto
+quantizzato e differenza rispetto all'AP non quantizzata, oracoli per crop
+distinti dalla soglia comune, vincolo FPR <1% e assenza di soglie ammissibili.
+La prova TIFF esegue tutti i quattro ripristini offline, ricostruisce AP e
+profili dagli NPZ, verifica assenza di gradienti/optimizer, identità dei
+file sorgenti e mancata creazione di gate/calibrazioni. Metadati, input o
+logits alterati, pesi incompleti e checkpoint mancanti sono rifiutati;
+anche una variazione delle probabilità con maschera binaria invariata
+viene rilevata tramite i picchi salvati quando li modifica. Questi controlli
+non ricostruiscono l'intera distribuzione storica, che non era stata salvata.
+Superati 121 test pertinenti, escluso il worker persistente non usato;
+restano 18 warning MONAI già presenti. L'esecuzione CT/CUDA e la diagnosi scientifica restano da acquisire nel
+laboratorio. Piloti/full ancora bloccati.
 
 ## Come aggiornare questo registro
 

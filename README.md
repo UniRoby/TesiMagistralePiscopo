@@ -52,11 +52,19 @@ usa `configs/segmentation_overfit_squared.yaml` con `train_segmentation`.
 Riparte da MedicalNet, conserva i criteri originali e salva risultati separati;
 le vecchie configurazioni continuano a usare il Dice lineare.
 
-Il gate quadratico sulle sei scansioni è ancora fallito. Il prossimo
+Il gate quadratico sulle sei scansioni è ancora fallito. Il
 [confronto grouped/mixed con Dice quadratico](docs/LAB_WORKFLOW.md#1827-batch-per-volume-contro-misti-con-dice-quadratico)
 riusa `compare_segmentation_batches` e la stessa configurazione, con
 output `outputs/segmentation_batch_comparison_squared`: due rami da 300
 aggiornamenti, stessi 48 crop, con CSV e immagini di best e last.
+Il mixed finale ottiene Dice medio 0,8212 e FP negativi 0,4975%:
+migliora il confronto, ma non supera il gate Dice 0,90. Piloti/full bloccati;
+risultati e controllo successivo nella sezione 10.17 del registro diagnostico.
+
+L'[audit delle probabilità sui 48 crop](docs/LAB_WORKFLOW.md#1828-probabilità-e-soglie-sui-quattro-checkpoint-e-sui-48-crop)
+usa `python -m tesi_m3d.diagnose_segmentation_batch_probabilities`, senza
+training: grouped/mixed best/last, AP voxel e profili su soglie comuni.
+Gli output diagnostici non modificano il gate a 0,5 o la calibrazione.
 
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati

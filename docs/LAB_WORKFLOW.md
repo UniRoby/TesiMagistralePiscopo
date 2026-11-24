@@ -1391,6 +1391,100 @@ le differenze. Una cartella non vuota viene rifiutata; per ripetere usare
 un nuovo output. Nessun vecchio gate viene modificato e nessun pilota/full
 parte automaticamente. Questo rimane un test su crop di training.
 
+**Esito sincronizzato.** Confronto completo e appaiato, 300 aggiornamenti
+e 50 esposizioni per crop in entrambi i rami. Grouped last: Dice 0,801162,
+FPR negativi 1,08588%. Mixed last: Dice 0,821193, FPR 0,49747%; best mixed
+a 275: Dice 0,832099, FPR 1,23647%. Nessun gate superato. Il mixed finale
+riduce i FP, ma la recall micro nei crop positivi scende da 0,8058 a 0,7741.
+Non avviare la sezione 18.3 e non rilanciare identico il training. Dettagli
+e limiti nella sezione 10.17 del registro. L'audit senza training delle
+probabilità sui quattro best/last e tutti i 48 crop è ora nella sezione
+18.2.8. Le soglie diagnostiche sul train non sostituiscono il gate a 0,5.
+
+### 18.2.8 Probabilità e soglie sui quattro checkpoint e sui 48 crop
+
+Aggiornare il codice sul PC del laboratorio, poi dalla root del repository
+nell'ambiente Python già usato e con gli stessi percorsi dell'audit:
+
+```powershell
+python -m tesi_m3d.diagnose_segmentation_batch_probabilities `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --run-dir outputs\segmentation_batch_comparison_squared `
+  --output-dir outputs\segmentation_batch_probability_diagnostics
+```
+
+È una **valutazione dei pesi già allenati**: richiede i quattro `.pt`
+grouped/mixed best/last nel laboratorio, senza optimizer, backward o
+riaddestramento. Non richiede un nuovo audit dati, manifest o file di
+configurazione. Ricostruisce il pool una sola volta, controllando tutti
+gli hash di immagini/mask del `crop_pool.csv` originale. Un checkpoint
+mancante blocca prima di leggere le CT; non ripetere il training per
+questo motivo se i pesi esistono ancora nel PC del laboratorio.
+
+Carica lo stato completo dei checkpoint, senza download né necessità di
+ritrovare separatamente il file MedicalNet iniziale. Verifica task, modello,
+preprocessing, manifest, sampling, loss, aggiornamenti e selezione del best.
+L'inferenza è FP32, senza autocast, sulla sola immagine CT. A soglia 0,5
+deve riprodurre entro `1e-4` Dice/FPR aggregati, Dice/FPR dei singoli crop e
+picchi di probabilità già salvati; controlla anche la stessa decisione
+numerica del gate e riporta gli scarti nei conteggi. Un errore interrompe
+l'audit senza modificare sorgenti o gate.
+
+Per ciascuno dei quattro checkpoint salva:
+
+- `crops.csv`: metriche a 0,5, AP per crop, medie/masse dentro e fuori mask,
+  scarti dagli output originali e massimo Dice diagnostico per crop;
+- `distributions.csv`: quantili esatti su tutti i voxel, anche per fasce
+  di distanza dai bordi, riusando le definizioni dell'audit precedente;
+- `thresholds.csv`: **1.001 soglie comuni** da 0 a 1, passo 0,001, con
+  confronto `probabilità >= soglia`, Dice medio positivo, Dice micro,
+  precision/recall nei crop positivi e FP sui negativi/reali;
+- `diagnostic_crops.csv`: dettaglio per crop alle due soglie comuni che
+  massimizzano il Dice medio, senza vincoli e con FPR negativo **<1%**;
+- `report.json`: riproduzione a 0,5, AP aggregata su tutti i crop e sui
+  positivi, media AP dei positivi, soglie diagnostiche e limiti dell'oracolo;
+- `metrics.npz`: soglie, conteggi interi `48×1001×4` nell'ordine TP/FP/FN/TN,
+  istogrammi `48×2×65536` nell'ordine foreground/background. Permettono di
+  ricontrollare AP e profili senza rieseguire il modello;
+- figure per il peggior positivo e negativo della valutazione originale,
+  con gli stessi piani alla soglia 0,5 e a quella diagnostica ammissibile.
+
+L'AP usa tutti i voxel, senza sottocampionamento, con quantizzazione a
+**65.536 bin**: è approssimata, mentre i conteggi sulle 1.001 soglie sono
+esatti rispetto alle probabilità float32 promosse a float64. AP non
+definita sui crop reali/negativi = `null`, non zero. I crop sovrapposti
+contano più volte i voxel fisici: non sono metriche di validation su volumi
+originali. Non accumula tutte le probabilità predette in RAM e non le
+esporta: conserva istogrammi/conteggi e solo le due mappe per le figure.
+Quantili, ricerca delle soglie e compressione lavorano su CPU; l'uso della
+GPU sarà intermittente. Nessuna nuova dipendenza.
+
+**Interpretazione diagnostica.** Confrontare `fixed_threshold` e
+`diagnostic_train_only` nei report. Una buona AP con Dice che cresce molto
+a una soglia comune indica che serve approfondire la scala delle
+probabilità; un recupero scarso anche sulla griglia richiede analizzare
+le regioni confuse e le figure. La media dei massimi per singolo crop è
+un oracolo ottimistico sulla stessa griglia, non una soglia utilizzabile
+in inferenza. Una griglia con passo 0,001 non esamina tutti i possibili
+valori di soglia. Nessuno di questi risultati riscrive il gate a 0,5,
+genera una calibrazione o sblocca automaticamente i piloti.
+
+Sincronizzare **`outputs/segmentation_batch_probability_diagnostics/`**,
+con JSON, CSV, PNG e i quattro `metrics.npz`, già ammessi dal `.gitignore`
+solo in questa directory. Non servono i `.pt` per analizzare gli output.
+Il report principale deve avere `complete: true`, nessun errore e tutti
+i quattro checkpoint riprodotti. Con `complete: false` leggere `error` e
+`active_checkpoint`; non interpretare come concluso l'audit. Non esiste un
+flag `passed`: una valutazione tecnicamente completata non è un successo
+del modello. Una directory non vuota o interna alla run sorgente è rifiutata.
+
+**Quando riprendere il training.** Dopo l'analisi di questi risultati si
+può scegliere una sola modifica motivata e riprovare l'overfit. Il passaggio
+ai piloti richiede ancora un gate valido sulle sei scansioni (Dice medio
+positivo almeno 0,90, FPR negativo sotto 1%, gradienti finiti). Il training
+completo richiede poi il successo dei piloti. Non aumentare nel frattempo
+le epoche della run corrente.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:
