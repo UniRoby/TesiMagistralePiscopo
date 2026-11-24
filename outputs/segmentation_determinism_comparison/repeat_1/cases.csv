@@ -1,0 +1,7 @@
+mod,img_id,positive_crops,negative_crops,positive_crop_dice,negative_crop_fp_fraction
+pix2pix,inj_2092,4,4,0.5320533718181202,0.0
+pix2pix,inj_1419,4,4,0.5883289087950165,0.0
+pix2pix,rem_133,4,4,0.7746577015046755,0.0002040863037109375
+pix2pix,rem_15,4,4,0.7460689423861693,0.0
+real,inj_1713,0,8,,0.0
+real,rem_605,0,8,,0.0

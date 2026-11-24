@@ -1,0 +1,41 @@
+{
+  "experiment": "deterministic_overfit_repeats",
+  "complete": false,
+  "passed": false,
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+  "reference_dir": "outputs\\segmentation_batch_comparison_squared",
+  "reference_comparison_sha256": "e4de253289b636dfe835bfe81e51761b22a50d7f50488e4e1ff1e382741b2b7c",
+  "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+  "active_arm": "repeat_1",
+  "active_checkpoint": null,
+  "arms": {},
+  "runtime": {
+    "torch": "2.13.0+cu130",
+    "monai": "1.5.2",
+    "device": "cuda",
+    "python": "3.13.5",
+    "cuda": "13.0",
+    "cudnn": 92000,
+    "cpu_threads": 10,
+    "interop_threads": 10,
+    "gpu": "NVIDIA GeForce RTX 5060 Ti",
+    "gpu_capability": [
+      12,
+      0
+    ],
+    "deterministic_algorithms": true,
+    "warn_only": false,
+    "cudnn_benchmark": false,
+    "cudnn_deterministic": true,
+    "cudnn_allow_tf32": true,
+    "matmul_allow_tf32": false,
+    "cublas_workspace_config": ":4096:8",
+    "pythonhashseed": "21",
+    "trilinear_backward": "cpu_first_order",
+    "comparison": "exact traces/weight and gradient hashes/metrics within this process; not bitwise equivalence to historical runs"
+  },
+  "scope": "48 fixed training crops; .5 gate unchanged; no pilot/full promotion or validation calibration",
+  "reproducible": null,
+  "error": "RuntimeError: max_pool3d_with_indices_backward_cuda does not have a deterministic implementation, but you set 'torch.use_deterministic_algorithms(True)'. You can turn off determinism just for this operation, or you can use the 'warn_only=True' option, if that's acceptable for your application. You can also file an issue at https://github.com/pytorch/pytorch/issues to help us prioritize adding deterministic support for this operation."
+}

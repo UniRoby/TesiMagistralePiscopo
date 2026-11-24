@@ -1,0 +1,42 @@
+{
+  "layout": "mixed",
+  "fixed_foreground_normalizer": 4,
+  "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+  "training_loss": {
+    "bce_weight": 0.5,
+    "dice_weight": 0.5,
+    "squared_pred": true,
+    "empty_crops": "BCE_only"
+  },
+  "decoder_padding_mode": "zeros",
+  "deterministic": true,
+  "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+  "updates": 300,
+  "epochs": 50,
+  "exposures_per_crop": 50,
+  "first_gate_passed_update": null,
+  "best": {
+    "updates": 250,
+    "positive_crop_dice": 0.7913952822560186,
+    "negative_crop_fp_fraction": 0.00843501091003418,
+    "passed": false
+  },
+  "last": {
+    "positive_crop_dice": 0.6602772311259953,
+    "negative_crop_fp_fraction": 2.5510787963867188e-05,
+    "passed": false,
+    "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+    "updates": 300,
+    "finite_gradients": true,
+    "training_loss": {
+      "bce_weight": 0.5,
+      "dice_weight": 0.5,
+      "squared_pred": true,
+      "empty_crops": "BCE_only"
+    },
+    "decoder_padding_mode": "zeros"
+  },
+  "best_reproduced_within_1e_4": true,
+  "seconds": 325.6998955999734,
+  "max_memory_mib": 1671.70947265625
+}
