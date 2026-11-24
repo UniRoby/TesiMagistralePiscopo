@@ -1,0 +1,55 @@
+{
+  "stage": "overfit",
+  "output_dir": "outputs/segmentation_overfit_squared",
+  "metadata_dir": "metadata/m3dsynth",
+  "manifest": "outputs/segmentation_protocol/manifest.json",
+  "overfit_report": "outputs/segmentation_overfit_squared/gate.json",
+  "cache_dir": "outputs/segmentation_protocol/cache",
+  "split": {
+    "train_mods": [
+      "pix2pix"
+    ],
+    "valid_mods": [
+      "pix2pix"
+    ],
+    "test_mods": [
+      "cycle",
+      "diffusion"
+    ]
+  },
+  "model": {
+    "name": "resnet18_medicalnet_seg",
+    "in_channels": 1,
+    "num_classes": 1,
+    "medicalnet_weights": "checkpoints/medicalnet/resnet_18_23dataset.pth",
+    "decoder_padding_mode": "zeros"
+  },
+  "patches": {
+    "patch_shape": [
+      64,
+      64,
+      64
+    ]
+  },
+  "preprocessing": {
+    "low": 1.0,
+    "high": 99.0,
+    "clip": false
+  },
+  "training": {
+    "squared_pred": true,
+    "seed": 21,
+    "epochs": 50,
+    "batch_size": 2,
+    "accumulation_steps": 4,
+    "encoder_lr": 3e-05,
+    "decoder_lr": 0.0003,
+    "weight_decay": 0.0001,
+    "freeze_encoder_epochs": 0,
+    "validation_interval": 2,
+    "early_stopping_validations": 3,
+    "num_workers": 0,
+    "volume_cache_size": 6,
+    "max_updates": 300
+  }
+}
