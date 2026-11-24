@@ -1,10 +1,13 @@
-"""Paired mixed-batch overfit: zero versus replicate padding in the decoder only."""
+"""Paired mixed-batch overfit: decoder padding or strict zero-padding repeats."""
 from __future__ import annotations
 
 import argparse
 import copy
+from contextlib import contextmanager, nullcontext
 from importlib.metadata import version
+import os
 from pathlib import Path
+import platform
 
 import torch
 
@@ -17,6 +20,50 @@ from .train import load_yaml_config, resolve_cache_dir
 from .train_segmentation import check_prerequisites, read_json, validate_config
 
 EXPERIMENT = "decoder_padding_comparison"
+DETERMINISTIC_EXPERIMENT = "deterministic_overfit_repeats"
+
+
+@contextmanager
+def deterministic_execution():
+    previous = (torch.are_deterministic_algorithms_enabled(), torch.is_deterministic_algorithms_warn_only_enabled(),
+                torch.backends.cudnn.benchmark, torch.backends.cudnn.deterministic)
+    workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+    if workspace not in (None, ":4096:8", ":16:8"):
+        raise ValueError("CUBLAS_WORKSPACE_CONFIG must be :4096:8 or :16:8")
+    if workspace is None and torch.cuda.is_initialized():
+        raise RuntimeError("start a fresh process with CUBLAS_WORKSPACE_CONFIG=:4096:8 before CUDA initialization")
+    try:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+        torch.use_deterministic_algorithms(True, warn_only=False)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        yield
+    finally:
+        torch.use_deterministic_algorithms(previous[0], warn_only=previous[1])
+        torch.backends.cudnn.benchmark, torch.backends.cudnn.deterministic = previous[2:]
+        if workspace is None:
+            os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
+        else:
+            os.environ["CUBLAS_WORKSPACE_CONFIG"] = workspace
+
+
+def compare_repeats(output, updates):
+    files = ["update_metrics.csv", "overfit_metrics.csv", "case_history.csv", "crops.csv", "best/crops.csv"]
+    files += [f"probabilities/{cp}/{name}.csv" for cp in ("best", "last")
+              for name in ("crops", "thresholds", "boundary_metrics")]
+    checks, first = {}, None
+    for relative in files:
+        left, right = (read_rows(output / arm / relative) for arm in ("repeat_1", "repeat_2"))
+        if relative == "update_metrics.csv" and (len(left) != updates or len(right) != updates):
+            raise ValueError("both repeats must contain the full update trace")
+        checks[relative] = left == right
+        if left != right and first is None:
+            index = next((i for i, pair in enumerate(zip(left, right)) if pair[0] != pair[1]), min(len(left), len(right)))
+            a, b = left[index] if index < len(left) else {}, right[index] if index < len(right) else {}
+            first = {"file": relative, "row": index + 1, "updates": a.get("updates", b.get("updates")),
+                     "differences": {key: {"repeat_1": a.get(key), "repeat_2": b.get(key)}
+                                     for key in a.keys() | b.keys() if a.get(key) != b.get(key)}}
+    return {"reproducible": all(checks.values()), "exact_file_matches": checks, "first_divergence": first}
 
 
 def boundary_summary(distributions, crops):
@@ -50,7 +97,16 @@ def boundary_summary(distributions, crops):
 
 
 def run_comparison(config, data_root, *, device="cpu", reference_dir="outputs/segmentation_batch_comparison_squared",
-                   output_dir="outputs/segmentation_padding_comparison", cache_dir=None, real_scan_root=None):
+                   output_dir=None, cache_dir=None, real_scan_root=None,
+                   deterministic_repeats=False):
+    output_dir = output_dir or ("outputs/segmentation_determinism_comparison" if deterministic_repeats
+                                else "outputs/segmentation_padding_comparison")
+    with deterministic_execution() if deterministic_repeats else nullcontext():
+        return _run_comparison(config, data_root, device=device, reference_dir=reference_dir, output_dir=output_dir,
+                              cache_dir=cache_dir, real_scan_root=real_scan_root, deterministic_repeats=deterministic_repeats)
+
+
+def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cache_dir, real_scan_root, deterministic_repeats):
     config = copy.deepcopy(config)
     validate_config(config)
     training = config["training"]
@@ -94,42 +150,64 @@ def run_comparison(config, data_root, *, device="cpu", reference_dir="outputs/se
     write_csv(output / "crop_pool.csv", pool.rows)
     write_json(output / "effective_config.json", config)
     write_json(output / "manifest.json", manifest)
-    report = {"experiment": EXPERIMENT, "complete": False, "passed": False,
+    experiment = DETERMINISTIC_EXPERIMENT if deterministic_repeats else EXPERIMENT
+    labels = ("repeat_1", "repeat_2") if deterministic_repeats else ("zeros", "replicate")
+    report = {"experiment": experiment, "complete": False, "passed": False,
               "manifest_id": manifest["manifest_id"], "crop_pool_sha256": pool.digest,
               "reference_dir": str(source), "reference_comparison_sha256": file_digest(source / "comparison.json"),
               "initial_state_sha256": initial_hash, "active_arm": None, "active_checkpoint": None, "arms": {},
               "runtime": {"torch": torch.__version__, "monai": version("monai"), "device": str(device)},
               "scope": "48 fixed training crops; .5 gate unchanged; no pilot/full promotion or validation calibration"}
+    if deterministic_repeats:
+        report["reproducible"] = None
+        report["runtime"].update(python=platform.python_version(), cuda=torch.version.cuda,
+            cudnn=torch.backends.cudnn.version(), cpu_threads=torch.get_num_threads(),
+            interop_threads=torch.get_num_interop_threads(),
+            gpu=torch.cuda.get_device_name(device) if str(device).startswith("cuda") else None,
+            gpu_capability=list(torch.cuda.get_device_capability(device)) if str(device).startswith("cuda") else None,
+            deterministic_algorithms=torch.are_deterministic_algorithms_enabled(),
+            warn_only=torch.is_deterministic_algorithms_warn_only_enabled(),
+            cudnn_benchmark=torch.backends.cudnn.benchmark, cudnn_deterministic=torch.backends.cudnn.deterministic,
+            cudnn_allow_tf32=torch.backends.cudnn.allow_tf32, matmul_allow_tf32=torch.backends.cuda.matmul.allow_tf32,
+            cublas_workspace_config=os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+            pythonhashseed=os.environ.get("PYTHONHASHSEED"), trilinear_backward="cpu_first_order",
+            comparison="exact traces/weight and gradient hashes/metrics within this process; not bitwise equivalence to historical runs")
     try:
-        for padding in ("zeros", "replicate"):
-            report["active_arm"] = padding
+        for label in labels:
+            padding = "zeros" if deterministic_repeats else label
+            report["active_arm"] = label
             write_json(output / "comparison.json", report)
             arm_config = copy.deepcopy(config)
             arm_config["model"]["decoder_padding_mode"] = padding
-            print(f"starting decoder padding comparison: {padding}", flush=True)
-            folder = output / padding
+            print(f"starting {experiment}: {label}, padding={padding}", flush=True)
+            folder = output / label
             arm = run_arm(arm_config, manifest, pool, folder, mixed=True, device=device,
-                          expected_initial_state_sha256=initial_hash, experiment=EXPERIMENT)
-            report["arms"][padding] = {**arm, "probability_diagnostics": {}}
+                          expected_initial_state_sha256=initial_hash, experiment=experiment, deterministic=deterministic_repeats)
+            report["arms"][label] = {**arm, "probability_diagnostics": {}}
             for checkpoint in ("best", "last"):
-                report["active_checkpoint"] = f"{padding}/{checkpoint}"
+                report["active_checkpoint"] = f"{label}/{checkpoint}"
                 write_json(output / "comparison.json", report)
                 metrics_dir = folder / "best" if checkpoint == "best" else folder
                 crops = read_rows(metrics_dir / "crops.csv")
                 diagnosis_dir = folder / "probabilities" / checkpoint
                 diagnosis = evaluate_checkpoint(folder / f"{checkpoint}.pt", pool, arm_config, manifest, arm,
-                    checkpoint, crops, diagnosis_dir, device, experiment=EXPERIMENT)
+                    checkpoint, crops, diagnosis_dir, device, experiment=experiment)
                 regions = boundary_summary(read_rows(diagnosis_dir / "distributions.csv"), pool.rows)
                 write_csv(diagnosis_dir / "boundary_metrics.csv", regions)
-                report["arms"][padding]["probability_diagnostics"][checkpoint] = diagnosis
+                report["arms"][label]["probability_diagnostics"][checkpoint] = diagnosis
                 if str(device).startswith("cuda"):
                     torch.cuda.empty_cache()
             report["active_checkpoint"] = None
-        zeros, replicate = (report["arms"][name] for name in ("zeros", "replicate"))
-        report.update(complete=True, active_arm=None, passed=replicate["last"]["passed"],
-                      delta_replicate_minus_zeros={checkpoint: {key: replicate[checkpoint][key] - zeros[checkpoint][key]
-                          for key in ("positive_crop_dice", "negative_crop_fp_fraction")}
-                          for checkpoint in ("best", "last")})
+        if deterministic_repeats:
+            report.update(compare_repeats(output, training["max_updates"]))
+            report.update(complete=True, active_arm=None,
+                          passed=report["reproducible"] and all(a["last"]["passed"] for a in report["arms"].values()))
+        else:
+            zeros, replicate = (report["arms"][name] for name in labels)
+            report.update(complete=True, active_arm=None, passed=replicate["last"]["passed"],
+                          delta_replicate_minus_zeros={checkpoint: {key: replicate[checkpoint][key] - zeros[checkpoint][key]
+                              for key in ("positive_crop_dice", "negative_crop_fp_fraction")}
+                              for checkpoint in ("best", "last")})
         return report
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
@@ -144,14 +222,22 @@ def main():
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--real-scan-root")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--deterministic-repeats", action="store_true",
+                        help="two identical zero-padding runs, strict determinism and explicit CPU trilinear backward")
     parser.add_argument("--reference-dir", default="outputs/segmentation_batch_comparison_squared")
-    parser.add_argument("--output-dir", default="outputs/segmentation_padding_comparison")
+    parser.add_argument("--output-dir")
     parser.add_argument("--cache-dir")
     args = parser.parse_args()
     report = run_comparison(load_yaml_config(args.config), args.data_root, device=args.device,
-        reference_dir=args.reference_dir, output_dir=args.output_dir,
-        cache_dir=args.cache_dir, real_scan_root=args.real_scan_root)
-    print(f"Padding comparison complete: replicate last gate passed={report['passed']}")
+        reference_dir=args.reference_dir, output_dir=args.output_dir or
+            ("outputs/segmentation_determinism_comparison" if args.deterministic_repeats else "outputs/segmentation_padding_comparison"),
+        cache_dir=args.cache_dir, real_scan_root=args.real_scan_root, deterministic_repeats=args.deterministic_repeats)
+    if args.deterministic_repeats:
+        print(f"Deterministic comparison complete: reproducible={report['reproducible']}, localization gate passed={report['passed']}")
+        if not report["reproducible"]:
+            raise SystemExit(3)
+    else:
+        print(f"Padding comparison complete: replicate last gate passed={report['passed']}")
     if not report["passed"]:
         raise SystemExit(2)
 

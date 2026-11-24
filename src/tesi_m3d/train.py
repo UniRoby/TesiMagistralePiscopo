@@ -52,12 +52,7 @@ def load_yaml_config(config_path: str | Path) -> dict[str, Any]:
 
 
 def set_global_seed(seed: int) -> None:
-    """Seed Python, numpy and torch so a run can be reproduced.
-
-    ``training.seed`` was present in every config but never read, which meant no
-    thesis run was reproducible. cuDNN autotuning is left enabled: it keeps
-    results reproducible to about 1e-4, which is worth the throughput here.
-    """
+    """Seed random generators; only explicit deterministic mode constrains kernels."""
 
     seed = int(seed)
     random.seed(seed)
@@ -70,7 +65,7 @@ def set_global_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = not torch.are_deterministic_algorithms_enabled()
 
 
 def resolve_cache_dir(

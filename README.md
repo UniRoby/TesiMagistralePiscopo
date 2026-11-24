@@ -72,6 +72,12 @@ quadratici da 300 aggiornamenti, MedicalNet e pool originali verificati,
 cambiando solo padding zero/replicate. Salva anche gli audit best/last
 e gli errori per distanza dal bordo in `outputs/segmentation_padding_comparison`.
 
+Il [test di ripetibilità del training](docs/LAB_WORKFLOW.md#18210-due-overfit-zero-identici-con-determinismo-stretto)
+aggiunge `--deterministic-repeats` allo stesso runner: due overfit zero,
+algoritmi deterministici stretti e backward trilineare esplicitamente CPU.
+Confronta loss, hash di pesi/gradienti a ogni passo e metriche; salva tutto
+in `outputs/segmentation_determinism_comparison`, compresi gli audit finali.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

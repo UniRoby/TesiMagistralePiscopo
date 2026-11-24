@@ -23,6 +23,14 @@ def tensor_digest(tensor):
     return hashlib.sha256(tensor.detach().cpu().contiguous().numpy().tobytes()).hexdigest()
 
 
+def named_tensor_digest(tensors):
+    digest = hashlib.sha256()
+    for name, tensor in tensors:
+        digest.update(name.encode())
+        digest.update(tensor_digest(tensor).encode())
+    return digest.hexdigest()
+
+
 class FixedCropPool:
     """Keep only the 48 crops in RAM; evaluation never rereads a CT or mask."""
     def __init__(self, dataset):
@@ -85,7 +93,7 @@ def epoch_batches(pool, seed, epoch, *, mixed):
 
 
 def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_state_sha256=None,
-            experiment="batch_composition_comparison"):
+            experiment="batch_composition_comparison", deterministic=False):
     started = perf_counter()
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -95,12 +103,12 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
     training_loss = {"bce_weight": 0.5, "dice_weight": 0.5, "squared_pred": squared_pred,
                      "empty_crops": "BCE_only"}
     set_global_seed(training.get("seed", 21))
+    if deterministic and (not torch.are_deterministic_algorithms_enabled()
+            or torch.is_deterministic_algorithms_warn_only_enabled() or torch.backends.cudnn.benchmark):
+        raise ValueError("deterministic arm requires strict algorithms and disabled cuDNN autotuning")
     model = build_segmenter(config["model"]).to(device)
-    digest = hashlib.sha256()
-    for name, tensor in model.state_dict().items():
-        digest.update(name.encode())
-        digest.update(tensor_digest(tensor).encode())
-    initial_hash = digest.hexdigest()
+    model.deterministic_trilinear_backward = deterministic
+    initial_hash = named_tensor_digest(model.state_dict().items())
     if expected_initial_state_sha256 is not None and initial_hash != expected_initial_state_sha256:
         raise ValueError("comparison arms did not start from identical model states: "
                          f"expected={expected_initial_state_sha256}, actual={initial_hash}; "
@@ -121,6 +129,8 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                 "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch, "updates": updates, "best_overfit_metrics": best,
                 "best_ap": -1.0, "stale_validations": 0, "rng_state": _rng_state(),
+                "execution_policy": {"strict_determinism": deterministic,
+                                     "trilinear_backward": "cpu_first_order" if deterministic else "native"},
                 "amp": "bfloat16" if str(device).startswith("cuda") else "disabled"}
 
     def select_best(metrics, epoch):
@@ -147,6 +157,11 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                                 foreground_normalizer=4, squared_pred=squared_pred)
             updates += 1
             exposures[indices] += 1
+            if deterministic:
+                diagnostics.update(model_state_sha256=named_tensor_digest(model.state_dict().items()),
+                    gradient_sha256=named_tensor_digest((name, p.grad) for name, p in model.named_parameters() if p.grad is not None))
+                if updates == 1:
+                    print("Strict first update complete; trilinear backward=CPU; exact state/gradient tracing active", flush=True)
             _write_metrics_row(output / "update_metrics.csv", {"updates": updates, "epoch": epoch + 1,
                                "crop_indices": ";".join(map(str, indices)), "positive_crops": int(pool.positive[indices].sum()),
                                "real_crops": int(pool.real[indices].sum()), "scans": len(set(indices // 8)),
@@ -177,6 +192,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
     if not reproduced:
         raise ValueError("best checkpoint metrics were not reproduced within 1e-4")
     report = {**sampling, "training_loss": training_loss, "decoder_padding_mode": padding,
+              "deterministic": deterministic,
               "initial_state_sha256": initial_hash, "updates": updates,
               "epochs": training["epochs"], "exposures_per_crop": int(exposures[0]),
               "first_gate_passed_update": first_passed, "best": best, "last": final,

@@ -3,6 +3,26 @@
 Configurazione di riferimento:
 [`train_pix2pix_balanced_patches.yaml`](../configs/train_pix2pix_balanced_patches.yaml).
 
+## Stato operativo corrente della segmentazione
+
+- Encoder ResNet-18 3D MedicalNet obbligatorio; supervisione della regione
+  manipolata annotata, non del contorno preciso del tumore.
+- Gate: sei scansioni train, 48 crop fissi 64³, 300 aggiornamenti,
+  Dice medio dei 16 positivi ≥0,90 e FPR dei 32 negativi <1% a soglia 0,5.
+- Ultimo confronto completo: `outputs/segmentation_padding_comparison/`.
+  Zero: Dice 0,865861, FPR 0,27144%; replicate: 0,845678, FPR 0,31191%.
+  Entrambi falliscono; nessuna promozione a piloti/full. Conservare zero.
+- AP e profili ricalcolati dai quattro NPZ; gli audit best/last riproducono
+  i conteggi. La sola soglia non recupera il gate.
+- Criticità prioritaria: il nuovo zero differisce dal precedente mixed zero
+  (Dice 0,821193) con stessi hash/config/crop/schedule. La traiettoria di
+  training non è riprodotta; la singola coppia non stima un effetto stabile.
+- Prossimo confronto implementato: due baseline zero identiche con algoritmi
+  deterministici, flag `--deterministic-repeats` su `compare_segmentation_padding`,
+  output `outputs/segmentation_determinism_comparison/`. Da eseguire nel laboratorio.
+  Backward trilineare esplicitamente CPU; evidenze/limiti nelle sezioni 10.22–10.23.
+  Non occorre ripetere gli audit acquisiti: il nuovo comando include i propri audit.
+
 ## Glossario rapido
 
 Le metriche vanno lette insieme: un valore alto può essere buono per il compito
@@ -1662,6 +1682,162 @@ CT: CUDA non è disponibile qui e l'audit dataset indica percorsi Windows.
 Comando completo e interpretazione nella sezione 18.2.9 della guida.
 Il padding replicate non fornisce contesto anatomico esterno al crop:
 un miglioramento resta da misurare. Gate e budget invariati.
+
+### 10.22 Padding zero/replicate completato: zero migliore nella coppia, gate ancora fallito
+
+**Evidenze e verifica.** `outputs/segmentation_padding_comparison/comparison.json`
+è completo, senza errori o ramo/checkpoint attivo. Entrambi i rami hanno
+300 aggiornamenti, 50 epoche/esposizioni per crop, stesso hash iniziale
+`9a053aa1…` e pool `80c77851…`. Ricalcolato l'hash del ledger; config
+diverse soltanto nel padding, manifest uguali al riferimento. Le 300
+sequenze di batch coincidono fra rami e con il precedente mixed quadratico;
+ciascun crop compare una volta per epoca. Loss e norme registrate finite,
+aggiornamenti encoder/decoder positivi, identità 0,5 BCE + 0,5 Dice entro
+`1e-6`. Nessuno dei 24 controlli intermedi supera il gate.
+
+Ricontrollati i quattro audit: conteggi a 0,5 contro i CSV, conservazione
+dei voxel in tutte le 1.001 soglie e negli istogrammi, AP e profili NPZ
+coincidenti con i report. Ricomposti i conteggi per fascia e verificati
+contro `boundary_metrics.csv`. Tutti gli audit riproducono i conteggi
+originali senza scarti. Best e last sono selezionati al passo 300 e
+hanno metriche coincidenti; non sono stati confrontati i tensori dei pesi.
+
+| Misura a soglia 0,5 | Zero | Replicate |
+|---|---:|---:|
+| Dice medio dei positivi | 0,865861 | 0,845678 |
+| Dice micro nei positivi | 0,866732 | 0,837155 |
+| Precision micro positivi | 0,876087 | 0,845958 |
+| Recall micro positivi | 0,857575 | 0,828533 |
+| FPR negativi | 0,27144% | 0,31191% |
+| FPR soli reali | 0,19648% | 0,30816% |
+| AP globale dei crop | 0,869469 | 0,815997 |
+| FP nei positivi / FN | 33.225 / 39.013 | 41.326 / 46.968 |
+| FP nei negativi / soli reali | 22.770 / 8.241 | 26.165 / 12.925 |
+
+Replicate perde 0,020183 Dice, peggiora 11/16 positivi e ne migliora cinque;
+porta i FP negativi a +14,91% e quelli reali a +56,84%. Zero ha due crop
+positivi ≥0,90, replicate uno; il gate usa comunque la media, non richiede
+che ogni crop superi individualmente 0,90. Non è motivato adottare replicate
+sulla base di questa coppia. Non è una stima su più repliche/seed.
+
+**Soglie e casi residui.** Le migliori soglie comuni ammissibili sono
+0,511 (zero: Dice 0,866103) e 0,501 (replicate: 0,845725). Nessuna soluzione
+del gate sulla griglia; medie degli oracoli per crop 0,882481 e 0,868074.
+Nel migliore zero rimangono `inj_2092/3` a Dice 0,783713 (target 1.300),
+`rem_133/2` a 0,792920 (3.042) e `inj_1419/1` a 0,798874 (59.200):
+il limite non riguarda soltanto target piccoli. In replicate quest'ultimo
+scende a 0,711997, con recall 0,601740. Le figure confermano residui FP/FN
+nei contorni e risposte su crop a mask vuota.
+
+**Bordi.** Replicate riduce i FP negativi nella fascia 0–3 da 15.768 a
+11.127, ma li aumenta nelle altre fasce: il totale cresce di 3.395. Nel
+nucleo a distanza almeno 16 compaiono 3.504 FP, contro zero nel ramo zero;
+sono tutti su crop reali. La quota di FP negli otto voxel esterni scende
+dal 96,58% al 69,66%, mentre peggiorano FPR globale e reale. Una quota
+periferica più bassa non dimostra miglioramento: parte degli errori si
+sposta all'interno. Non escludere i bordi dal conteggio.
+
+**Ripetibilità del controllo.** Il precedente mixed zero aveva last
+Dice 0,821193, contro 0,865861 del nuovo zero: +0,044668, maggiore del
+divario di padding nella nuova coppia. Config equivalenti con default
+zero normalizzato, stesso manifest, hash del pool, stato iniziale e tutte
+le sequenze di crop. La prima loss è già diversa: 0,6455579400 contro
+0,6455542445; anche le prime norme dei gradienti differiscono. Questo
+documenta traiettorie numeriche diverse a training nominalmente uguale,
+non un miglioramento causato dal nuovo padding o una prova di corruzione
+dei dati. L'autotuning cuDNN è attivo; il kernel/operazione responsabile
+e gli altri dettagli runtime non sono stati isolati. Riprodurre
+l'inferenza di un checkpoint non implica riprodurre il suo addestramento.
+
+Le storie sono oscillanti: replicate passa da Dice 0,668894 al controllo
+125 a 0,123699 al 150 e 0,720750 al 175, sempre con gradienti finiti.
+Il clipping interessa 118/300 aggiornamenti zero e 154/300 replicate:
+non dimostra che il clipping sia la causa. Tempi dei rami circa 57,8/58,3
+secondi; i massimi CUDA dipendono anche dalla cache/autotuning e non
+costituiscono un benchmark di memoria appaiato affidabile.
+
+**Decisione e limiti.** Mantenere zero; ipotesi del solo padding come
+recupero della localizzazione non confermata. Il prossimo controllo
+motivato è un confronto fra due run zero identiche con algoritmi
+deterministici e registrazione del runtime, prima di nuove modifiche a
+architettura/loss/LR. Non ancora implementato o avviato; budget e gate
+restano invariati. Non servono altri audit di soglia sugli stessi pesi.
+Piloti/full bloccati. Sono risultati sui crop di train, con voxel fisici
+eventualmente ripetuti e AP quantizzata a 65.536 bin; nessuna evidenza nuova
+di validation o generalizzazione. Assenti i `.pt` allenati localmente:
+verificati gli artefatti, senza nuova inferenza o training sulle CT.
+
+### 10.23 Due overfit zero deterministici: implementazione e verifica locale
+
+**Intervento.** Esteso il runner del padding con `--deterministic-repeats`,
+riusando preparazione/hash del pool, scheduler mixed e `run_arm`. Due rami
+zero `repeat_1`/`repeat_2`, stessi seed, MedicalNet, LR, loss quadratica,
+crop e budget di 300 aggiornamenti/50 esposizioni. Output separato
+`outputs/segmentation_determinism_comparison`, nessun nuovo config o
+dipendenza, nessuna modifica ai risultati precedenti. I due rami ripartono
+da MedicalNet ufficiale e richiedono anche l'hash iniziale storico, non
+da checkpoint già allenati.
+
+**Politica esplicita.** Contesto con algoritmi deterministici stretti,
+autotuning cuDNN disattivato, `cudnn.deterministic=True` e workspace cuBLAS
+valido prima dell'inizializzazione CUDA. Impostazioni ed ambiente sono
+ripristinati all'uscita anche per errore. Corretto `set_global_seed` affinché
+non riattivi l'autotuning nel contesto stretto; rimosso dal suo docstring
+l'asserzione non supportata di riproducibilità entro `1e-4` con autotuning.
+L'esecuzione normale conserva il comportamento precedente.
+
+La documentazione della funzione PyTorch installata dichiara incompatibile
+col determinismo stretto il backward CUDA di `interpolate(..., trilinear)`.
+Per completare il test, il modello diagnostico usa il forward nativo e
+un backward trilineare CPU esplicito, di primo ordine, con stesse forme,
+dtype e `align_corners=False`. Il Jacobiano lineare richiede solo la
+geometria; nessuna copia dei valori delle feature è necessaria al backward.
+Il gradiente in uscita viene trasferito CPU e il risultato torna al device.
+Encoder/convoluzioni restano sul device richiesto. Nessun fallback a
+nearest-neighbor o `warn_only=True`; altre operazioni non supportate
+interrompono e vengono registrate. Nei checkpoint `execution_policy`
+descrive modalità stretta e `cpu_first_order`; il forward e il ripristino
+dei checkpoint storici non cambiano.
+
+**Confronto.** Hash dell'intero stato modello e dei gradienti dopo clipping
+a ogni update, oltre a loss, norme e cronologie preesistenti. Confronto
+esatto delle due tracce, metriche per crop e profili best/last: il report
+salva `reproducible`, `exact_file_matches` e primo scarto con riga/step e
+valori. `complete` distingue la fine tecnica; `passed` richiede anche i
+due gate finali numerici superati. Codici 0/2/3 distinguono successo,
+riproducibilità con gate fallito e divergenza. Errore tecnico conserva
+stato incompleto e ramo/checkpoint, senza rilassare i controlli.
+Audit delle probabilità e fasce già inclusi nei due rami. Eccezione Git
+limitata ai quattro `metrics.npz` nella nuova directory. Nessun resume,
+estensione del budget o promozione automatica ai piloti/full.
+
+**Verifica locale.** Forward e gradiente della trilineare confrontati con
+il riferimento CPU: uguaglianza esatta float32/float64/bfloat16 su forme
+pari, dispari, downsampling e identità, più `gradcheck` float64. Fixture TIFF
+esegue entrambi i training e i quattro audit, con tracce/metriche identiche
+e conservazione byte per byte del riferimento. Iniettati scarti anche
+minori di `1e-4`, hash diversi e tracce incomplete: il controllo li rileva
+senza allargare tolleranze. Testati ripristino dei flag, mantenimento del
+determinismo dopo il seed, workspace invalido, errore di operazione
+non supportata e codici CLI.
+
+Suite pertinente: **110 test superati**, due test CUDA saltati perché la
+GPU non è disponibile, un test dei worker persistenti escluso perché non
+usati dal runner. Restano 18 warning MONAI preesistenti. Nessuna esecuzione
+scientifica sulle CT del laboratorio effettuata localmente.
+
+Verificato anche MedicalNet ufficiale su CPU con due aggiornamenti AdamW
+indipendenti da stessa inizializzazione e batch sintetico 8×1×16³:
+loss `0,8029941320419312`, diagnostiche e hash finale `7d773006…` identici,
+BN ferme. Questo valida il percorso del modello, non l'apprendimento sulle
+CT. Il ramo CUDA/Windows e i tempi del backward CPU restano da verificare
+nel laboratorio. Comando nella sezione 18.2.10 della guida.
+
+**Limite scientifico.** È una replica nello stesso processo del percorso
+controllato, con kernel backward diverso da quello storico: non isola
+la singola causa della variabilità osservata, non dimostra identità fra
+processi/macchine/versioni e non prova un miglioramento di localizzazione.
+I risultati quantitativi del laboratorio sono ancora da acquisire.
 
 ## Come aggiornare questo registro
 

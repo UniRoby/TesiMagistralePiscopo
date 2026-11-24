@@ -1515,6 +1515,16 @@ le epoche della run corrente.
 
 ### 18.2.9 Nuovo overfit: padding zero contro replicate nel decoder
 
+**Risultati acquisiti.** Confronto completo, entrambi i gate falliti:
+Dice 0,865861/FPR negativo 0,27144% per zero, 0,845678/0,31191% per
+replicate. Audit best/last riprodotti e NPZ ricontrollati; non occorre
+rilanciare questo comando sugli stessi dati per completare la consegna.
+Mantenere zero. Il nuovo controllo zero differisce però dal precedente
+mixed zero (Dice 0,821193) pur con stessi hash e schedule: prima di altre
+varianti va verificata la ripetibilità del training. Il test deterministico
+è ora implementato nella sezione 18.2.10. Dettagli dei risultati nella
+sezione 10.22 del registro; i comandi seguenti documentano la prova acquisita.
+
 L'audit dei quattro checkpoint è completo, ma nessuna soglia comune sulla
 griglia recupera il gate. Anche gli oracoli separati per crop restano sotto
 Dice 0,90. Nel mixed finale l'86,14% dei FP dei crop negativi cade negli
@@ -1589,6 +1599,90 @@ senza escludere voxel difficili dal conteggio. Le soglie sul train sono
 solo diagnostiche. Nessun avvio automatico dei piloti o del full. Memoria
 e tempi CUDA di `replicate` devono essere misurati nel laboratorio;
 non cambiare altri parametri fra i due rami per aggirare un eventuale OOM.
+
+### 18.2.10 Due overfit zero identici con determinismo stretto
+
+Questo test verifica se il training controllato è ripetibile. Non cambia
+loss, LR, sampling, inizializzazione o soglia per cercare un gate migliore.
+Aggiornare il codice nel laboratorio e usare lo stesso ambiente delle run
+precedenti, dalla root del repository. In un nuovo processo PowerShell,
+impostare le variabili prima di avviare Python:
+
+```powershell
+$env:PYTHONHASHSEED = "21"
+$env:CUBLAS_WORKSPACE_CONFIG = ":4096:8"
+
+python -m tesi_m3d.compare_segmentation_padding `
+  --deterministic-repeats `
+  --config configs\segmentation_overfit_squared.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --reference-dir outputs\segmentation_batch_comparison_squared `
+  --output-dir outputs\segmentation_determinism_comparison
+```
+
+Usare gli stessi `$ctRoot` e `$realCtRoot` già sottoposti all'audit.
+Il runner esistente con il nuovo flag esegue `repeat_1` e `repeat_2`,
+entrambi padding zero e batch misti, 300 aggiornamenti/50 esposizioni per
+crop, stessi 48 crop verificati con hash e stesso stato iniziale MedicalNet
+del riferimento. Non riprende i pesi allenati precedenti; il caricamento
+MedicalNet completo con SHA resta obbligatorio. Nessun nuovo YAML.
+
+**Operazioni deterministiche.** Abilita gli algoritmi deterministici con
+`warn_only=False`, disabilita l'autotuning e abilita il determinismo cuDNN.
+`set_global_seed` rispetta ora tale impostazione. Un'operazione non
+supportata interrompe il test: non viene attivata una modalità permissiva.
+
+Il backward CUDA della trilineare nativa è dichiarato non deterministico
+da PyTorch. Per evitare che il test si fermi sistematicamente su questa
+operazione, il percorso diagnostico usa **forward trilineare nativo e
+solo backward trilineare su CPU**, esplicitamente registrato come
+`cpu_first_order`. Il Jacobiano dipende dalla geometria, non dai valori
+in ingresso; viene calcolato con la trilineare PyTorch CPU, stesse forme,
+dtype e `align_corners=False`, riportando poi il gradiente sul device.
+L'encoder e le convoluzioni rimangono sul device richiesto. Non si cambia
+in nearest-neighbor e non si introduce un contorno diverso.
+
+Questa scelta cambia il kernel e l'ordine numerico del backward rispetto
+alle run storiche: il test misura la ripetibilità **di questo percorso
+controllato nello stesso processo**, non l'identità numerica col vecchio
+training né la causa unica della sua variabilità. I due run sono sequenziali,
+con seed e modello reimpostati. Il controllo non dimostra ripetibilità
+fra macchine, versioni o processi indipendenti. Il percorso serve a gradienti
+di primo ordine, quelli usati da AdamW. Non modifica il forward in inferenza
+o i checkpoint/config precedenti. Hash dello stato iniziale e gate invariati.
+
+**Output e interpretazione.** Tutto in
+`outputs/segmentation_determinism_comparison/`, directory nuova. Per ogni
+update salva in `update_metrics.csv` anche `model_state_sha256` (parametri
+e buffer dopo lo step) e `gradient_sha256` (gradienti dopo clipping).
+Confronta esattamente loss, norme e hash per ciascun passo, monitoraggio,
+metriche per crop e profili di soglia; nessuna tolleranza per dichiarare
+uguali le due tracce. Restano i quattro audit best/last, figure, conteggi
+per fascia e quattro `metrics.npz`, ammessi dal `.gitignore`.
+
+Nel report principale `comparison.json`:
+
+- `complete: true`: entrambi i budget e gli audit sono terminati;
+- `reproducible: true`: tutte le tracce e metriche confrontate coincidono;
+- `first_divergence`: file, riga/aggiornamento e valori che differiscono,
+  oppure `null` se i confronti sono identici;
+- `passed`: entrambe le run finali passano il gate numerico e sono
+  riproducibili. Non è una promozione automatica a piloti/full;
+- `runtime`: versioni, GPU, thread, flag deterministici/TF32, workspace e
+  politica del backward. I checkpoint salvano anche `execution_policy`.
+
+Codice di uscita 0: riproducibile e gate superato; 2: riproducibile ma
+gate fallito; 3: confronto terminato con divergenze. Un errore tecnico
+lascia `complete: false`, ramo/checkpoint attivo ed `error`; non dichiarare
+riproducibilità per un'esecuzione interrotta. Le impostazioni globali
+vengono ripristinate anche in caso di errore. Non esiste resume e non si
+sovrascrivono gli esperimenti precedenti.
+
+Sincronizzare l'intera nuova cartella anche se il gate fallisce o il test
+si interrompe. Non rilanciare altri audit: sono inclusi. Questa prova sarà
+più lenta per backward CPU e hash dei pesi/gradienti a ogni passo; non è
+un benchmark della pipeline. Tempi/memoria CUDA richiedono la misura nel
+laboratorio. Non aumentare il budget oltre 300 o avviare il full nel frattempo.
 
 ### 18.3 Baseline comune e due piloti controllati
 

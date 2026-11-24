@@ -13,6 +13,24 @@ from .model import MEDICALNET_WEIGHTS, Patch3DModelConfig, build_medicalnet_enco
 SEGMENTER_NAME = "resnet18_medicalnet_seg"
 
 
+class _TrilinearCPUBackward(torch.autograd.Function):
+    """Keep native forward; explicitly compute the linear Jacobian on CPU."""
+    @staticmethod
+    def forward(ctx, image, size):
+        ctx.shape, ctx.size = image.shape, size
+        return F.interpolate(image, size=size, mode="trilinear", align_corners=False)
+
+    @staticmethod
+    @torch.autograd.function.once_differentiable
+    def backward(ctx, gradient):
+        # Interpolation is linear: its derivative needs geometry, not input values.
+        with torch.enable_grad():
+            image = torch.zeros(ctx.shape, dtype=gradient.dtype, device="cpu", requires_grad=True)
+            result = F.interpolate(image, size=ctx.size, mode="trilinear", align_corners=False)
+            backward, = torch.autograd.grad(result, image, gradient.detach().cpu())
+        return backward.to(gradient.device), None
+
+
 def file_digest(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -56,6 +74,7 @@ class MedicalNetSegmenter(nn.Module):
     def __init__(self, encoder, decoder_padding_mode="zeros"):
         super().__init__()
         self.encoder = encoder
+        self.deterministic_trilinear_backward = False
         self.bridge = nn.Sequential(nn.Conv3d(896, 128, 1, bias=False), nn.GroupNorm(8, 128), nn.ReLU())
         self.decode4 = _block(128 + 64, 64, decoder_padding_mode)
         self.decode2 = _block(64 + 64, 32, decoder_padding_mode)
@@ -82,7 +101,10 @@ class MedicalNetSegmenter(nn.Module):
         s8c = self.encoder.layer4(s8b)
         decoded = self.bridge(torch.cat((s8, s8b, s8c), dim=1))
         for skip, block in ((s4, self.decode4), (stem, self.decode2), (image, self.decode1)):
-            decoded = F.interpolate(decoded, size=skip.shape[2:], mode="trilinear", align_corners=False)
+            if self.deterministic_trilinear_backward and torch.is_grad_enabled() and decoded.requires_grad:
+                decoded = _TrilinearCPUBackward.apply(decoded, skip.shape[2:])
+            else:
+                decoded = F.interpolate(decoded, size=skip.shape[2:], mode="trilinear", align_corners=False)
             decoded = block(torch.cat((decoded, skip), dim=1))
         return self.output(decoded)
 
