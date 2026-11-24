@@ -84,11 +84,13 @@ def epoch_batches(pool, seed, epoch, *, mixed):
     return result
 
 
-def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_state_sha256=None):
+def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_state_sha256=None,
+            experiment="batch_composition_comparison"):
     started = perf_counter()
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     training = config["training"]
+    padding = config["model"].get("decoder_padding_mode", "zeros")
     squared_pred = training.get("squared_pred", False)
     training_loss = {"bce_weight": 0.5, "dice_weight": 0.5, "squared_pred": squared_pred,
                      "empty_crops": "BCE_only"}
@@ -100,7 +102,9 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
         digest.update(tensor_digest(tensor).encode())
     initial_hash = digest.hexdigest()
     if expected_initial_state_sha256 is not None and initial_hash != expected_initial_state_sha256:
-        raise ValueError("comparison arms did not start from identical model states")
+        raise ValueError("comparison arms did not start from identical model states: "
+                         f"expected={expected_initial_state_sha256}, actual={initial_hash}; "
+                         "check the original weights, PyTorch/MONAI versions and model code")
     optimizer = make_optimizer(model, training)
     layout = "mixed" if mixed else "grouped"
     print(f"starting {layout}: {training['epochs']} epochs, {training['max_updates']} updates", flush=True)
@@ -112,7 +116,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
     updates, best, first_passed = 0, None, None
 
     def payload(epoch):
-        return {"format_version": 1, "task": "segmentation", "experiment": "batch_composition_comparison",
+        return {"format_version": 1, "task": "segmentation", "experiment": experiment,
                 "config": config, "manifest": manifest, "sampling": sampling, "training_loss": training_loss,
                 "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch, "updates": updates, "best_overfit_metrics": best,
@@ -127,7 +131,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
             best = {"updates": updates, **metrics}
             save_checkpoint(payload(epoch), output / "best.pt")
             write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
-                                                   "training_loss": training_loss, **best})
+                                                   "training_loss": training_loss, "decoder_padding_mode": padding, **best})
 
     if str(device).startswith("cuda"):
         torch.cuda.reset_peak_memory_stats(device)
@@ -158,7 +162,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
     final = overfit_metrics(model, pool, device, training["batch_size"], output)
     select_best(final, training["epochs"])
     final.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True,
-                 training_loss=training_loss)
+                 training_loss=training_loss, decoder_padding_mode=padding)
     write_json(output / "gate.json", final)
     save_checkpoint(payload(training["epochs"]), output / "last.pt")
     write_csv(output / "exposures.csv", [{"pool_index": i, "exposures": int(n)} for i, n in enumerate(exposures)])
@@ -172,7 +176,8 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
         for key in ("positive_crop_dice", "negative_crop_fp_fraction")))
     if not reproduced:
         raise ValueError("best checkpoint metrics were not reproduced within 1e-4")
-    report = {**sampling, "training_loss": training_loss, "initial_state_sha256": initial_hash, "updates": updates,
+    report = {**sampling, "training_loss": training_loss, "decoder_padding_mode": padding,
+              "initial_state_sha256": initial_hash, "updates": updates,
               "epochs": training["epochs"], "exposures_per_crop": int(exposures[0]),
               "first_gate_passed_update": first_passed, "best": best, "last": final,
               "best_reproduced_within_1e_4": reproduced,

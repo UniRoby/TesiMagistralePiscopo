@@ -1529,6 +1529,140 @@ l'analisi degli scarti salvati. Nessun nuovo training richiesto; non
 interpretare le soglie dell'audit incompleto. Ripartenza conservando
 la cartella fallita nella sezione 18.2.8 della guida Windows.
 
+### 10.20 Audit dei quattro checkpoint completato: la soglia non recupera il gate
+
+**Evidenze sincronizzate.** Acquisiti `outputs/segmentation_batch_probability_diagnostics/`
+con quattro report, CSV, figure e quattro `metrics.npz`, più il tentativo
+`segmentation_batch_probability_diagnostics_failed_01`. Il nuovo audit è
+completo, senza errori o checkpoint attivo: quattro riproduzioni entro
+`1e-4`, nessun `reproduction_failures`. Gli scarti aggregati, dei conteggi
+e dei picchi sono tutti zero. Il blocco tecnico è superato in questa run.
+Nel tentativo precedente erano fuori tolleranza solo tre picchi, massimo
+`0,0002496243`: nessun Dice/FPR per crop oltre `1e-4`, massimo scarto
+nei conteggi due voxel. Non è isolato quale singolo allineamento del
+valutatore abbia eliminato la differenza.
+
+**Ricontrolli locali.** Ricalcolati AP e profili dai quattro NPZ, coincidenti
+con i report; verificati 48 crop (16 positivi, 32 negativi, di cui 16 reali),
+273.919 voxel target, conteggi TP/FP/FN a 0,5 contro i CSV, conservazione
+del numero di voxel a tutte le 1.001 soglie e negli istogrammi. L'hash
+del confronto sorgente coincide ricostruendo i fine riga CRLF di Windows;
+la copia Git locale usa LF. Non è stata rieseguita inferenza locale.
+
+| Checkpoint | Dice medio a 0,5 | FPR negativi a 0,5 | Soglia comune diagnostica con FPR <1% | Dice a tale soglia | FPR a tale soglia | Media degli oracoli per crop |
+|---|---:|---:|---:|---:|---:|---:|
+| Grouped best = last | 0,801162 | 1,08588% | 0,558 | 0,802591 | 0,99622% | 0,831177 |
+| Mixed best, passo 275 | 0,832099 | 1,23647% | 0,644 | 0,827523 | 0,99896% | 0,850724 |
+| Mixed last, passo 300 | 0,821193 | 0,49747% | 0,455 | 0,822603 | 0,54498% | 0,849330 |
+
+Neppure senza vincolo FPR una soglia comune supera Dice 0,833915.
+Nessuno dei quattro checkpoint ha una soluzione numerica del gate sulla
+griglia. Anche l'oracolo separato per ogni crop resta sotto 0,90:
+il fallimento non è recuperabile con le sole soglie esaminate. Non è
+una prova matematica su ogni possibile soglia reale, né una calibrazione
+su validation. L'AP globale dei crop passa da 0,593452 grouped a 0,637013
+mixed best e 0,758911 mixed last; la media AP dei positivi è rispettivamente
+0,911706, 0,931744 e 0,928525. Buon ordinamento in molti positivi e
+separazione globale dai crop negativi sono misure distinte. AP quantizzata
+a 65.536 bin e voxel sovrapposti contati più volte: nessuna generalizzazione
+o prestazione sui volumi originali è dimostrata.
+
+**Errori residui e bordi.** Nel last mixed `inj_1419/3` ha target 9.600
+voxel, Dice 0,634358, recall 0,524271 e AP 0,733760. Anche la sua migliore
+soglia sulla griglia (0,400) arriva soltanto a Dice 0,639610. Le figure
+a 0,5 e 0,455 mantengono ampie zone FN: non è solo un problema di target
+piccoli. `inj_1419/1`, target 59.200, può invece salire da 0,734023 a
+0,855212 con la propria soglia 0,164: la scala varia fra crop, ma neppure
+questo oracolo risolve il caso. I quattro crop negativi di `inj_1419`
+producono 28.824/41.731 FP negativi (69,07%), con picco 0,995840.
+
+Ricomposti i conteggi delle fasce disgiunte di `distributions.csv`:
+nel last mixed l'86,14% dei FP dei crop negativi è negli otto voxel esterni,
+che rappresentano il 57,81% dei voxel. Il FPR nella fascia 0–3 è circa
+0,87%, in quella 4–7 circa 0,57%, in quella 8–15 circa 0,23%; il nucleo
+a distanza almeno 16 ha zero FP. Le PNG mostrano risposte anche sui bordi
+di crop con mask vuota. Esiste un'associazione con la posizione nel crop,
+non una dimostrazione causale contro il padding: anatomia e campionamento
+possono contribuire. Anche il foreground interno presenta FN; non attribuire
+tutto l'errore ai bordi o rimuoverli dalle metriche.
+
+**Decisione.** Chiusa l'indagine sulla sola soglia per questi checkpoint.
+Nessun motivo di ripetere lo stesso audit o cambiare soglia del gate.
+Il prossimo confronto proposto è un overfit appaiato mixed quadratico
+con padding del solo decoder zero contro replicate, mantenendo MedicalNet,
+stato iniziale completo, pool, loss, LR, seed e budget di 300 aggiornamenti
+uguali. È una verifica dell'ipotesi dei bordi, non una soluzione già provata;
+il riferimento va rieseguito nell'esperimento appaiato. Confrontare anche
+FP per fascia e recall, non solo Dice medio. Non implementato né avviato
+in questa analisi. Il gate a 0,5 resta invariato e piloti/full restano
+bloccati. Non sono stati modificati codice di training, checkpoint o output.
+
+### 10.21 Nuovo overfit appaiato sul padding del decoder: implementazione
+
+**Intervento.** Aggiunto `compare_segmentation_padding`, riusando
+`FixedCropPool`, il runner `run_arm`, scheduler mixed, loss quadratica e
+valutatore FP32 già verificati. Due rami freschi `zeros` e `replicate`,
+config originale `segmentation_overfit_squared.yaml`, 300 aggiornamenti
+per ramo e 50 esposizioni per crop. Nessun nuovo YAML o dipendenza.
+Il builder usa `model.decoder_padding_mode`, default `zeros`, soltanto
+nelle sei Conv3D 3×3 del decoder. Encoder MedicalNet, statistiche BN fisse,
+interpolazione, pesi e altri strati non cambiano. MedicalNet completo con
+verifica SHA resta obbligatorio all'inizializzazione; nessun fallback.
+Il confronto è ora implementato, superando lo stato della sezione 10.20.
+
+**Controlli.** Prima del training verifica config/manifest contro il
+confronto quadratico sorgente e tutti gli hash dei 48 crop rigenerati.
+Ogni ramo deve riprodurre l'hash iniziale completo del riferimento; stessa
+funzione di scheduling, stesso seed e stesso normalizzatore foreground
+quattro. Il controllo termina un ramo con budget completo anche se passa
+prima il gate. Rifiutati output non vuoti o interni al riferimento; nessun
+resume e nessuna scrittura sui risultati precedenti. Gli errori conservano
+ramo/checkpoint attivo e confronto incompleto. L'hash iniziale non conforme
+viene ora riportato con atteso/ottenuto nel messaggio di errore.
+
+**Consegna degli output.** Output separato
+`outputs/segmentation_padding_comparison/`. Best/last, gate, CSV loss e
+gradienti, esposizioni, metriche per crop/caso e figure. Lo stesso comando
+esegue automaticamente i quattro audit completi delle probabilità con
+controllo `1e-4`, AP e profili diagnostici. Per ciascuno salva anche
+`boundary_metrics.csv`: TP/FP/FN, recall e FPR per fasce disgiunte dal
+bordo, distinti fra crop positivi, negativi e reali. I conteggi sono
+ricomposti dalle frazioni esatte su tutti i voxel, non dai quantili.
+Eccezione Git limitata ai quattro `metrics.npz` nella nuova directory.
+Nessuna calibrazione su train o promozione automatica ai piloti.
+
+**Compatibilità.** Il config nei checkpoint conserva il padding e il
+builder lo ripristina anche offline; i checkpoint storici senza il campo
+usano `zeros`. I gate nuovi dichiarano il padding: piloti/full rifiutano
+un gate ottenuto con padding diverso, interpretando i vecchi gate come
+zero. Il resume considera equivalenti default assente e zero esplicito,
+ma continua a rifiutare modifiche al modello.
+
+**Test automatici.** Superati 75 test pertinenti, con il test dei worker
+persistenti escluso perché non usati da questo runner; 18 warning MONAI
+preesistenti. La fixture TIFF esegue entrambi i training e i quattro audit,
+controllando stato iniziale, config differenti solo nel padding, sequenze
+dei crop, budget/esposizioni, aggiornamenti encoder/decoder, riproduzione
+best/last e conservazione byte per byte della run sorgente. Conteggi per
+fascia verificati contro il calcolo voxel diretto, inclusi compartimenti
+vuoti. Controllati rifiuto di riferimento/pool/config alterati, blocco
+prima del training del ramo con inizializzazione diversa, gate con padding
+incompatibile, CLI e ripristino completo del modello nei due modi.
+
+**Verifica MedicalNet reale e limiti.** Eseguiti caricamento ufficiale,
+forward/backward CPU su tensori sintetici 16³ in entrambi i modi: forme,
+loss e gradienti encoder/decoder finiti, BN ferme. I due stati iniziali
+sono identici. Anche il builder precedente e quello aggiornato a zero
+producono lo stesso hash locale `46820f3d…`: nessuna variazione introdotta
+dal nuovo default. Questo hash locale differisce da quello storico del
+laboratorio `9a053aa1…`; i runtime differiscono, ma la causa specifica
+non è isolata. Il comando richiede l'ambiente originale del laboratorio
+e non aggira l'eventuale mismatch. Non è stato eseguito il training sulle
+CT: CUDA non è disponibile qui e l'audit dataset indica percorsi Windows.
+Comando completo e interpretazione nella sezione 18.2.9 della guida.
+Il padding replicate non fornisce contesto anatomico esterno al crop:
+un miglioramento resta da misurare. Gate e budget invariati.
+
 ## Come aggiornare questo registro
 
 Per ogni punto chiuso, sostituire «Da compilare» con: **verifica eseguita**

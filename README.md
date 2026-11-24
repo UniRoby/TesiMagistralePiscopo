@@ -66,6 +66,12 @@ usa `python -m tesi_m3d.diagnose_segmentation_batch_probabilities`, senza
 training: grouped/mixed best/last, AP voxel e profili su soglie comuni.
 Gli output diagnostici non modificano il gate a 0,5 o la calibrazione.
 
+Il nuovo [overfit appaiato sul padding del decoder](docs/LAB_WORKFLOW.md#1829-nuovo-overfit-padding-zero-contro-replicate-nel-decoder)
+usa `python -m tesi_m3d.compare_segmentation_padding`: due training mixed
+quadratici da 300 aggiornamenti, MedicalNet e pool originali verificati,
+cambiando solo padding zero/replicate. Salva anche gli audit best/last
+e gli errori per distanza dal bordo in `outputs/segmentation_padding_comparison`.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

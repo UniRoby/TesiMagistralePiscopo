@@ -45,21 +45,21 @@ def read_calibration(path, checkpoint):
     return calibration
 
 
-def _block(in_channels, channels):
+def _block(in_channels, channels, padding_mode="zeros"):
     return nn.Sequential(
-        nn.Conv3d(in_channels, channels, 3, padding=1, bias=False), nn.GroupNorm(8, channels), nn.ReLU(),
-        nn.Conv3d(channels, channels, 3, padding=1, bias=False), nn.GroupNorm(8, channels), nn.ReLU(),
+        nn.Conv3d(in_channels, channels, 3, padding=1, padding_mode=padding_mode, bias=False), nn.GroupNorm(8, channels), nn.ReLU(),
+        nn.Conv3d(channels, channels, 3, padding=1, padding_mode=padding_mode, bias=False), nn.GroupNorm(8, channels), nn.ReLU(),
     )
 
 
 class MedicalNetSegmenter(nn.Module):
-    def __init__(self, encoder):
+    def __init__(self, encoder, decoder_padding_mode="zeros"):
         super().__init__()
         self.encoder = encoder
         self.bridge = nn.Sequential(nn.Conv3d(896, 128, 1, bias=False), nn.GroupNorm(8, 128), nn.ReLU())
-        self.decode4 = _block(128 + 64, 64)
-        self.decode2 = _block(64 + 64, 32)
-        self.decode1 = _block(32 + 1, 16)
+        self.decode4 = _block(128 + 64, 64, decoder_padding_mode)
+        self.decode2 = _block(64 + 64, 32, decoder_padding_mode)
+        self.decode1 = _block(32 + 1, 16, decoder_padding_mode)
         self.output = nn.Conv3d(16, 1, 1)
         self.train()
 
@@ -91,8 +91,10 @@ def build_segmenter(config=None, *, state_dict=None):
     config = config or {"name": SEGMENTER_NAME}
     if config.get("name") != SEGMENTER_NAME or config.get("in_channels", 1) != 1 or config.get("num_classes", 1) != 1:
         raise ValueError("segmentation requires resnet18_medicalnet_seg with one input/output channel")
+    if config.get("decoder_padding_mode", "zeros") not in ("zeros", "replicate"):
+        raise ValueError("decoder_padding_mode must be zeros or replicate")
     encoder = build_medicalnet_encoder(config.get("medicalnet_weights", MEDICALNET_WEIGHTS), initialize=state_dict is None)
-    model = MedicalNetSegmenter(encoder)
+    model = MedicalNetSegmenter(encoder, config.get("decoder_padding_mode", "zeros"))
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=True)
     return model

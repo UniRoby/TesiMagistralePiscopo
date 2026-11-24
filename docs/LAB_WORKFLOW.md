@@ -1513,6 +1513,83 @@ positivo almeno 0,90, FPR negativo sotto 1%, gradienti finiti). Il training
 completo richiede poi il successo dei piloti. Non aumentare nel frattempo
 le epoche della run corrente.
 
+### 18.2.9 Nuovo overfit: padding zero contro replicate nel decoder
+
+L'audit dei quattro checkpoint è completo, ma nessuna soglia comune sulla
+griglia recupera il gate. Anche gli oracoli separati per crop restano sotto
+Dice 0,90. Nel mixed finale l'86,14% dei FP dei crop negativi cade negli
+otto voxel esterni, che costituiscono il 57,81% dei voxel: questo motiva
+una prova sul padding, senza dimostrarne già la responsabilità.
+
+Aggiornare il codice sul laboratorio e, dalla root con l'ambiente attivo,
+eseguire **un solo comando**, usando gli stessi percorsi già sottoposti
+all'audit (`$ctRoot` e `$realCtRoot` della sezione 18.2):
+
+```powershell
+python -m tesi_m3d.compare_segmentation_padding `
+  --config configs\segmentation_overfit_squared.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
+  --reference-dir outputs\segmentation_batch_comparison_squared `
+  --output-dir outputs\segmentation_padding_comparison
+```
+
+Non rilanciare prima `train_segmentation` o altri audit. Il comando:
+
+1. Controlla config/manifest contro il confronto quadratico precedente e
+   ricostruisce i medesimi 48 crop, verificando identità e hash immagini/mask.
+2. Riparte due volte da MedicalNet ufficiale con decoder fresco, stesso
+   seed e hash iniziale completo, coincidente anche con il riferimento.
+   Non riprende i pesi allenati nei test precedenti.
+3. Allena `zeros` e `replicate`, entrambi con batch misti, Dice quadratico,
+   identici LR e ordine dei crop: 300 aggiornamenti per ramo, 50 esposizioni
+   per crop. Un successo precoce non accorcia il budget del confronto.
+4. Esegue automaticamente l'audit delle probabilità di best/last per
+   entrambi i rami, inclusi AP, soglie diagnostiche, figure e conteggi
+   per fascia dal bordo. Non occorre un successivo comando diagnostico.
+
+Usare lo stesso ambiente PyTorch/MONAI della run sorgente: il laboratorio
+ha registrato PyTorch `2.13.0+cu130` e MONAI `1.5.2`. Non aggiornare le
+librerie prima del confronto. Se l'hash iniziale non coincide, il comando
+si ferma prima del training del ramo e indica hash atteso/ottenuto:
+conservare `comparison.json` e analizzare la differenza, senza rimuovere
+il controllo. Nel runtime locale diverso, il vecchio e il nuovo builder
+zero producono lo stesso stato iniziale, ma diverso da quello storico
+Windows; non è stato attribuito a una singola libreria o piattaforma.
+
+La sola differenza è `model.decoder_padding_mode`, nelle sei Conv3D 3×3
+del decoder; encoder MedicalNet, shortcut, dilatazioni, BatchNorm e gli
+altri strati restano identici. Il default assente rimane `zeros` per i
+vecchi checkpoint. Il ripristino usa il valore salvato nel config; i
+controlli pilota/full rifiutano un gate ottenuto con padding diverso.
+`replicate` non aggiunge nuovo contesto anatomico esterno al crop: verifica
+soltanto l'effetto del trattamento numerico del bordo nel decoder.
+
+Gli output sono tutti in `outputs/segmentation_padding_comparison/`:
+
+- `comparison.json`: stato completo/incompleto, ramo e checkpoint attivi,
+  errori, hash iniziali/pool, metriche best/last e differenze replicate–zeros;
+- `zeros/` e `replicate/`: checkpoint best/last, gate, cronologia loss e
+  gradienti, esposizioni, CSV per crop/caso e figure del valutatore comune;
+- per ciascun ramo, `probabilities/best/` e `probabilities/last/`: audit
+  completo, `metrics.npz` e `boundary_metrics.csv` con TP/FP/FN, recall e
+  FPR del background per fascia, separati fra positivi, negativi e reali.
+
+Sincronizzare l'intera cartella, compresi i quattro `metrics.npz` già
+ammessi dal `.gitignore`. I pesi `.pt` possono restare sul laboratorio.
+La directory deve essere nuova; non sovrascrivere i risultati precedenti.
+Non c'è resume. Se il comando termina con codice 2 ma `complete: true`
+e senza `error`, il confronto tecnico è concluso e il gate del last
+`replicate` è ancora fallito. Con `complete: false` analizzare l'errore,
+senza interpretare come completo il confronto. I report distinguono
+anche il best dal last: non promuovere un modello per il solo Dice maggiore.
+
+Il criterio resta Dice medio dei positivi ≥0,90 e FPR negativi <1% alla
+soglia 0,5, con gradienti finiti. Confrontare recall e fasce di bordo,
+senza escludere voxel difficili dal conteggio. Le soglie sul train sono
+solo diagnostiche. Nessun avvio automatico dei piloti o del full. Memoria
+e tempi CUDA di `replicate` devono essere misurati nel laboratorio;
+non cambiare altri parametri fra i due rami per aggirare un eventuale OOM.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

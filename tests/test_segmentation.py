@@ -24,14 +24,20 @@ from tesi_m3d.train_segmentation import check_prerequisites, diagnose_overfit, o
 from tesi_m3d.volume_io import align_mask_to_scan
 
 
-def test_segmenter_loads_all_weights_freezes_bn_and_restores(tmp_path, monkeypatch, encoder_weights):
+@pytest.mark.parametrize("padding", ["zeros", "replicate"])
+def test_segmenter_loads_all_weights_freezes_bn_and_restores(tmp_path, monkeypatch, encoder_weights, padding):
     import tesi_m3d.model as module
     weight_file = tmp_path / "weights.pth"
     weight_file.write_bytes(b"offline segmentation fixture")
     monkeypatch.setattr(module, "MEDICALNET_SHA256", hashlib.sha256(weight_file.read_bytes()).hexdigest())
     config = {"name": SEGMENTER_NAME, "medicalnet_weights": str(weight_file)}
+    if padding != "zeros":
+        config["decoder_padding_mode"] = padding
     with patch.object(torch, "load", return_value={"state_dict": encoder_weights}):
         model = build_segmenter(config)
+    convolutions = [m for name, m in model.named_modules() if name.startswith("decode") and isinstance(m, torch.nn.Conv3d)]
+    assert len(convolutions) == 6 and all(m.padding_mode == padding for m in convolutions)
+    assert all(m.padding_mode == "zeros" for m in model.encoder.modules() if isinstance(m, torch.nn.Conv3d))
     for name, tensor in encoder_weights.items():
         assert torch.equal(model.encoder.state_dict()[name.removeprefix("module.")], tensor)
     model.train()
@@ -54,7 +60,7 @@ def test_segmenter_loads_all_weights_freezes_bn_and_restores(tmp_path, monkeypat
     model.freeze_encoder(True)
     assert not any(p.requires_grad for p in model.encoder.parameters())
     model.freeze_encoder(False)
-    restored = build_segmenter({"name": SEGMENTER_NAME, "medicalnet_weights": "missing.pth"}, state_dict=model.state_dict())
+    restored = build_segmenter({**config, "medicalnet_weights": "missing.pth"}, state_dict=model.state_dict())
     model.eval()
     restored.eval()
     with torch.no_grad():
@@ -64,6 +70,8 @@ def test_segmenter_loads_all_weights_freezes_bn_and_restores(tmp_path, monkeypat
 
 
 def test_segmenter_rejects_missing_weights_and_incomplete_state(tmp_path):
+    with pytest.raises(ValueError, match="decoder_padding_mode"):
+        build_segmenter({"name": SEGMENTER_NAME, "decoder_padding_mode": "reflect"})
     with pytest.raises(FileNotFoundError, match="random initialization"):
         build_segmenter({"name": SEGMENTER_NAME, "medicalnet_weights": str(tmp_path / "absent")})
     with pytest.raises(RuntimeError, match="Missing key"):

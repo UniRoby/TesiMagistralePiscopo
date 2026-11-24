@@ -60,6 +60,8 @@ def check_prerequisites(config, manifest, data_root=None, real_scan_root=None):
             raise ValueError("overfit gate failed or belongs to a different manifest; full/pilot training blocked")
         if overfit.get("training_loss", {}).get("squared_pred", False) != config.get("training", {}).get("squared_pred", False):
             raise ValueError("overfit gate used a different Dice denominator; full/pilot training blocked")
+        if overfit.get("decoder_padding_mode", "zeros") != config.get("model", {}).get("decoder_padding_mode", "zeros"):
+            raise ValueError("overfit gate used a different decoder padding; full/pilot training blocked")
     if stage == "full":
         pilots = [read_json(path) for path in config["pilot_reports"]]
         if len(pilots) != 2 or {p["preprocessing"]["clip"] for p in pilots} != {False, True}:
@@ -259,6 +261,8 @@ def validate_config(config):
     if config["stage"] not in {"overfit", "pilot", "full"} or config["model"]["name"] != SEGMENTER_NAME:
         raise ValueError("invalid segmentation stage/model")
     training = config["training"]
+    if config["model"].get("decoder_padding_mode", "zeros") not in ("zeros", "replicate"):
+        raise ValueError("decoder_padding_mode must be zeros or replicate")
     if not isinstance(training.get("squared_pred", False), bool):
         raise ValueError("training.squared_pred must be boolean")
     batch, accumulation = int(training["batch_size"]), int(training["accumulation_steps"])
@@ -303,6 +307,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
             cfg.pop("output_dir", None)
             cfg.pop("cache_dir", None)
             cfg["training"].setdefault("squared_pred", False)
+            cfg["model"].setdefault("decoder_padding_mode", "zeros")
             for key in ("epochs", "batch_size", "accumulation_steps", "num_workers"):
                 cfg["training"].pop(key, None)
         if old != new:
@@ -381,7 +386,8 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                     best_overfit = {"updates": updates, **overfit_report}
                     save_checkpoint(payload(epoch + 1), output / "best.pt")
                     write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
-                                                           "training_loss": training_loss, **best_overfit})
+                        "training_loss": training_loss, "decoder_padding_mode": config["model"].get("decoder_padding_mode", "zeros"),
+                        **best_overfit})
                 model.train()
                 if overfit_report["passed"] or updates >= training.get("max_updates", 300):
                     break
@@ -413,10 +419,11 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
             best_overfit = {"updates": updates, **overfit_report}
             save_checkpoint(payload(epoch + 1), output / "best.pt")
             write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
-                                                   "training_loss": training_loss, **best_overfit})
+                "training_loss": training_loss, "decoder_padding_mode": config["model"].get("decoder_padding_mode", "zeros"),
+                **best_overfit})
         save_checkpoint(payload(epoch + 1), output / "last.pt")
         overfit_report.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True,
-                              training_loss=training_loss)
+                              training_loss=training_loss, decoder_padding_mode=config["model"].get("decoder_padding_mode", "zeros"))
         write_json(output / "gate.json", overfit_report)
         return overfit_report
     # Free the training model/optimizer before restoring the selected checkpoint on the GPU.

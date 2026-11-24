@@ -66,12 +66,13 @@ def read_rows(path):
         return list(csv.DictReader(handle))
 
 
-def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_rows, output, device):
+def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_rows, output, device, *,
+                        experiment="batch_composition_comparison"):
     started = perf_counter()
     expected = arm[checkpoint]
     payload = _load_torch_payload(path)
     sampling = {key: arm[key] for key in ("layout", "fixed_foreground_normalizer", "crop_pool_sha256")}
-    if (payload.get("task") != "segmentation" or payload.get("experiment") != "batch_composition_comparison"
+    if (payload.get("task") != "segmentation" or payload.get("experiment") != experiment
             or payload.get("config") != config or payload.get("manifest") != manifest
             or payload.get("sampling") != sampling or payload.get("training_loss") != arm["training_loss"]
             or payload.get("updates") != expected["updates"] or payload.get("best_overfit_metrics") != arm["best"]):
