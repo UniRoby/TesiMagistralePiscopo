@@ -75,6 +75,7 @@ def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_ro
     if (payload.get("task") != "segmentation" or payload.get("experiment") != experiment
             or payload.get("config") != config or payload.get("manifest") != manifest
             or payload.get("sampling") != sampling or payload.get("training_loss") != arm["training_loss"]
+            or payload.get("lr_schedule") != arm.get("lr_schedule")
             or payload.get("updates") != expected["updates"] or payload.get("best_overfit_metrics") != arm["best"]):
         raise ValueError(f"checkpoint identity/config/sampling/loss/updates mismatch: {path}")
     if len(source_rows) != 48:

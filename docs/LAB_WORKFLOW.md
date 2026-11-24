@@ -1708,6 +1708,74 @@ più lenta per backward CPU e hash dei pesi/gradienti a ogni passo; non è
 un benchmark della pipeline. Tempi/memoria CUDA richiedono la misura nel
 laboratorio. Non aumentare il budget oltre 300 o avviare il full nel frattempo.
 
+### 18.2.11 Overfit deterministico con LR ridotto dopo 200 update
+
+Il confronto precedente è completo e riproducibile, ma fallisce il gate:
+Dice best 0,791395 al passo 250, last 0,660277 al passo 300. Questo test
+verifica se ridurre il LR stabilizza la fase finale. Non cambia modello,
+padding zero, loss quadratica, precisione, seed, pool o budget.
+
+Aggiornare il codice nel laboratorio, mantenere lo stesso ambiente e
+usare una directory di output nuova. Dalla root del repository, con
+l'ambiente Python già attivo, in un nuovo processo Python:
+
+```powershell
+$env:PYTHONHASHSEED = "21"
+$env:CUBLAS_WORKSPACE_CONFIG = ":4096:8"
+
+python -m tesi_m3d.compare_segmentation_padding `
+  --lr-decay `
+  --config configs\segmentation_overfit_squared.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --real-scan-root "C:\Tesi Magistrale Piscopo\real\scan" `
+  --device cuda `
+  --reference-dir outputs\segmentation_determinism_comparison `
+  --output-dir outputs\segmentation_lr_decay_comparison
+```
+
+Il riferimento è la coppia **deterministica completata**, non il vecchio
+confronto grouped/mixed. Il runner ricontrolla che le due tracce salvate
+coincidano, oltre a config, manifest, ledger, pool e hash iniziali.
+Il controllo a LR costante è riutilizzato; si allena soltanto `decay` da
+MedicalNet ufficiale con verifica SHA e stessa inizializzazione completa.
+Non servono nuovi YAML o i `.pt` già allenati del riferimento.
+
+| Aggiornamenti | LR encoder | LR decoder |
+|---|---:|---:|
+| 1–200 inclusi | 3e-5 | 3e-4 |
+| 201–300 inclusi | 3e-6 | 3e-5 |
+
+Confronta esattamente loss, norme, hash di stato/gradienti e batch per
+ciascuno dei primi 200 update con `repeat_1/update_metrics.csv`. Al primo
+scarto scrive `decay/prefix_check.json`, conserva il report incompleto e
+interrompe il test senza interpretarne il risultato. Non allargare le
+tolleranze: la ripetibilità fra processi va verificata, non presunta.
+Se la verifica passa, prima del passo 201 moltiplica entrambi i LR per 0,1
+senza azzerare momenti AdamW, pesi o RNG. Continua a verificare l'identità
+dei batch anche dopo il cambio. Stessi algoritmi stretti e backward CPU
+di trilineare/MaxPool3D; nessun fallback permissivo.
+
+Output nuovo: `outputs/segmentation_lr_decay_comparison/`. Salva il
+controllo in `reference_control`, la verifica in `reference_prefix` e
+le differenze best/last in `delta_decay_minus_constant` del `comparison.json`.
+`decay/update_metrics.csv` aggiunge i due LR effettivi. I checkpoint e i
+gate salvano `lr_schedule`; lo stato optimizer conserva il LR al momento
+del salvataggio. Il best può precedere il cambio: controllarne sempre
+`updates`. I due audit best/last, conteggi, AP, soglie diagnostiche, figure
+e fasce di distanza dal bordo sono automatici; i due `metrics.npz` sono
+ammessi dal `.gitignore` nella nuova directory.
+
+`complete: true` richiede la fine dei 300 update e dei due audit;
+`reference_prefix.passed: true` richiede 200 tracce identiche. `passed`
+richiede anche il gate numerico **last** a 0,5: Dice ≥0,90 e FPR <1%.
+Codice di uscita 2 significa test completato con gate fallito; un errore
+tecnico conserva `complete: false` e la spiegazione. Nessun resume o
+sovrascrittura; le modalità `--lr-decay` e `--deterministic-repeats`
+sono alternative. Sincronizzare l'intera nuova cartella, anche in caso
+di fallimento; non rilanciare audit separati né aumentare il budget.
+Un eventuale miglioramento riguarda i crop train e richiede ancora
+valutazione prima di promuovere piloti/full.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

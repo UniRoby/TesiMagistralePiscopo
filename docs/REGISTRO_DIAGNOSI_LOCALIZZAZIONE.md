@@ -9,19 +9,23 @@ Configurazione di riferimento:
   manipolata annotata, non del contorno preciso del tumore.
 - Gate: sei scansioni train, 48 crop fissi 64³, 300 aggiornamenti,
   Dice medio dei 16 positivi ≥0,90 e FPR dei 32 negativi <1% a soglia 0,5.
-- Ultimo confronto completo: `outputs/segmentation_padding_comparison/`.
-  Zero: Dice 0,865861, FPR 0,27144%; replicate: 0,845678, FPR 0,31191%.
-  Entrambi falliscono; nessuna promozione a piloti/full. Conservare zero.
-- AP e profili ricalcolati dai quattro NPZ; gli audit best/last riproducono
-  i conteggi. La sola soglia non recupera il gate.
-- Criticità prioritaria: il nuovo zero differisce dal precedente mixed zero
-  (Dice 0,821193) con stessi hash/config/crop/schedule. La traiettoria di
-  training non è riprodotta; la singola coppia non stima un effetto stabile.
-- Prossimo confronto implementato: due baseline zero identiche con algoritmi
-  deterministici, flag `--deterministic-repeats` su `compare_segmentation_padding`,
-  output `outputs/segmentation_determinism_comparison/`. Da eseguire nel laboratorio.
-  Backward trilineare e MaxPool3D esplicitamente CPU; evidenze/limiti nelle sezioni 10.22–10.24.
-  Non occorre ripetere gli audit acquisiti: il nuovo comando include i propri audit.
+- Ultimo confronto completo: `outputs/segmentation_determinism_comparison/`.
+  Due run zero identiche: 300 update, hash di pesi/gradienti e metriche
+  coincidenti; `reproducible: true`, ma `passed: false`.
+- Best al passo 250: Dice 0,791395, FPR negativi 0,84350%.
+  Last al passo 300: Dice 0,660277, FPR negativi 0,002551%.
+  Il recall micro scende da 81,48% a 57,11%; nessuna promozione a piloti/full.
+- AP/profili ricalcolati dai quattro NPZ; conteggi degli audit riprodotti
+  senza scarti. Anche le soglie diagnostiche e gli oracoli per crop restano
+  sotto il gate. Il problema non riguarda soltanto la soglia o i bordi.
+- Ripetibilità verificata per questo percorso stretto nello stesso processo,
+  con backward trilineare e MaxPool3D CPU. Non dimostra ripetibilità del
+  percorso CUDA storico o fra processi/versioni. Dettagli nella sezione 10.25.
+- Prossimo controllo implementato con `--lr-decay`: un confronto con
+  decadimento del LR negli ultimi 100 update, mantenendo identici i primi
+  200, pool, inizializzazione, loss, precisione, budget e gate. È un'ipotesi
+  sulle oscillazioni residue, non un miglioramento già dimostrato.
+  Output `outputs/segmentation_lr_decay_comparison/`; dettagli nella sezione 10.26.
 
 ## Glossario rapido
 
@@ -1882,6 +1886,112 @@ confronto; 18 warning MONAI preesistenti.
 **Ripartenza.** Conservare la cartella incompleta rinominandola e
 rilanciare lo stesso comando, senza resume o modifiche a seed/config/pool.
 Istruzioni nella sezione 18.2.10 della guida Windows.
+
+### 10.25 Due overfit deterministici completati: ripetibili, gate ancora fallito
+
+**Evidenza del laboratorio e ricontrolli locali.** Il confronto sincronizzato
+è completo, senza errore o ramo/checkpoint attivo, `reproducible: true`,
+`passed: false`, `first_divergence: null`. Ricalcolato il confronto esatto
+delle undici tabelle: coincidono loss, norme, hash di stato e gradienti
+in tutti i 300 aggiornamenti, storie e metriche best/last. Coincidono anche
+tutti gli array dei rispettivi NPZ. Ogni crop compare esattamente una
+volta per epoca e 50 in totale. Ledger uguale al riferimento, SHA del pool
+`80c77851…`, inizializzazione dichiarata `9a053aa1…`, 16 positivi/32 negativi,
+273.919 voxel target. Gradienti/aggiornamenti finiti; identità della loss
+0,5 BCE + 0,5 Dice verificata entro `1e-6`.
+
+Ricalcolati dai quattro NPZ conteggi a soglia 0,5, conservazione dei voxel
+alle 1.001 soglie, AP quantizzata e profili/oracoli: coincidono con i report.
+Conteggi TP/FP/FN per crop verificati contro i CSV. I quattro audit originali
+riportano zero scarti rispetto alle metriche dei checkpoint.
+
+| Misura | Best, update 250 | Last, update 300 |
+|---|---:|---:|
+| Dice medio positivi a 0,5 | 0,791395 | 0,660277 |
+| Dice micro positivi a 0,5 | 0,806987 | 0,715435 |
+| Precision micro positivi | 79,93% | 95,75% |
+| Recall micro positivi | 81,48% | 57,11% |
+| FP negativi / FPR | 70.758 / 0,84350% | 214 / 0,002551% |
+| FN nei positivi | 50.737 | 117.497 |
+| AP globale crop | 0,670386 | 0,865872 |
+| Miglior Dice con soglia comune diagnostica | 0,794409 a 0,556 | 0,816344 a 0,161 |
+| Media oracoli per crop sulla griglia | 0,834349 | 0,856898 |
+
+**Interpretazione.** Entrambe le soglie comuni ottimali rispettano anche
+FPR negativo <1%, ma restano sotto Dice 0,90. Sono diagnostiche sul train,
+non soglie calibrate da adottare. Il last ordina meglio i voxel nell'insieme,
+ma a 0,5 perde molta regione annotata; il calo del Dice non equivale a
+peggioramento di tutte le metriche. Le loss medie scendono da 0,21592 negli
+update 201–250 a 0,18848 nei successivi 50, mentre peggiora il gate binario.
+Il determinismo rende ripetibile anche questa traiettoria insufficiente.
+
+Nel best `inj_2092/3` (1.300 voxel) trova tutto il target con 3.637 FP:
+Dice 0,416867. Nel last ne trova soltanto 48 (Dice 0,071217); la soglia
+diagnostica specifica lo porta al massimo a 0,689708 sulla griglia.
+Anche il target grande `inj_1419/1` (59.200 voxel) resta incompleto:
+Dice best 0,665182, recall 53,73%. Le figure ispezionate mostrano
+sovraestensione nel primo caso e recupero parziale nel last, anche alla
+soglia comune diagnostica. Nel nucleo dei positivi, distanza dal bordo
+almeno 16, rimangono 16.158 FN best e 18.380 last: non sono solo bordi.
+
+**Decisione.** La correzione tecnica consente il training CUDA del confronto
+stretto: due run da circa 325,7 secondi ciascuna, con AMP bfloat16 e backward
+CPU espliciti. Non dimostra equivalenza numerica al percorso storico o la
+causa unica delle precedenti differenze. Nessun checkpoint supera il gate.
+Conservare padding zero e il limite di 300 update. Un singolo confronto
+motivato successivo è mantenere il LR corrente fino al passo 200 e ridurlo
+negli ultimi 100, senza cambiare altro, verificando l'identità delle prime
+200 tracce rispetto al controllo. Serve a verificare la stabilizzazione
+della fase finale; le oscillazioni e il clipping in 96/300 passi non
+dimostrano che il LR sia la causa. Confronto ancora da implementare, nessun
+nuovo training avviato. Piloti/full restano bloccati. Analizzati artefatti
+e figure; assenti localmente i pesi allenati `.pt`, nessuna nuova inferenza
+sulle CT. Nessuna evidenza aggiuntiva su validation o generalizzazione.
+
+### 10.26 LR ridotto dopo 200 update: confronto implementato
+
+**Intervento.** Esteso lo stesso runner con `--lr-decay`, alternativo a
+`--deterministic-repeats`. Riusa la coppia deterministica completata come
+controllo a LR costante e allena una sola nuova variante `decay` da
+MedicalNet ufficiale. Nessun nuovo YAML o dipendenza. Il budget resta
+300 update/50 esposizioni per crop; cambiano soltanto entrambi i LR dal
+passo 201, moltiplicati per 0,1 (encoder 3e-6, decoder 3e-5). Pesi, momenti
+AdamW e RNG continuano senza reset. Tutte le altre impostazioni e il
+gate a soglia 0,5 rimangono invariati. Non è un resume del vecchio training.
+
+**Controlli.** Richiesti riferimento completo e riproducibile, modalità
+stretta registrata, due tracce ancora identiche, config/manifest/pool e
+inizializzazione uguali. Durante il nuovo training, ogni riga fino alla
+200 viene confrontata esattamente col controllo: batch, loss, norme,
+hash di stato e gradienti. Primo scarto: arresto con differenze salvate,
+nessuna tolleranza o interpretazione dell'effetto LR. Prima del passo
+201 è obbligatorio il successo della verifica. L'identità dei batch
+continua a essere controllata dopo il cambio. Il log aggiunge i LR
+effettivi; checkpoint/gate salvano la politica `lr_schedule`, verificata
+anche dall'audit dei checkpoint. La compatibilità dei vecchi checkpoint
+senza tale campo è conservata.
+
+**Consegna.** Output nuovo `outputs/segmentation_lr_decay_comparison/`,
+controllo precedente conservato byte per byte. Report con
+`reference_control`, `reference_prefix`, delta best/last e distinzione
+fra completamento tecnico e gate last. Best/last e audit probabilità,
+conteggi per fascia, figure e due NPZ sono inclusi. Nessuna selezione
+su validation o modifica della soglia. Comando Windows nella sezione
+18.2.11 della guida. Il confronto scientifico sulle CT deve ancora essere
+eseguito nel laboratorio; nessun miglioramento è implicato dall'implementazione.
+
+**Verifica locale.** Fixture TIFF end-to-end con controllo deterministico
+e variante da 300 update: prime 200 righe identiche, cambio LR esattamente
+al passo 201, identità dei batch ed esposizioni, stato AdamW/LR salvato,
+due audit e delta verificati; riferimento conservato byte per byte.
+Iniettati scarti di loss anche di `1e-8`, hash dei gradienti e batch dopo
+il cambio: il test si interrompe e conserva il punto di divergenza.
+Verificati rifiuto di riferimenti non riproducibili, budget diverso,
+modalità incompatibili, output occupati, checkpoint con politica LR
+alterata e codici CLI. Suite pertinente: **147 test superati**, cinque
+CUDA saltati, un test dei worker persistenti escluso perché non usati
+dal runner; 18 warning MONAI preesistenti. Nessun training sulle CT locali
+o nuova verifica CUDA/Windows effettuata per questa modifica.
 
 ## Come aggiornare questo registro
 

@@ -79,6 +79,12 @@ algoritmi deterministici stretti e backward trilineare/MaxPool3D esplicitamente 
 Confronta loss, hash di pesi/gradienti a ogni passo e metriche; salva tutto
 in `outputs/segmentation_determinism_comparison`, compresi gli audit finali.
 
+Il [confronto con LR ridotto nella fase finale](docs/LAB_WORKFLOW.md#18211-overfit-deterministico-con-lr-ridotto-dopo-200-update)
+usa lo stesso runner con `--lr-decay`: una sola nuova run da 300 update,
+prime 200 tracce identiche al controllo salvato e LR encoder/decoder
+divisi per 10 dal passo 201. Audit best/last e confronto in
+`outputs/segmentation_lr_decay_comparison`.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

@@ -1,4 +1,4 @@
-"""Paired mixed-batch overfit: decoder padding or strict zero-padding repeats."""
+"""Controlled mixed-batch overfit: padding, deterministic repeats or late LR decay."""
 from __future__ import annotations
 
 import argparse
@@ -21,6 +21,7 @@ from .train_segmentation import check_prerequisites, read_json, validate_config
 
 EXPERIMENT = "decoder_padding_comparison"
 DETERMINISTIC_EXPERIMENT = "deterministic_overfit_repeats"
+LR_EXPERIMENT = "deterministic_late_lr_decay"
 
 
 @contextmanager
@@ -96,17 +97,24 @@ def boundary_summary(distributions, crops):
     return rows
 
 
-def run_comparison(config, data_root, *, device="cpu", reference_dir="outputs/segmentation_batch_comparison_squared",
+def run_comparison(config, data_root, *, device="cpu", reference_dir=None,
                    output_dir=None, cache_dir=None, real_scan_root=None,
-                   deterministic_repeats=False):
-    output_dir = output_dir or ("outputs/segmentation_determinism_comparison" if deterministic_repeats
+                   deterministic_repeats=False, lr_decay=False):
+    if deterministic_repeats and lr_decay:
+        raise ValueError("choose deterministic repeats or LR decay, not both")
+    reference_dir = reference_dir or ("outputs/segmentation_determinism_comparison" if lr_decay
+                                     else "outputs/segmentation_batch_comparison_squared")
+    output_dir = output_dir or ("outputs/segmentation_lr_decay_comparison" if lr_decay else
+                               "outputs/segmentation_determinism_comparison" if deterministic_repeats
                                 else "outputs/segmentation_padding_comparison")
-    with deterministic_execution() if deterministic_repeats else nullcontext():
+    with deterministic_execution() if deterministic_repeats or lr_decay else nullcontext():
         return _run_comparison(config, data_root, device=device, reference_dir=reference_dir, output_dir=output_dir,
-                              cache_dir=cache_dir, real_scan_root=real_scan_root, deterministic_repeats=deterministic_repeats)
+                              cache_dir=cache_dir, real_scan_root=real_scan_root,
+                              deterministic_repeats=deterministic_repeats, lr_decay=lr_decay)
 
 
-def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cache_dir, real_scan_root, deterministic_repeats):
+def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cache_dir, real_scan_root,
+                    deterministic_repeats, lr_decay):
     config = copy.deepcopy(config)
     validate_config(config)
     training = config["training"]
@@ -114,6 +122,8 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
             or training["max_updates"] != 6 * training["epochs"]
             or config["model"].get("decoder_padding_mode", "zeros") != "zeros"):
         raise ValueError("padding comparison needs the zero-padding squared overfit, max_updates = 6 * epochs <= 300")
+    if lr_decay and training["max_updates"] != 300:
+        raise ValueError("LR decay comparison requires exactly 300 updates and 50 epochs")
     source, output = Path(reference_dir), Path(output_dir)
     if output.resolve() == source.resolve() or source.resolve() in output.resolve().parents:
         raise ValueError("comparison output must be outside the reference directory")
@@ -124,14 +134,24 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
     reference_config = read_json(source / "effective_config.json")
     for cfg in (config, reference_config):
         cfg["model"].setdefault("decoder_padding_mode", "zeros")
-    if (previous.get("experiment") != "batch_composition_comparison" or not previous.get("complete")
+    reference_labels = ("repeat_1", "repeat_2") if lr_decay else ("grouped", "mixed")
+    if (previous.get("experiment") != (DETERMINISTIC_EXPERIMENT if lr_decay else "batch_composition_comparison")
+            or not previous.get("complete")
             or previous.get("error") or previous.get("active_arm") is not None
-            or set(previous.get("arms", {})) != {"grouped", "mixed"}
+            or previous.get("active_checkpoint") is not None
+            or set(previous.get("arms", {})) != set(reference_labels)
             or previous.get("manifest_id") != manifest["manifest_id"]
             or read_json(source / "manifest.json") != manifest or reference_config != config):
-        raise ValueError("reference must be the complete squared grouped/mixed comparison with identical config/manifest")
-    initial_hash = previous["arms"]["mixed"].get("initial_state_sha256")
-    if not initial_hash or previous["arms"]["grouped"].get("initial_state_sha256") != initial_hash:
+        raise ValueError("reference must be the complete matching comparison with identical config/manifest")
+    if lr_decay and (previous.get("reproducible") is not True
+                     or previous.get("runtime", {}).get("deterministic_algorithms") is not True
+                     or previous.get("runtime", {}).get("warn_only") is not False
+                     or previous.get("runtime", {}).get("cudnn_benchmark") is not False
+                     or any(previous["arms"][name].get("deterministic") is not True for name in reference_labels)
+                     or not compare_repeats(source, training["max_updates"])["reproducible"]):
+        raise ValueError("LR decay requires a reproducible deterministic reference, including exact saved traces")
+    initial_hash = previous["arms"][reference_labels[1]].get("initial_state_sha256")
+    if not initial_hash or previous["arms"][reference_labels[0]].get("initial_state_sha256") != initial_hash:
         raise ValueError("reference initial model states differ or are missing")
     check_prerequisites(config, manifest, data_root, real_scan_root)
     dataset = SegmentationDataset(manifest_records(manifest, "overfit"), data_root,
@@ -150,16 +170,18 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
     write_csv(output / "crop_pool.csv", pool.rows)
     write_json(output / "effective_config.json", config)
     write_json(output / "manifest.json", manifest)
-    experiment = DETERMINISTIC_EXPERIMENT if deterministic_repeats else EXPERIMENT
-    labels = ("repeat_1", "repeat_2") if deterministic_repeats else ("zeros", "replicate")
+    strict = deterministic_repeats or lr_decay
+    experiment = LR_EXPERIMENT if lr_decay else DETERMINISTIC_EXPERIMENT if deterministic_repeats else EXPERIMENT
+    labels = ("decay",) if lr_decay else ("repeat_1", "repeat_2") if deterministic_repeats else ("zeros", "replicate")
     report = {"experiment": experiment, "complete": False, "passed": False,
               "manifest_id": manifest["manifest_id"], "crop_pool_sha256": pool.digest,
               "reference_dir": str(source), "reference_comparison_sha256": file_digest(source / "comparison.json"),
               "initial_state_sha256": initial_hash, "active_arm": None, "active_checkpoint": None, "arms": {},
               "runtime": {"torch": torch.__version__, "monai": version("monai"), "device": str(device)},
               "scope": "48 fixed training crops; .5 gate unchanged; no pilot/full promotion or validation calibration"}
-    if deterministic_repeats:
-        report["reproducible"] = None
+    if strict:
+        if deterministic_repeats:
+            report["reproducible"] = None
         report["runtime"].update(python=platform.python_version(), cuda=torch.version.cuda,
             cudnn=torch.backends.cudnn.version(), cpu_threads=torch.get_num_threads(),
             interop_threads=torch.get_num_interop_threads(),
@@ -173,9 +195,12 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
             pythonhashseed=os.environ.get("PYTHONHASHSEED"), trilinear_backward="cpu_first_order",
             maxpool3d_backward="cpu_first_order_native_indices",
             comparison="exact traces/weight and gradient hashes/metrics within this process; not bitwise equivalence to historical runs")
+    if lr_decay:
+        report.update(reference_control=previous["arms"]["repeat_1"], reference_prefix=None)
+        report["runtime"]["comparison"] = "exact first 200 updates against the saved constant-LR control; late decay is the only intended change"
     try:
         for label in labels:
-            padding = "zeros" if deterministic_repeats else label
+            padding = "zeros" if strict else label
             report["active_arm"] = label
             write_json(output / "comparison.json", report)
             arm_config = copy.deepcopy(config)
@@ -183,7 +208,8 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
             print(f"starting {experiment}: {label}, padding={padding}", flush=True)
             folder = output / label
             arm = run_arm(arm_config, manifest, pool, folder, mixed=True, device=device,
-                          expected_initial_state_sha256=initial_hash, experiment=experiment, deterministic=deterministic_repeats)
+                          expected_initial_state_sha256=initial_hash, experiment=experiment, deterministic=strict,
+                          **({"lr_decay_reference": read_rows(source / "repeat_1/update_metrics.csv")} if lr_decay else {}))
             report["arms"][label] = {**arm, "probability_diagnostics": {}}
             for checkpoint in ("best", "last"):
                 report["active_checkpoint"] = f"{label}/{checkpoint}"
@@ -199,7 +225,14 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
                 if str(device).startswith("cuda"):
                     torch.cuda.empty_cache()
             report["active_checkpoint"] = None
-        if deterministic_repeats:
+        if lr_decay:
+            arm, control = report["arms"]["decay"], report["reference_control"]
+            report.update(complete=True, active_arm=None, reference_prefix=arm["reference_prefix"],
+                          passed=arm["reference_prefix"]["passed"] and arm["last"]["passed"],
+                          delta_decay_minus_constant={checkpoint: {key: arm[checkpoint][key] - control[checkpoint][key]
+                              for key in ("positive_crop_dice", "negative_crop_fp_fraction")}
+                              for checkpoint in ("best", "last")})
+        elif deterministic_repeats:
             report.update(compare_repeats(output, training["max_updates"]))
             report.update(complete=True, active_arm=None,
                           passed=report["reproducible"] and all(a["last"]["passed"] for a in report["arms"].values()))
@@ -214,6 +247,8 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
         report["error"] = f"{type(exc).__name__}: {exc}"
         raise
     finally:
+        if lr_decay and (output / "decay/prefix_check.json").is_file():
+            report["reference_prefix"] = read_json(output / "decay/prefix_check.json")
         write_json(output / "comparison.json", report)
 
 
@@ -223,17 +258,24 @@ def main():
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--real-scan-root")
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--deterministic-repeats", action="store_true",
-                        help="two identical zero-padding runs, strict determinism and explicit CPU trilinear backward")
-    parser.add_argument("--reference-dir", default="outputs/segmentation_batch_comparison_squared")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--deterministic-repeats", action="store_true",
+                      help="two identical zero-padding runs, strict determinism and explicit CPU spatial backward")
+    mode.add_argument("--lr-decay", action="store_true",
+                      help="one strict run: verify the saved constant-LR prefix, divide both LRs by 10 after update 200")
+    parser.add_argument("--reference-dir")
     parser.add_argument("--output-dir")
     parser.add_argument("--cache-dir")
     args = parser.parse_args()
     report = run_comparison(load_yaml_config(args.config), args.data_root, device=args.device,
         reference_dir=args.reference_dir, output_dir=args.output_dir or
-            ("outputs/segmentation_determinism_comparison" if args.deterministic_repeats else "outputs/segmentation_padding_comparison"),
-        cache_dir=args.cache_dir, real_scan_root=args.real_scan_root, deterministic_repeats=args.deterministic_repeats)
-    if args.deterministic_repeats:
+            ("outputs/segmentation_lr_decay_comparison" if args.lr_decay else
+             "outputs/segmentation_determinism_comparison" if args.deterministic_repeats else "outputs/segmentation_padding_comparison"),
+        cache_dir=args.cache_dir, real_scan_root=args.real_scan_root,
+        deterministic_repeats=args.deterministic_repeats, lr_decay=args.lr_decay)
+    if args.lr_decay:
+        print(f"LR decay comparison complete: prefix exact={report['reference_prefix']['passed']}, last gate passed={report['passed']}")
+    elif args.deterministic_repeats:
         print(f"Deterministic comparison complete: reproducible={report['reproducible']}, localization gate passed={report['passed']}")
         if not report["reproducible"]:
             raise SystemExit(3)

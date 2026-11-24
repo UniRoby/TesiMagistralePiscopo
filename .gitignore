@@ -36,6 +36,7 @@ checkpoints/
 !outputs/segmentation_batch_probability_diagnostics/**/metrics.npz
 !outputs/segmentation_padding_comparison/**/metrics.npz
 !outputs/segmentation_determinism_comparison/**/metrics.npz
+!outputs/segmentation_lr_decay_comparison/**/metrics.npz
 *.npy
 *.nii
 *.nii.gz

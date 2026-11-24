@@ -18,6 +18,9 @@ from .train import _load_torch_payload, _write_metrics_row, load_yaml_config, re
 from .train_segmentation import (check_prerequisites, make_optimizer, overfit_metrics, overfit_rank,
                                  read_json, save_checkpoint, train_volume, validate_config, _rng_state)
 
+LR_DECAY_AFTER = 200
+LR_DECAY_FACTOR = 0.1
+
 
 def tensor_digest(tensor):
     return hashlib.sha256(tensor.detach().cpu().contiguous().numpy().tobytes()).hexdigest()
@@ -93,11 +96,24 @@ def epoch_batches(pool, seed, epoch, *, mixed):
 
 
 def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_state_sha256=None,
-            experiment="batch_composition_comparison", deterministic=False):
+            experiment="batch_composition_comparison", deterministic=False, lr_decay_reference=None):
     started = perf_counter()
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     training = config["training"]
+    schedule, prefix = None, None
+    if lr_decay_reference is not None:
+        if (not deterministic or not mixed or training["max_updates"] <= LR_DECAY_AFTER
+                or len(lr_decay_reference) != training["max_updates"]
+                or [r.get("updates") for r in lr_decay_reference] != [str(i) for i in range(1, training["max_updates"] + 1)]
+                or any(len(r.get(key, "")) != 64 for r in lr_decay_reference
+                       for key in ("model_state_sha256", "gradient_sha256"))):
+            raise ValueError("LR decay requires a complete deterministic mixed reference trace and a post-decay budget")
+        schedule = {"after_updates": LR_DECAY_AFTER, "factor": LR_DECAY_FACTOR,
+                    "groups": ["encoder", "decoder"]}
+        prefix = {"required_updates": LR_DECAY_AFTER, "matched_updates": 0, "passed": False,
+                  "first_divergence": None}
+        write_json(output / "prefix_check.json", prefix)
     padding = config["model"].get("decoder_padding_mode", "zeros")
     squared_pred = training.get("squared_pred", False)
     training_loss = {"bce_weight": 0.5, "dice_weight": 0.5, "squared_pred": squared_pred,
@@ -129,6 +145,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                 "config": config, "manifest": manifest, "sampling": sampling, "training_loss": training_loss,
                 "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch, "updates": updates, "best_overfit_metrics": best,
+                "lr_schedule": schedule,
                 "best_ap": -1.0, "stale_validations": 0, "rng_state": _rng_state(),
                 "execution_policy": {"strict_determinism": deterministic,
                                      "trilinear_backward": "cpu_first_order" if deterministic else "native",
@@ -143,13 +160,20 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
             best = {"updates": updates, **metrics}
             save_checkpoint(payload(epoch), output / "best.pt")
             write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
-                                                   "training_loss": training_loss, "decoder_padding_mode": padding, **best})
+                                                   "training_loss": training_loss, "decoder_padding_mode": padding,
+                                                   "lr_schedule": schedule, **best})
 
     if str(device).startswith("cuda"):
         torch.cuda.reset_peak_memory_stats(device)
     # Complete both budgets after an early success; write last.pt only at the end.
     for epoch in range(training["epochs"]):
         for indices in epoch_batches(pool, training.get("seed", 21), epoch, mixed=mixed):
+            if schedule is not None and updates == LR_DECAY_AFTER:
+                if not prefix["passed"]:
+                    raise ValueError("reference prefix was not verified; LR decay blocked")
+                for group in optimizer.param_groups:
+                    group["lr"] *= LR_DECAY_FACTOR
+                print(f"Reference prefix exact through update {updates}; LR multiplied by {LR_DECAY_FACTOR}", flush=True)
             model.train()
             batch = {"image": pool.image[indices], "mask": pool.mask[indices]}
             diagnostics = {}
@@ -164,10 +188,27 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                     gradient_sha256=named_tensor_digest((name, p.grad) for name, p in model.named_parameters() if p.grad is not None))
                 if updates == 1:
                     print("Strict first update complete; trilinear/MaxPool3D backward=CPU; exact state/gradient tracing active", flush=True)
-            _write_metrics_row(output / "update_metrics.csv", {"updates": updates, "epoch": epoch + 1,
+            row = {"updates": updates, "epoch": epoch + 1,
                                "crop_indices": ";".join(map(str, indices)), "positive_crops": int(pool.positive[indices].sum()),
                                "real_crops": int(pool.real[indices].sum()), "scans": len(set(indices // 8)),
-                               "loss": loss, "squared_pred": squared_pred, **diagnostics})
+                               "loss": loss, "squared_pred": squared_pred, **diagnostics}
+            if schedule is not None:
+                expected = lr_decay_reference[updates - 1]
+                keys = row.keys() | expected.keys() if updates <= LR_DECAY_AFTER else (
+                    "updates", "epoch", "crop_indices", "positive_crops", "real_crops", "scans")
+                differences = {key: {"reference": expected.get(key), "actual": str(row.get(key))}
+                               for key in keys if str(row.get(key)) != expected.get(key)}
+                row.update(encoder_lr=optimizer.param_groups[0]["lr"], decoder_lr=optimizer.param_groups[1]["lr"])
+            _write_metrics_row(output / "update_metrics.csv", row)
+            if schedule is not None:
+                if differences:
+                    prefix["first_divergence"] = {"updates": updates, "differences": differences}
+                    write_json(output / "prefix_check.json", prefix)
+                    raise ValueError(f"reference trace diverged at update {updates}; do not interpret LR comparison")
+                if updates <= LR_DECAY_AFTER:
+                    prefix.update(matched_updates=updates, passed=updates == LR_DECAY_AFTER)
+                    if updates % 25 == 0 or prefix["passed"]:
+                        write_json(output / "prefix_check.json", prefix)
             if updates % 25 == 0 or updates == training["max_updates"]:
                 cases = []
                 metrics = overfit_metrics(model, pool, device, training["batch_size"], case_rows=cases)
@@ -179,7 +220,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
     final = overfit_metrics(model, pool, device, training["batch_size"], output)
     select_best(final, training["epochs"])
     final.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True,
-                 training_loss=training_loss, decoder_padding_mode=padding)
+                 training_loss=training_loss, decoder_padding_mode=padding, lr_schedule=schedule)
     write_json(output / "gate.json", final)
     save_checkpoint(payload(training["epochs"]), output / "last.pt")
     write_csv(output / "exposures.csv", [{"pool_index": i, "exposures": int(n)} for i, n in enumerate(exposures)])
@@ -195,6 +236,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
         raise ValueError("best checkpoint metrics were not reproduced within 1e-4")
     report = {**sampling, "training_loss": training_loss, "decoder_padding_mode": padding,
               "deterministic": deterministic,
+              "lr_schedule": schedule, "reference_prefix": prefix,
               "initial_state_sha256": initial_hash, "updates": updates,
               "epochs": training["epochs"], "exposures_per_crop": int(exposures[0]),
               "first_gate_passed_update": first_passed, "best": best, "last": final,

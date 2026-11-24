@@ -196,7 +196,7 @@ def test_audit_matches_reference_seed_grad_mode_and_sigmoid_before_cpu(source_ru
         assert report["reproduction_failures"] == [] and report["sigmoid_device"] == "cpu"
 
 
-@pytest.mark.parametrize("change", ["task", "config", "manifest", "sampling", "training_loss", "updates", "best_metrics", "state_dict"])
+@pytest.mark.parametrize("change", ["task", "config", "manifest", "sampling", "training_loss", "lr_schedule", "updates", "best_metrics", "state_dict"])
 def test_checkpoint_binding_rejects_wrong_payload_and_reports_active_checkpoint(source_run, tmp_path, change):
     root, source, _ = source_run
     checkpoint = source / "grouped/best.pt"
@@ -206,6 +206,7 @@ def test_checkpoint_binding_rejects_wrong_payload_and_reports_active_checkpoint(
     elif change == "manifest": payload["manifest"]["manifest_id"] = "different"
     elif change == "sampling": payload["sampling"]["crop_pool_sha256"] = "different"
     elif change == "training_loss": payload["training_loss"]["squared_pred"] = False
+    elif change == "lr_schedule": payload["lr_schedule"] = {"after_updates": 200, "factor": .1}
     elif change == "updates": payload["updates"] += 1
     elif change == "best_metrics": payload["best_overfit_metrics"]["positive_crop_dice"] += .1
     else: payload["model_state_dict"].pop("output.weight")
