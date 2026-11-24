@@ -1,0 +1,21 @@
+{
+  "task": "segmentation_batch_probability_diagnostics",
+  "complete": false,
+  "evaluation_only": true,
+  "source_run": "outputs\\segmentation_batch_comparison_squared",
+  "source_comparison_sha256": "e4de253289b636dfe835bfe81e51761b22a50d7f50488e4e1ff1e382741b2b7c",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+  "runtime": {
+    "torch": "2.13.0+cu130",
+    "monai": "1.5.2",
+    "device": "cuda"
+  },
+  "ap_definition": "floor-quantized probabilities, 65536 bins; no voxel subsampling; single-class AP null",
+  "threshold_definition": "1001 common thresholds 0..1 step .001; exact >= counts on float64-promoted float32 probabilities",
+  "scope": "48 fixed training crops, including overlapping/repeated physical voxels; not native-volume validation",
+  "diagnostic_only": "train/oracle thresholds cannot replace the fixed .5 gate or validation calibration",
+  "active_checkpoint": "grouped/best",
+  "checkpoints": {},
+  "error": "ValueError: checkpoint/crop metrics were not reproduced within 1e-4; do not interpret threshold diagnostics"
+}
