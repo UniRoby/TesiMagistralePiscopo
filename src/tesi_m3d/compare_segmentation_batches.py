@@ -108,6 +108,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
         raise ValueError("deterministic arm requires strict algorithms and disabled cuDNN autotuning")
     model = build_segmenter(config["model"]).to(device)
     model.deterministic_trilinear_backward = deterministic
+    model.deterministic_maxpool_backward = deterministic
     initial_hash = named_tensor_digest(model.state_dict().items())
     if expected_initial_state_sha256 is not None and initial_hash != expected_initial_state_sha256:
         raise ValueError("comparison arms did not start from identical model states: "
@@ -130,7 +131,8 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                 "epoch": epoch, "updates": updates, "best_overfit_metrics": best,
                 "best_ap": -1.0, "stale_validations": 0, "rng_state": _rng_state(),
                 "execution_policy": {"strict_determinism": deterministic,
-                                     "trilinear_backward": "cpu_first_order" if deterministic else "native"},
+                                     "trilinear_backward": "cpu_first_order" if deterministic else "native",
+                                     "maxpool3d_backward": "cpu_first_order_native_indices" if deterministic else "native"},
                 "amp": "bfloat16" if str(device).startswith("cuda") else "disabled"}
 
     def select_best(metrics, epoch):
@@ -161,7 +163,7 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                 diagnostics.update(model_state_sha256=named_tensor_digest(model.state_dict().items()),
                     gradient_sha256=named_tensor_digest((name, p.grad) for name, p in model.named_parameters() if p.grad is not None))
                 if updates == 1:
-                    print("Strict first update complete; trilinear backward=CPU; exact state/gradient tracing active", flush=True)
+                    print("Strict first update complete; trilinear/MaxPool3D backward=CPU; exact state/gradient tracing active", flush=True)
             _write_metrics_row(output / "update_metrics.csv", {"updates": updates, "epoch": epoch + 1,
                                "crop_indices": ";".join(map(str, indices)), "positive_crops": int(pool.positive[indices].sum()),
                                "real_crops": int(pool.real[indices].sum()), "scans": len(set(indices // 8)),

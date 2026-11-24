@@ -31,6 +31,28 @@ class _TrilinearCPUBackward(torch.autograd.Function):
         return backward.to(gradient.device), None
 
 
+class _MaxPool3dCPUBackward(torch.autograd.Function):
+    """Keep native argmax decisions; accumulate their gradients on CPU."""
+    @staticmethod
+    def forward(ctx, image, pool):
+        ctx.shape = image.shape
+        ctx.parameters = tuple((v,) * 3 if isinstance(v, int) else tuple(v)
+                               for v in (pool.kernel_size, pool.stride, pool.padding, pool.dilation)) + (pool.ceil_mode,)
+        result, indices = F.max_pool3d(image, *ctx.parameters, return_indices=True)
+        ctx.save_for_backward(indices)
+        return result
+
+    @staticmethod
+    @torch.autograd.function.once_differentiable
+    def backward(ctx, gradient):
+        indices, = ctx.saved_tensors
+        # Native indices fully determine this derivative; input values are unused.
+        shape_only = torch.zeros(ctx.shape, dtype=gradient.dtype, device="cpu")
+        backward = torch.ops.aten.max_pool3d_with_indices_backward(
+            gradient.cpu(), shape_only, *ctx.parameters, indices.cpu())
+        return backward.to(gradient.device), None
+
+
 def file_digest(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -75,6 +97,7 @@ class MedicalNetSegmenter(nn.Module):
         super().__init__()
         self.encoder = encoder
         self.deterministic_trilinear_backward = False
+        self.deterministic_maxpool_backward = False
         self.bridge = nn.Sequential(nn.Conv3d(896, 128, 1, bias=False), nn.GroupNorm(8, 128), nn.ReLU())
         self.decode4 = _block(128 + 64, 64, decoder_padding_mode)
         self.decode2 = _block(64 + 64, 32, decoder_padding_mode)
@@ -95,7 +118,11 @@ class MedicalNetSegmenter(nn.Module):
 
     def forward(self, image):
         stem = self.encoder.act(self.encoder.bn1(self.encoder.conv1(image)))
-        s4 = self.encoder.layer1(self.encoder.maxpool(stem))
+        if self.deterministic_maxpool_backward and torch.is_grad_enabled() and stem.requires_grad:
+            pooled = _MaxPool3dCPUBackward.apply(stem, self.encoder.maxpool)
+        else:
+            pooled = self.encoder.maxpool(stem)
+        s4 = self.encoder.layer1(pooled)
         s8 = self.encoder.layer2(s4)
         s8b = self.encoder.layer3(s8)
         s8c = self.encoder.layer4(s8b)

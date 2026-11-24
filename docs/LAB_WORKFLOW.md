@@ -1642,6 +1642,30 @@ dtype e `align_corners=False`, riportando poi il gradiente sul device.
 L'encoder e le convoluzioni rimangono sul device richiesto. Non si cambia
 in nearest-neighbor e non si introduce un contorno diverso.
 
+Anche `max_pool3d_with_indices_backward_cuda` dell'encoder è incompatibile
+con la modalità stretta nella versione del laboratorio. Il percorso
+diagnostico mantiene **forward e indici dei massimi nativi sul device**,
+poi esegue il backward PyTorch di MaxPool3D su CPU usando proprio quegli
+indici, senza ricalcolarli. Kernel, stride, padding, dilation e ceil mode
+restano quelli MedicalNet; vengono sommate anche le contribuzioni di
+finestre sovrapposte. Si usa il kernel CPU nativo anche per conservare
+l'aritmetica bfloat16, diversa da un generico `scatter_add`. Il gradiente
+torna sul device. La politica salvata è
+`maxpool3d_backward: cpu_first_order_native_indices`; non si disabilita
+il determinismo. Il training ordinario conserva il percorso nativo.
+
+Se il primo tentativo si è interrotto con questo errore, aggiornare il
+codice e conservare la cartella incompleta prima di rilanciare il comando
+sopra, dall'inizio e in un nuovo processo Python:
+
+```powershell
+Rename-Item -Path outputs\segmentation_determinism_comparison `
+  -NewName segmentation_determinism_comparison_failed_maxpool -ErrorAction Stop
+```
+
+Il nome di destinazione deve essere libero. Nessun peso allenato va
+recuperato dal tentativo interrotto: l'errore avviene prima del primo step.
+
 Questa scelta cambia il kernel e l'ordine numerico del backward rispetto
 alle run storiche: il test misura la ripetibilità **di questo percorso
 controllato nello stesso processo**, non l'identità numerica col vecchio

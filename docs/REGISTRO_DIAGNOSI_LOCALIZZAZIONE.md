@@ -20,7 +20,7 @@ Configurazione di riferimento:
 - Prossimo confronto implementato: due baseline zero identiche con algoritmi
   deterministici, flag `--deterministic-repeats` su `compare_segmentation_padding`,
   output `outputs/segmentation_determinism_comparison/`. Da eseguire nel laboratorio.
-  Backward trilineare esplicitamente CPU; evidenze/limiti nelle sezioni 10.22–10.23.
+  Backward trilineare e MaxPool3D esplicitamente CPU; evidenze/limiti nelle sezioni 10.22–10.24.
   Non occorre ripetere gli audit acquisiti: il nuovo comando include i propri audit.
 
 ## Glossario rapido
@@ -1838,6 +1838,50 @@ controllato, con kernel backward diverso da quello storico: non isola
 la singola causa della variabilità osservata, non dimostra identità fra
 processi/macchine/versioni e non prova un miglioramento di localizzazione.
 I risultati quantitativi del laboratorio sono ancora da acquisire.
+
+### 10.24 Arresto CUDA nel backward MaxPool3D: correzione del percorso stretto
+
+**Evidenza del laboratorio.** Il comando deterministico si interrompe nel
+primo backward di `repeat_1` con
+`max_pool3d_with_indices_backward_cuda does not have a deterministic implementation`.
+Il controllo precedente sulla trilineare era insufficiente a coprire
+l'intero encoder CUDA. Nessun primo aggiornamento completato e nessuna
+conclusione scientifica ricavabile da questa esecuzione.
+
+**Correzione.** Solo nel confronto deterministico, il forward MaxPool3D
+rimane quello nativo sul device e conserva i suoi indici dei massimi.
+Il backward usa il kernel PyTorch CPU con gli stessi indici e parametri
+del pooling MedicalNet, riportando il gradiente sul device. Non cambia
+pesi, architettura, scelta dei massimi o forward d'inferenza. Il kernel
+CPU nativo conserva anche l'accumulo bfloat16; un generico `scatter_add`
+non lo riproduce esattamente. Politica registrata in runtime e checkpoint
+come `maxpool3d_backward: cpu_first_order_native_indices`.
+`warn_only=False` resta obbligatorio; altre operazioni incompatibili
+devono ancora interrompere il confronto e salvare l'errore.
+
+**Verifica locale.** Forward e backward confrontati esattamente col pooling
+CPU nativo in float32/float64/bfloat16: massimi ripetuti, NaN/infinito,
+finestre sovrapposte, padding, stride implicito, geometrie anisotrope,
+dilation, ceil mode e input non contigui; superato anche `gradcheck`.
+Il backward dell'intera architettura MedicalNet con entrambi i percorsi
+CPU attivi produce gradienti finiti di encoder e decoder e mantiene BN
+ferme. Aggiunti test CUDA per indici/forward nativi, gradienti e modello
+completo AMP: disponibili per il laboratorio, saltati localmente perché
+CUDA non è disponibile.
+
+Con i pesi MedicalNet ufficiali, un update AdamW CPU su batch sintetico
+8×1×16³, loss quadratica, produce **loss, diagnostiche e stato finale
+esattamente identici** fra percorso nativo CPU e i due backward espliciti:
+loss `0,7828819155693054`, SHA finale `a8cf3b9a…`. È un controllo numerico
+CPU, non una verifica CUDA/Windows né un risultato di localizzazione.
+
+Suite di regressione pertinente: **139 test superati**, cinque test CUDA
+saltati, un test dei worker persistenti escluso perché non usati dal
+confronto; 18 warning MONAI preesistenti.
+
+**Ripartenza.** Conservare la cartella incompleta rinominandola e
+rilanciare lo stesso comando, senza resume o modifiche a seed/config/pool.
+Istruzioni nella sezione 18.2.10 della guida Windows.
 
 ## Come aggiornare questo registro
 

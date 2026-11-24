@@ -74,7 +74,8 @@ e gli errori per distanza dal bordo in `outputs/segmentation_padding_comparison`
 
 Il [test di ripetibilità del training](docs/LAB_WORKFLOW.md#18210-due-overfit-zero-identici-con-determinismo-stretto)
 aggiunge `--deterministic-repeats` allo stesso runner: due overfit zero,
-algoritmi deterministici stretti e backward trilineare esplicitamente CPU.
+algoritmi deterministici stretti e backward trilineare/MaxPool3D esplicitamente CPU
+(forward nativi, indici dei massimi preservati).
 Confronta loss, hash di pesi/gradienti a ogni passo e metriche; salva tutto
 in `outputs/segmentation_determinism_comparison`, compresi gli audit finali.
 

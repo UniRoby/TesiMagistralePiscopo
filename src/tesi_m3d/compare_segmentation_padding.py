@@ -171,6 +171,7 @@ def _run_comparison(config, data_root, *, device, reference_dir, output_dir, cac
             cudnn_allow_tf32=torch.backends.cudnn.allow_tf32, matmul_allow_tf32=torch.backends.cuda.matmul.allow_tf32,
             cublas_workspace_config=os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
             pythonhashseed=os.environ.get("PYTHONHASHSEED"), trilinear_backward="cpu_first_order",
+            maxpool3d_backward="cpu_first_order_native_indices",
             comparison="exact traces/weight and gradient hashes/metrics within this process; not bitwise equivalence to historical runs")
     try:
         for label in labels:
