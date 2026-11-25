@@ -1,0 +1,495 @@
+{
+  "experiment": "full_pool_overfit_recovery",
+  "complete": true,
+  "passed": true,
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+  "reference_dir": "outputs\\segmentation_lr_decay_comparison",
+  "reference_comparison_sha256": "ec8a6ed908a49bcb99e9d652da12eba48c2c3eea0e716a56b23d5b36feb3eb23",
+  "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+  "active_arm": null,
+  "active_checkpoint": null,
+  "arms": {
+    "full_pool": {
+      "layout": "full_pool",
+      "fixed_foreground_normalizer": 24,
+      "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+      "effective_batch_size": 48,
+      "accumulation_steps": 24,
+      "objective": "mean of the six original mixed-batch objectives at identical weights",
+      "training_loss": {
+        "bce_weight": 0.5,
+        "dice_weight": 0.5,
+        "squared_pred": true,
+        "empty_crops": "BCE_only"
+      },
+      "decoder_padding_mode": "zeros",
+      "deterministic": true,
+      "lr_schedule": {
+        "after_updates": 200,
+        "factor": 0.1,
+        "groups": [
+          "encoder",
+          "decoder"
+        ]
+      },
+      "reference_prefix": null,
+      "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+      "updates": 300,
+      "epochs": 300,
+      "exposures_per_crop": 300,
+      "first_gate_passed_update": 150,
+      "best": {
+        "updates": 300,
+        "positive_crop_dice": 0.9457321636549672,
+        "negative_crop_fp_fraction": 1.1920928955078125e-07,
+        "passed": true
+      },
+      "last": {
+        "positive_crop_dice": 0.9457321636549672,
+        "negative_crop_fp_fraction": 1.1920928955078125e-07,
+        "passed": true,
+        "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+        "updates": 300,
+        "finite_gradients": true,
+        "training_loss": {
+          "bce_weight": 0.5,
+          "dice_weight": 0.5,
+          "squared_pred": true,
+          "empty_crops": "BCE_only"
+        },
+        "decoder_padding_mode": "zeros",
+        "lr_schedule": {
+          "after_updates": 200,
+          "factor": 0.1,
+          "groups": [
+            "encoder",
+            "decoder"
+          ]
+        },
+        "overfit_protocol": "full_pool",
+        "exposures_per_crop": 300,
+        "sampling": {
+          "layout": "full_pool",
+          "fixed_foreground_normalizer": 24,
+          "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+          "effective_batch_size": 48,
+          "accumulation_steps": 24,
+          "objective": "mean of the six original mixed-batch objectives at identical weights"
+        }
+      },
+      "best_reproduced_within_1e_4": true,
+      "seconds": 1391.3296917999978,
+      "max_memory_mib": 1670.83935546875,
+      "probability_diagnostics": {
+        "best": {
+          "checkpoint_sha256": "d65ca150fa0dbd0fe1cd057540ed11c5450d2dfd8986d386485efdff6b52c0f4",
+          "updates": 300,
+          "evaluation": "float32_no_autocast",
+          "training_loss": {
+            "bce_weight": 0.5,
+            "dice_weight": 0.5,
+            "squared_pred": true,
+            "empty_crops": "BCE_only"
+          },
+          "cudnn_benchmark": false,
+          "sigmoid_device": "cuda",
+          "fixed_threshold": {
+            "threshold": 0.5,
+            "mean_positive_crop_dice": 0.9457321636549672,
+            "positive_crop_micro_dice": 0.960298445295593,
+            "positive_crop_precision": 0.9527806925498427,
+            "positive_crop_recall": 0.9679357766346985,
+            "positive_crop_tp": 265136,
+            "positive_crop_fp": 13140,
+            "positive_crop_fn": 8783,
+            "negative_crop_fp": 1,
+            "negative_crop_fp_fraction": 1.1920928955078125e-07,
+            "real_crop_fp_fraction": 0.0,
+            "all_crop_micro_dice": 0.9602967062419865
+          },
+          "voxel_ap": {
+            "all_crops": 0.9896542024815578,
+            "positive_crops": 0.9902634559841894,
+            "real_crops": null,
+            "mean_positive_crop_ap": 0.9917911202699781
+          },
+          "diagnostic_train_only": {
+            "best_common_mean_dice": {
+              "threshold": 0.596,
+              "mean_positive_crop_dice": 0.9523720637235007,
+              "positive_crop_micro_dice": 0.9613793741043776,
+              "positive_crop_precision": 0.9740095764051764,
+              "positive_crop_recall": 0.9490725360416765,
+              "positive_crop_tp": 259969,
+              "positive_crop_fp": 6937,
+              "positive_crop_fn": 13950,
+              "negative_crop_fp": 0,
+              "negative_crop_fp_fraction": 0.0,
+              "real_crop_fp_fraction": 0.0,
+              "all_crop_micro_dice": 0.9613793741043776
+            },
+            "best_common_with_negative_fp_below_1pct": {
+              "threshold": 0.596,
+              "mean_positive_crop_dice": 0.9523720637235007,
+              "positive_crop_micro_dice": 0.9613793741043776,
+              "positive_crop_precision": 0.9740095764051764,
+              "positive_crop_recall": 0.9490725360416765,
+              "positive_crop_tp": 259969,
+              "positive_crop_fp": 6937,
+              "positive_crop_fn": 13950,
+              "negative_crop_fp": 0,
+              "negative_crop_fp_fraction": 0.0,
+              "real_crop_fp_fraction": 0.0,
+              "all_crop_micro_dice": 0.9613793741043776
+            },
+            "mean_per_positive_crop_oracle_dice": 0.959683893024957,
+            "grid_contains_numeric_gate_solution": true
+          },
+          "metric_delta_from_saved": {
+            "positive_crop_dice": 0.0,
+            "negative_crop_fp_fraction": 0.0
+          },
+          "reproduced_within_1e_4": true,
+          "reproduction_failures": [],
+          "max_abs_saved_count_delta": 0,
+          "preview_pool_indices": [
+            3,
+            15
+          ],
+          "seconds": 3.9313191000255756,
+          "max_memory_mib": 1525.154296875
+        },
+        "last": {
+          "checkpoint_sha256": "986aeaa45cdb82ccac60019b1fc21f43e564c24ce11139fbfdd37dfaf55de2a9",
+          "updates": 300,
+          "evaluation": "float32_no_autocast",
+          "training_loss": {
+            "bce_weight": 0.5,
+            "dice_weight": 0.5,
+            "squared_pred": true,
+            "empty_crops": "BCE_only"
+          },
+          "cudnn_benchmark": false,
+          "sigmoid_device": "cuda",
+          "fixed_threshold": {
+            "threshold": 0.5,
+            "mean_positive_crop_dice": 0.9457321636549672,
+            "positive_crop_micro_dice": 0.960298445295593,
+            "positive_crop_precision": 0.9527806925498427,
+            "positive_crop_recall": 0.9679357766346985,
+            "positive_crop_tp": 265136,
+            "positive_crop_fp": 13140,
+            "positive_crop_fn": 8783,
+            "negative_crop_fp": 1,
+            "negative_crop_fp_fraction": 1.1920928955078125e-07,
+            "real_crop_fp_fraction": 0.0,
+            "all_crop_micro_dice": 0.9602967062419865
+          },
+          "voxel_ap": {
+            "all_crops": 0.9896542024815578,
+            "positive_crops": 0.9902634559841894,
+            "real_crops": null,
+            "mean_positive_crop_ap": 0.9917911202699781
+          },
+          "diagnostic_train_only": {
+            "best_common_mean_dice": {
+              "threshold": 0.596,
+              "mean_positive_crop_dice": 0.9523720637235007,
+              "positive_crop_micro_dice": 0.9613793741043776,
+              "positive_crop_precision": 0.9740095764051764,
+              "positive_crop_recall": 0.9490725360416765,
+              "positive_crop_tp": 259969,
+              "positive_crop_fp": 6937,
+              "positive_crop_fn": 13950,
+              "negative_crop_fp": 0,
+              "negative_crop_fp_fraction": 0.0,
+              "real_crop_fp_fraction": 0.0,
+              "all_crop_micro_dice": 0.9613793741043776
+            },
+            "best_common_with_negative_fp_below_1pct": {
+              "threshold": 0.596,
+              "mean_positive_crop_dice": 0.9523720637235007,
+              "positive_crop_micro_dice": 0.9613793741043776,
+              "positive_crop_precision": 0.9740095764051764,
+              "positive_crop_recall": 0.9490725360416765,
+              "positive_crop_tp": 259969,
+              "positive_crop_fp": 6937,
+              "positive_crop_fn": 13950,
+              "negative_crop_fp": 0,
+              "negative_crop_fp_fraction": 0.0,
+              "real_crop_fp_fraction": 0.0,
+              "all_crop_micro_dice": 0.9613793741043776
+            },
+            "mean_per_positive_crop_oracle_dice": 0.959683893024957,
+            "grid_contains_numeric_gate_solution": true
+          },
+          "metric_delta_from_saved": {
+            "positive_crop_dice": 0.0,
+            "negative_crop_fp_fraction": 0.0
+          },
+          "reproduced_within_1e_4": true,
+          "reproduction_failures": [],
+          "max_abs_saved_count_delta": 0,
+          "preview_pool_indices": [
+            3,
+            15
+          ],
+          "seconds": 3.761879099998623,
+          "max_memory_mib": 1654.84228515625
+        }
+      }
+    }
+  },
+  "runtime": {
+    "torch": "2.13.0+cu130",
+    "monai": "1.5.2",
+    "device": "cuda",
+    "python": "3.13.5",
+    "cuda": "13.0",
+    "cudnn": 92000,
+    "cpu_threads": 10,
+    "interop_threads": 10,
+    "gpu": "NVIDIA GeForce RTX 5060 Ti",
+    "gpu_capability": [
+      12,
+      0
+    ],
+    "deterministic_algorithms": true,
+    "warn_only": false,
+    "cudnn_benchmark": false,
+    "cudnn_deterministic": true,
+    "cudnn_allow_tf32": true,
+    "matmul_allow_tf32": false,
+    "cublas_workspace_config": ":4096:8",
+    "pythonhashseed": "21",
+    "trilinear_backward": "cpu_first_order",
+    "maxpool3d_backward": "cpu_first_order_native_indices",
+    "comparison": "capacity recovery with greater crop exposure and joint gradients; not an equal-compute ablation"
+  },
+  "scope": "48 fixed training crops; .5 gate unchanged; no pilot/full promotion or validation calibration",
+  "reference_control": {
+    "layout": "mixed",
+    "fixed_foreground_normalizer": 4,
+    "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+    "training_loss": {
+      "bce_weight": 0.5,
+      "dice_weight": 0.5,
+      "squared_pred": true,
+      "empty_crops": "BCE_only"
+    },
+    "decoder_padding_mode": "zeros",
+    "deterministic": true,
+    "lr_schedule": {
+      "after_updates": 200,
+      "factor": 0.1,
+      "groups": [
+        "encoder",
+        "decoder"
+      ]
+    },
+    "reference_prefix": {
+      "required_updates": 200,
+      "matched_updates": 200,
+      "passed": true,
+      "first_divergence": null
+    },
+    "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+    "updates": 300,
+    "epochs": 50,
+    "exposures_per_crop": 50,
+    "first_gate_passed_update": null,
+    "best": {
+      "updates": 300,
+      "positive_crop_dice": 0.8337022423425856,
+      "negative_crop_fp_fraction": 0.003284454345703125,
+      "passed": false
+    },
+    "last": {
+      "positive_crop_dice": 0.8337022423425856,
+      "negative_crop_fp_fraction": 0.003284454345703125,
+      "passed": false,
+      "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+      "updates": 300,
+      "finite_gradients": true,
+      "training_loss": {
+        "bce_weight": 0.5,
+        "dice_weight": 0.5,
+        "squared_pred": true,
+        "empty_crops": "BCE_only"
+      },
+      "decoder_padding_mode": "zeros",
+      "lr_schedule": {
+        "after_updates": 200,
+        "factor": 0.1,
+        "groups": [
+          "encoder",
+          "decoder"
+        ]
+      }
+    },
+    "best_reproduced_within_1e_4": true,
+    "seconds": 326.3314764999668,
+    "max_memory_mib": 1671.70947265625,
+    "probability_diagnostics": {
+      "best": {
+        "checkpoint_sha256": "d7a799daca85ca4c834254f58e58466a83d758666db89d246512d73b0ba7ffdd",
+        "updates": 300,
+        "evaluation": "float32_no_autocast",
+        "training_loss": {
+          "bce_weight": 0.5,
+          "dice_weight": 0.5,
+          "squared_pred": true,
+          "empty_crops": "BCE_only"
+        },
+        "cudnn_benchmark": false,
+        "sigmoid_device": "cuda",
+        "fixed_threshold": {
+          "threshold": 0.5,
+          "mean_positive_crop_dice": 0.8337022423425856,
+          "positive_crop_micro_dice": 0.845128102496822,
+          "positive_crop_precision": 0.8581551742954235,
+          "positive_crop_recall": 0.8324906267911317,
+          "positive_crop_tp": 228035,
+          "positive_crop_fp": 37692,
+          "positive_crop_fn": 45884,
+          "negative_crop_fp": 27552,
+          "negative_crop_fp_fraction": 0.003284454345703125,
+          "real_crop_fp_fraction": 0.0022988319396972656,
+          "all_crop_micro_dice": 0.8040754727625979
+        },
+        "voxel_ap": {
+          "all_crops": 0.8096926505414557,
+          "positive_crops": 0.9092712227757092,
+          "real_crops": null,
+          "mean_positive_crop_ap": 0.9165859679491986
+        },
+        "diagnostic_train_only": {
+          "best_common_mean_dice": {
+            "threshold": 0.528,
+            "mean_positive_crop_dice": 0.8343418501689872,
+            "positive_crop_micro_dice": 0.8431878640813282,
+            "positive_crop_precision": 0.8711716867352619,
+            "positive_crop_recall": 0.8169458854624907,
+            "positive_crop_tp": 223777,
+            "positive_crop_fp": 33092,
+            "positive_crop_fn": 50142,
+            "negative_crop_fp": 25982,
+            "negative_crop_fp_fraction": 0.0030972957611083984,
+            "real_crop_fp_fraction": 0.0021140575408935547,
+            "all_crop_micro_dice": 0.8038400057474361
+          },
+          "best_common_with_negative_fp_below_1pct": {
+            "threshold": 0.528,
+            "mean_positive_crop_dice": 0.8343418501689872,
+            "positive_crop_micro_dice": 0.8431878640813282,
+            "positive_crop_precision": 0.8711716867352619,
+            "positive_crop_recall": 0.8169458854624907,
+            "positive_crop_tp": 223777,
+            "positive_crop_fp": 33092,
+            "positive_crop_fn": 50142,
+            "negative_crop_fp": 25982,
+            "negative_crop_fp_fraction": 0.0030972957611083984,
+            "real_crop_fp_fraction": 0.0021140575408935547,
+            "all_crop_micro_dice": 0.8038400057474361
+          },
+          "mean_per_positive_crop_oracle_dice": 0.8502376528538775,
+          "grid_contains_numeric_gate_solution": false
+        },
+        "metric_delta_from_saved": {
+          "positive_crop_dice": 0.0,
+          "negative_crop_fp_fraction": 0.0
+        },
+        "reproduced_within_1e_4": true,
+        "reproduction_failures": [],
+        "max_abs_saved_count_delta": 0,
+        "preview_pool_indices": [
+          3,
+          15
+        ],
+        "seconds": 3.9156914000050165,
+        "max_memory_mib": 1525.654296875
+      },
+      "last": {
+        "checkpoint_sha256": "4eaf1ecff076796b701a929038d2c56fd255fa3335053f0681939c9153bb801d",
+        "updates": 300,
+        "evaluation": "float32_no_autocast",
+        "training_loss": {
+          "bce_weight": 0.5,
+          "dice_weight": 0.5,
+          "squared_pred": true,
+          "empty_crops": "BCE_only"
+        },
+        "cudnn_benchmark": false,
+        "sigmoid_device": "cuda",
+        "fixed_threshold": {
+          "threshold": 0.5,
+          "mean_positive_crop_dice": 0.8337022423425856,
+          "positive_crop_micro_dice": 0.845128102496822,
+          "positive_crop_precision": 0.8581551742954235,
+          "positive_crop_recall": 0.8324906267911317,
+          "positive_crop_tp": 228035,
+          "positive_crop_fp": 37692,
+          "positive_crop_fn": 45884,
+          "negative_crop_fp": 27552,
+          "negative_crop_fp_fraction": 0.003284454345703125,
+          "real_crop_fp_fraction": 0.0022988319396972656,
+          "all_crop_micro_dice": 0.8040754727625979
+        },
+        "voxel_ap": {
+          "all_crops": 0.8096926505414557,
+          "positive_crops": 0.9092712227757092,
+          "real_crops": null,
+          "mean_positive_crop_ap": 0.9165859679491986
+        },
+        "diagnostic_train_only": {
+          "best_common_mean_dice": {
+            "threshold": 0.528,
+            "mean_positive_crop_dice": 0.8343418501689872,
+            "positive_crop_micro_dice": 0.8431878640813282,
+            "positive_crop_precision": 0.8711716867352619,
+            "positive_crop_recall": 0.8169458854624907,
+            "positive_crop_tp": 223777,
+            "positive_crop_fp": 33092,
+            "positive_crop_fn": 50142,
+            "negative_crop_fp": 25982,
+            "negative_crop_fp_fraction": 0.0030972957611083984,
+            "real_crop_fp_fraction": 0.0021140575408935547,
+            "all_crop_micro_dice": 0.8038400057474361
+          },
+          "best_common_with_negative_fp_below_1pct": {
+            "threshold": 0.528,
+            "mean_positive_crop_dice": 0.8343418501689872,
+            "positive_crop_micro_dice": 0.8431878640813282,
+            "positive_crop_precision": 0.8711716867352619,
+            "positive_crop_recall": 0.8169458854624907,
+            "positive_crop_tp": 223777,
+            "positive_crop_fp": 33092,
+            "positive_crop_fn": 50142,
+            "negative_crop_fp": 25982,
+            "negative_crop_fp_fraction": 0.0030972957611083984,
+            "real_crop_fp_fraction": 0.0021140575408935547,
+            "all_crop_micro_dice": 0.8038400057474361
+          },
+          "mean_per_positive_crop_oracle_dice": 0.8502376528538775,
+          "grid_contains_numeric_gate_solution": false
+        },
+        "metric_delta_from_saved": {
+          "positive_crop_dice": 0.0,
+          "negative_crop_fp_fraction": 0.0
+        },
+        "reproduced_within_1e_4": true,
+        "reproduction_failures": [],
+        "max_abs_saved_count_delta": 0,
+        "preview_pool_indices": [
+          3,
+          15
+        ],
+        "seconds": 3.760408100031782,
+        "max_memory_mib": 1654.21728515625
+      }
+    }
+  },
+  "protocol_change": "joint 48-crop updates; 300 exposures/crop instead of 50; six times the crop presentations",
+  "compute_ratio_crop_presentations": 6
+}

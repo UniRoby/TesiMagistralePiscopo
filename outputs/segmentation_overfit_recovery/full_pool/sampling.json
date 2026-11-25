@@ -1,0 +1,8 @@
+{
+  "layout": "full_pool",
+  "fixed_foreground_normalizer": 24,
+  "crop_pool_sha256": "80c77851f42a56c5c96382dd9b58314c956631812ecb33338499e8a4d511c4de",
+  "effective_batch_size": 48,
+  "accumulation_steps": 24,
+  "objective": "mean of the six original mixed-batch objectives at identical weights"
+}
