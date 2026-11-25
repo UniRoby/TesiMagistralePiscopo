@@ -72,6 +72,8 @@ def evaluate_checkpoint(path, pool, config, manifest, arm, checkpoint, source_ro
     expected = arm[checkpoint]
     payload = _load_torch_payload(path)
     sampling = {key: arm[key] for key in ("layout", "fixed_foreground_normalizer", "crop_pool_sha256")}
+    if arm["layout"] == "full_pool":
+        sampling.update({key: arm[key] for key in ("effective_batch_size", "accumulation_steps", "objective")})
     if (payload.get("task") != "segmentation" or payload.get("experiment") != experiment
             or payload.get("config") != config or payload.get("manifest") != manifest
             or payload.get("sampling") != sampling or payload.get("training_loss") != arm["training_loss"]

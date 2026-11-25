@@ -261,13 +261,17 @@ def validate_config(config):
     if config["stage"] not in {"overfit", "pilot", "full"} or config["model"]["name"] != SEGMENTER_NAME:
         raise ValueError("invalid segmentation stage/model")
     training = config["training"]
+    full_pool = config.get("overfit_protocol") == "full_pool"
+    if config.get("overfit_protocol") not in (None, "full_pool") or (full_pool and config["stage"] != "overfit"):
+        raise ValueError("full_pool is a dedicated overfit protocol")
     if config["model"].get("decoder_padding_mode", "zeros") not in ("zeros", "replicate"):
         raise ValueError("decoder_padding_mode must be zeros or replicate")
     if not isinstance(training.get("squared_pred", False), bool):
         raise ValueError("training.squared_pred must be boolean")
     batch, accumulation = int(training["batch_size"]), int(training["accumulation_steps"])
-    if batch not in (1, 2) or batch * accumulation != 8:
-        raise ValueError("use batch_size=2, accumulation_steps=4 (or 1 and 8 after OOM)")
+    effective = 48 if full_pool else 8
+    if batch not in (1, 2) or batch * accumulation != effective:
+        raise ValueError(f"batch_size must be 1 or 2 with batch_size * accumulation_steps = {effective}")
     shape = config["patches"]["patch_shape"]
     if len(shape) != 3 or min(shape) < 8 or any(p % 8 for p in shape):
         raise ValueError("crop dimensions must be multiples of eight")
@@ -284,6 +288,8 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                  debug_updates=False):
     config = copy.deepcopy(config)
     validate_config(config)
+    if config.get("overfit_protocol") == "full_pool":
+        raise ValueError("use compare_segmentation_padding --full-pool-overfit for the joint 48-crop protocol")
     manifest = read_json(config["manifest"])
     check_prerequisites(config, manifest, data_root, real_scan_root)
     training, stage = config["training"], config["stage"]

@@ -96,12 +96,20 @@ def epoch_batches(pool, seed, epoch, *, mixed):
 
 
 def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_state_sha256=None,
-            experiment="batch_composition_comparison", deterministic=False, lr_decay_reference=None):
+            experiment="batch_composition_comparison", deterministic=False, lr_decay_reference=None,
+            full_pool=False):
     started = perf_counter()
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     training = config["training"]
     schedule, prefix = None, None
+    if full_pool:
+        if (not deterministic or not mixed or lr_decay_reference is not None
+                or training["batch_size"] * training["accumulation_steps"] != 48
+                or training["max_updates"] != training["epochs"]):
+            raise ValueError("full-pool recovery requires strict determinism and one 48-crop update per epoch")
+        schedule = {"after_updates": LR_DECAY_AFTER, "factor": LR_DECAY_FACTOR,
+                    "groups": ["encoder", "decoder"]}
     if lr_decay_reference is not None:
         if (not deterministic or not mixed or training["max_updates"] <= LR_DECAY_AFTER
                 or len(lr_decay_reference) != training["max_updates"]
@@ -131,9 +139,13 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                          f"expected={expected_initial_state_sha256}, actual={initial_hash}; "
                          "check the original weights, PyTorch/MONAI versions and model code")
     optimizer = make_optimizer(model, training)
-    layout = "mixed" if mixed else "grouped"
+    layout = "full_pool" if full_pool else "mixed" if mixed else "grouped"
     print(f"starting {layout}: {training['epochs']} epochs, {training['max_updates']} updates", flush=True)
-    sampling = {"layout": layout, "fixed_foreground_normalizer": 4, "crop_pool_sha256": pool.digest}
+    normalizer = 24 if full_pool else 4
+    sampling = {"layout": layout, "fixed_foreground_normalizer": normalizer, "crop_pool_sha256": pool.digest}
+    if full_pool:
+        sampling.update(effective_batch_size=48, accumulation_steps=training["accumulation_steps"],
+                        objective="mean of the six original mixed-batch objectives at identical weights")
     write_json(output / "effective_config.json", config)
     write_json(output / "manifest.json", manifest)
     write_json(output / "sampling.json", sampling)
@@ -161,26 +173,29 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
             save_checkpoint(payload(epoch), output / "best.pt")
             write_json(output / "best_gate.json", {"manifest_id": manifest["manifest_id"],
                                                    "training_loss": training_loss, "decoder_padding_mode": padding,
-                                                   "lr_schedule": schedule, **best})
+                                                   "lr_schedule": schedule, **best,
+                                                   **({"overfit_protocol": "full_pool", "exposures_per_crop": updates,
+                                                       "sampling": sampling} if full_pool else {})})
 
     if str(device).startswith("cuda"):
         torch.cuda.reset_peak_memory_stats(device)
     # Complete both budgets after an early success; write last.pt only at the end.
     for epoch in range(training["epochs"]):
-        for indices in epoch_batches(pool, training.get("seed", 21), epoch, mixed=mixed):
+        batches = [np.arange(48)] if full_pool else epoch_batches(pool, training.get("seed", 21), epoch, mixed=mixed)
+        for indices in batches:
             if schedule is not None and updates == LR_DECAY_AFTER:
-                if not prefix["passed"]:
+                if prefix is not None and not prefix["passed"]:
                     raise ValueError("reference prefix was not verified; LR decay blocked")
                 for group in optimizer.param_groups:
                     group["lr"] *= LR_DECAY_FACTOR
-                print(f"Reference prefix exact through update {updates}; LR multiplied by {LR_DECAY_FACTOR}", flush=True)
+                print(f"Update {updates} complete; LR multiplied by {LR_DECAY_FACTOR}", flush=True)
             model.train()
             batch = {"image": pool.image[indices], "mask": pool.mask[indices]}
             diagnostics = {}
             # Keep each positive crop's original Dice weight when changing batch composition.
             loss = train_volume(model, batch, optimizer, device=device, microbatch=training["batch_size"],
                                 accumulation=training["accumulation_steps"], diagnostics=diagnostics,
-                                foreground_normalizer=4, squared_pred=squared_pred)
+                                foreground_normalizer=normalizer, squared_pred=squared_pred)
             updates += 1
             exposures[indices] += 1
             if deterministic:
@@ -192,15 +207,16 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
                                "crop_indices": ";".join(map(str, indices)), "positive_crops": int(pool.positive[indices].sum()),
                                "real_crops": int(pool.real[indices].sum()), "scans": len(set(indices // 8)),
                                "loss": loss, "squared_pred": squared_pred, **diagnostics}
-            if schedule is not None:
+            if lr_decay_reference is not None:
                 expected = lr_decay_reference[updates - 1]
                 keys = row.keys() | expected.keys() if updates <= LR_DECAY_AFTER else (
                     "updates", "epoch", "crop_indices", "positive_crops", "real_crops", "scans")
                 differences = {key: {"reference": expected.get(key), "actual": str(row.get(key))}
                                for key in keys if str(row.get(key)) != expected.get(key)}
+            if schedule is not None:
                 row.update(encoder_lr=optimizer.param_groups[0]["lr"], decoder_lr=optimizer.param_groups[1]["lr"])
             _write_metrics_row(output / "update_metrics.csv", row)
-            if schedule is not None:
+            if lr_decay_reference is not None:
                 if differences:
                     prefix["first_divergence"] = {"updates": updates, "differences": differences}
                     write_json(output / "prefix_check.json", prefix)
@@ -221,6 +237,8 @@ def run_arm(config, manifest, pool, output, *, mixed, device, expected_initial_s
     select_best(final, training["epochs"])
     final.update(manifest_id=manifest["manifest_id"], updates=updates, finite_gradients=True,
                  training_loss=training_loss, decoder_padding_mode=padding, lr_schedule=schedule)
+    if full_pool:
+        final.update(overfit_protocol="full_pool", exposures_per_crop=updates, sampling=sampling)
     write_json(output / "gate.json", final)
     save_checkpoint(payload(training["epochs"]), output / "last.pt")
     write_csv(output / "exposures.csv", [{"pool_index": i, "exposures": int(n)} for i, n in enumerate(exposures)])

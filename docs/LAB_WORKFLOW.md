@@ -1776,6 +1776,91 @@ di fallimento; non rilanciare audit separati né aumentare il budget.
 Un eventuale miglioramento riguarda i crop train e richiede ancora
 valutazione prima di promuovere piloti/full.
 
+### 18.2.12 Recupero dell'overfit con tutti i 48 crop
+
+Il confronto LR è completato e verificato: i primi 200 update coincidono
+con il controllo, il last migliora da Dice 0,660277 a 0,833702, ma resta
+sotto il gate. Il miglioramento non vale per tutte le metriche: l'AP
+globale dei crop last passa da 0,865872 a 0,809693. La migliore soglia
+comune arriva a Dice 0,834342 e gli oracoli per crop a 0,850238. Non serve
+un ulteriore audit delle stesse soglie.
+
+Nei test isolati riusciti ogni crop riceveva 300 esposizioni; nel gruppo
+completo solo 50. Inoltre il Dice continua a salire dopo il cambio LR:
+0,777901 → 0,800702 → 0,812310 → 0,833702 ai passi 225/250/275/300.
+Non è dimostrata convergenza né incapacità dell'encoder. Il recupero usa
+un unico aggiornamento congiunto di tutti i 48 crop per ogni epoca,
+300 epoche/update, stesso stato iniziale MedicalNet, nessuna augmentation.
+
+**Cambio di protocollo esplicito:** restano al massimo 300 optimizer step,
+ma ogni crop è presentato **300 volte anziché 50**: 14.400 presentazioni
+contro 2.400. Cambiano anche la varianza e la composizione del gradiente.
+È una prova di capacità con più calcolo, non un'ablation a parità di costo
+o una prova che il solo batching sia la causa. Il microbatch fisico resta
+2 (accumulo 24), con un solo grafo alla volta. Tempi maggiori: sei volte
+le presentazioni rispetto ai circa 5,4 minuti del confronto precedente;
+il tempo e il massimo di memoria effettivi vanno misurati nel laboratorio.
+
+Il termine BCE è la media sui 48 crop. Il normalizzatore Dice è **24**,
+non 16: così l'obiettivo coincide esattamente con la media dei sei vecchi
+batch mixed, ciascuno con normalizzatore quattro, valutati agli stessi
+pesi. Si conserva quindi il peso effettivo precedente del foreground,
+invece di aumentarlo incidentalmente di 1,5 volte. Il LR rimane quello
+iniziale fino al passo 200, poi è diviso per dieci come nella variante
+verificata. Non si confrontano i primi 200 hash con i vecchi update:
+il gradiente ora usa tutti i crop fin dal primo passo.
+
+Aggiornare il codice e usare lo stesso ambiente del laboratorio. Dalla
+root, con output nuovo e senza modificare il config di base:
+
+```powershell
+$env:PYTHONHASHSEED = "21"
+$env:CUBLAS_WORKSPACE_CONFIG = ":4096:8"
+
+python -m tesi_m3d.compare_segmentation_padding `
+  --full-pool-overfit `
+  --config configs\segmentation_overfit_squared.yaml `
+  --data-root "C:\Tesi Magistrale Piscopo" `
+  --real-scan-root "C:\Tesi Magistrale Piscopo\real\scan" `
+  --device cuda `
+  --reference-dir outputs\segmentation_lr_decay_comparison `
+  --output-dir outputs\segmentation_overfit_recovery
+```
+
+Il riferimento deve essere la run LR completata, con prefisso verificato.
+Il runner ricontrolla config, manifest, ledger, pool e inizializzazione;
+non carica i suoi pesi già allenati. MedicalNet ufficiale con SHA e modalità
+stretta restano obbligatori. Nessun fallback casuale o permissivo.
+
+`full_pool/effective_config.json` registra il protocollo effettivo con
+`overfit_protocol: full_pool`, 300 epoche e accumulo 24; il config nella
+root dell'esperimento conserva quello di base per il confronto storico.
+Il marcatore impedisce di eseguire quel config col loader ordinario a
+otto crop. Checkpoint, gate e sampling distinguono il nuovo protocollo
+e riportano le esposizioni. Il report dichiara il maggiore calcolo.
+Sono inclusi best/last, monitoraggio ogni 25 step, metriche per caso,
+audit delle probabilità, fasce, figure e i due NPZ. Nessun resume o
+sovrascrittura; le modalità del runner sono mutuamente esclusive.
+
+Sincronizzare tutta `outputs/segmentation_overfit_recovery/`. `passed`
+richiede ancora Dice medio positivi ≥0,90 e FPR negativi <1% a soglia 0,5
+nel last; codice 2 significa completamento tecnico con gate fallito.
+Un successo autorizza la valutazione del passaggio ai piloti, non prova
+generalizzazione e non avvia il full. Un fallimento richiede revisione
+di dati/supervisione e dell'adeguatezza del modello prima di altri training,
+senza proseguire con una ricerca automatica di soglie o iperparametri.
+
+Per la fase successiva sono pronti tre config separati, senza modificare
+quelli storici: `segmentation_pilot_recovery.yaml`,
+`segmentation_pilot_recovery_clip.yaml` e `segmentation_full_recovery.yaml`.
+Usano Dice quadratico, il nuovo gate e output distinti; i due piloti
+differiscono solo per clipping e destinazione. I comandi della sezione
+18.3 si applicano con questi nomi, dopo aver verificato il nuovo gate e
+la baseline comune. Il full richiede entrambi i report pilota e il loro
+superamento dei criteri: non basta memorizzare i 48 crop. Il batch effettivo
+dei piloti/full rimane quello del protocollo originale; la stabilità e
+generalizzazione su più casi saranno misurate dalla validation densa.
+
 ### 18.3 Baseline comune e due piloti controllati
 
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:

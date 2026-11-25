@@ -85,6 +85,12 @@ prime 200 tracce identiche al controllo salvato e LR encoder/decoder
 divisi per 10 dal passo 201. Audit best/last e confronto in
 `outputs/segmentation_lr_decay_comparison`.
 
+Il [recupero con aggiornamenti congiunti](docs/LAB_WORKFLOW.md#18212-recupero-delloverfit-con-tutti-i-48-crop)
+usa `--full-pool-overfit`: ogni aggiornamento accumula tutti i 48 crop con
+microbatch 2. Sono 300 esposizioni per crop anziché 50, quindi sei volte
+le presentazioni precedenti. Il gate resta invariato; risultati in
+`outputs/segmentation_overfit_recovery`.
+
 Training, validation e calibrazione finale riusano p1/p99 da una cache su
 disco (`cache/percentiles` nella cartella della run). I valori normalizzati
 restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.

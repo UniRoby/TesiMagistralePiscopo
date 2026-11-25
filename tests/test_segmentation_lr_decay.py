@@ -66,6 +66,36 @@ def test_full_300_update_comparison_preserves_reference_and_exports_both_audits(
     with pytest.raises(ValueError, match="already contains"):
         comparison.run_comparison(config, root, reference_dir=control, output_dir=output, lr_decay=True)
 
+    before_decay = {p: file_digest(p) for p in output.rglob("*") if p.is_file()}
+    recovered_dir = tmp_path / "full_pool"
+    recovered = comparison.run_comparison(config, root, reference_dir=output, output_dir=recovered_dir, full_pool=True)
+    assert recovered["complete"] and recovered["experiment"] == comparison.RECOVERY_EXPERIMENT
+    assert recovered["compute_ratio_crop_presentations"] == 6
+    assert before_decay == {p: file_digest(p) for p in output.rglob("*") if p.is_file()}
+    arm = recovered["arms"]["full_pool"]
+    assert arm["updates"] == arm["epochs"] == arm["exposures_per_crop"] == 300
+    assert arm["effective_batch_size"] == 48 and arm["fixed_foreground_normalizer"] == 24
+    assert arm["accumulation_steps"] == 24
+    assert recovered["passed"] == arm["last"]["passed"]
+    joint_trace = read_rows(recovered_dir / "full_pool/update_metrics.csv")
+    assert len(joint_trace) == 300
+    assert {r["crop_indices"] for r in joint_trace} == {";".join(map(str, range(48)))}
+    assert {r["positive_crops"] for r in joint_trace} == {"16"}
+    assert {r["real_crops"] for r in joint_trace} == {"16"}
+    assert all(float(r["encoder_lr"]) == config["training"]["encoder_lr"] for r in joint_trace[:200])
+    assert float(joint_trace[200]["encoder_lr"]) == pytest.approx(3e-6)
+    assert {r["exposures"] for r in read_rows(recovered_dir / "full_pool/exposures.csv")} == {"300"}
+    for cp in ("best", "last"):
+        payload = torch.load(recovered_dir / "full_pool" / f"{cp}.pt", weights_only=False)
+        assert payload["config"]["overfit_protocol"] == "full_pool"
+        assert payload["config"]["training"]["accumulation_steps"] == 24
+        assert payload["config"]["training"]["epochs"] == 300
+        assert payload["sampling"]["layout"] == "full_pool"
+        assert payload["sampling"]["fixed_foreground_normalizer"] == 24
+        assert arm["probability_diagnostics"][cp]["reproduced_within_1e_4"]
+        assert (recovered_dir / "full_pool/probabilities" / cp / "metrics.npz").is_file()
+    assert json.loads((recovered_dir / "comparison.json").read_text()) == recovered
+
     # Equal edits to both repeats evade a pairwise comparison, but not the new prefix guard.
     for name in ("repeat_1", "repeat_2"):
         path = control / name / "update_metrics.csv"

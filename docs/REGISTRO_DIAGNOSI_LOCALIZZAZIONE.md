@@ -9,23 +9,21 @@ Configurazione di riferimento:
   manipolata annotata, non del contorno preciso del tumore.
 - Gate: sei scansioni train, 48 crop fissi 64³, 300 aggiornamenti,
   Dice medio dei 16 positivi ≥0,90 e FPR dei 32 negativi <1% a soglia 0,5.
-- Ultimo confronto completo: `outputs/segmentation_determinism_comparison/`.
-  Due run zero identiche: 300 update, hash di pesi/gradienti e metriche
-  coincidenti; `reproducible: true`, ma `passed: false`.
-- Best al passo 250: Dice 0,791395, FPR negativi 0,84350%.
-  Last al passo 300: Dice 0,660277, FPR negativi 0,002551%.
-  Il recall micro scende da 81,48% a 57,11%; nessuna promozione a piloti/full.
-- AP/profili ricalcolati dai quattro NPZ; conteggi degli audit riprodotti
-  senza scarti. Anche le soglie diagnostiche e gli oracoli per crop restano
-  sotto il gate. Il problema non riguarda soltanto la soglia o i bordi.
-- Ripetibilità verificata per questo percorso stretto nello stesso processo,
-  con backward trilineare e MaxPool3D CPU. Non dimostra ripetibilità del
-  percorso CUDA storico o fra processi/versioni. Dettagli nella sezione 10.25.
-- Prossimo controllo implementato con `--lr-decay`: un confronto con
-  decadimento del LR negli ultimi 100 update, mantenendo identici i primi
-  200, pool, inizializzazione, loss, precisione, budget e gate. È un'ipotesi
-  sulle oscillazioni residue, non un miglioramento già dimostrato.
-  Output `outputs/segmentation_lr_decay_comparison/`; dettagli nella sezione 10.26.
+- Ultimo confronto completo: `outputs/segmentation_lr_decay_comparison/`.
+  Prime 200 tracce identiche al controllo, LR ridotto dal passo 201.
+  Best e last al passo 300: Dice 0,833702, FPR negativi 0,32845%; gate fallito.
+- Il last migliora di 0,173425 Dice rispetto al controllo costante, ma
+  l'AP globale scende da 0,865872 a 0,809693. Non è un miglioramento uniforme.
+- Soglia comune ottimale: Dice 0,834342; media oracoli per crop 0,850238.
+  La sola soglia non recupera il gate. Nessuna promozione a piloti/full.
+- La curva ridotta è ancora crescente al passo 300. Ogni crop ha ricevuto
+  50 esposizioni contro le 300 dei test isolati riusciti: non è dimostrata
+  convergenza o un limite definitivo dell'encoder.
+- Recupero implementato: `--full-pool-overfit`, 48 crop per aggiornamento
+  con microbatch 2 e accumulo 24; massimo 300 update e 300 esposizioni per
+  crop. Sei volte le presentazioni, protocollo distinto dai precedenti,
+  gate invariato. Output `outputs/segmentation_overfit_recovery/`.
+  Dettagli nelle sezioni 10.27–10.28; comando nella guida 18.2.12.
 
 ## Glossario rapido
 
@@ -1992,6 +1990,105 @@ alterata e codici CLI. Suite pertinente: **147 test superati**, cinque
 CUDA saltati, un test dei worker persistenti escluso perché non usati
 dal runner; 18 warning MONAI preesistenti. Nessun training sulle CT locali
 o nuova verifica CUDA/Windows effettuata per questa modifica.
+
+### 10.27 LR ridotto completato: miglioramento stabile parziale, convergenza non dimostrata
+
+**Verifica.** Confronto completo, senza errore o fase attiva, gate fallito.
+Ricontrollate le prime 200 righe contro il controllo: batch, loss, norme,
+hash dei pesi e gradienti identici. Ledger dei 48 crop uguale e LR
+effettivamente ridotti dal passo 201. Dai due NPZ ricalcolati conteggi
+a 0,5, conservazione dei voxel alle 1.001 soglie, AP e profili/oracoli:
+coincidono con i report. TP/FP/FN per crop coincidono con i CSV.
+Best/last sono entrambi selezionati al passo 300 e hanno metriche identiche;
+i tensori dei pesi allenati non sono disponibili localmente.
+
+| Misura a 0,5 | Controllo costante last | LR ridotto best/last |
+|---|---:|---:|
+| Dice medio positivi | 0,660277 | 0,833702 |
+| Dice micro positivi | 0,715435 | 0,845128 |
+| Recall micro positivi | 57,11% | 83,25% |
+| FPR negativi | 0,002551% | 0,32845% |
+| AP globale crop | 0,865872 | 0,809693 |
+| FP negativi / FN positivi | 214 / 117.497 | 27.552 / 45.884 |
+
+Il confronto migliora il Dice last di 0,173425, e il best di 0,042307.
+Non migliora ogni metrica: FPR e AP last sono peggiori, pur con FPR <1%.
+Soglia comune migliore 0,528: Dice 0,834342; media degli oracoli per crop
+0,850238. Nessuna soluzione del gate nella griglia esaminata. Il crop
+`inj_2092/3`, 1.300 voxel, resta a Dice 0,511411 e AP 0,408636; il suo
+oracolo arriva solo a 0,518873. Anche il target grande `inj_1419/1`
+rimane incompleto: Dice 0,728445 e recall 60,68%. Le figure nei tre piani
+del primo caso mostrano insieme FP e FN; non è solo un offset di soglia.
+
+**Interpretazione.** Il Dice cresce ai controlli 225/250/275/300:
+0,777901/0,800702/0,812310/0,833702. Le loss medie negli ultimi due blocchi
+di 25 update scendono da 0,20843 a 0,20261. Non è una dimostrazione di
+plateau o di impossibilità dell'architettura. I test isolati quadratici
+riusciti usavano 300 esposizioni per crop, il gruppo completo ne usa 50;
+il confronto non separa difficoltà del gruppo e tempo di apprendimento.
+Nessuna prova disponibile giustifica una garanzia di recupero definitivo.
+
+**Decisione.** Conservare MedicalNet e il decadimento verificato. Chiudere
+la sequenza di micro-ablation su soglia/padding/LR e usare un unico
+protocollo di recupero della capacità, descritto sotto. Non cambiare le
+annotazioni cuboidali in differenze fake/reale o contorni tumorali.
+Ricontrollato anche il codice dell'encoder contro il
+[modello MedicalNet ufficiale](https://github.com/Tencent/MedicalNet/blob/master/models/resnet.py):
+shortcut A e dilatazioni 2/4 sono coerenti; non è stato identificato un
+errore strutturale da correggere in quei componenti. Nessuna nuova
+inferenza sulle CT o evidenza di validation/generalizzazione.
+
+### 10.28 Recupero con gradiente congiunto su tutti i crop: implementazione
+
+**Intervento.** Flag `--full-pool-overfit` nello stesso runner, riferimento
+alla run LR completa e output nuovo `outputs/segmentation_overfit_recovery`.
+Stessi 48 crop e stato iniziale MedicalNet verificati; nessun cambio a
+encoder, decoder, preprocessing, loss o soglia. Ogni update accumula i
+48 crop tramite 24 microbatch da due; include i 16 positivi, i 16 negativi
+dei manipolati e i 16 reali. Il gradiente congiunto evita update separati
+per sottogruppi mentre risolve i sei casi contemporaneamente.
+
+**Budget e obiettivo.** 300 update con 300 esposizioni per crop, contro le
+50 precedenti: sei volte le presentazioni. Il confronto non isola la sola
+composizione del batch e non è a parità di costo. Il LR scende dopo 200
+come nel riferimento. BCE media su 48 e normalizzatore Dice 24 conservano
+esattamente la media dei sei vecchi obiettivi mixed a pesi fissi; usare
+16 cambierebbe incidentalmente il peso del foreground. Il grafo di ogni
+microbatch viene liberato prima del successivo, senza batch GPU da 48.
+
+**Consegna e limiti.** Effective config del ramo registra protocollo,
+300 epoche e accumulo 24; sampling/checkpoint/gate riportano il protocollo
+e le esposizioni. Rifiutata l'esecuzione con il vecchio loader a otto crop.
+Preservati gate e output precedenti; best/last, audit delle probabilità,
+figure, conteggi per fascia e NPZ sono inclusi. Gate last sempre Dice
+≥0,90 e FPR <1% a 0,5. Un successo è una verifica di memorizzazione sul
+train, preliminare ai piloti; non chiude localizzazione su volumi completi
+o generalizzazione. Un nuovo fallimento deve portare a revisione di
+dati/supervisione/modello prima di altri training. Comando in guida 18.2.12.
+
+Preparati anche due config pilota recovery, con/senza clipping, e quello
+full: loss quadratica e nuovo gate coerenti, output distinti dai run
+storici, riferimento full ai due nuovi report pilota. Restano tutti i
+controlli sulle baseline, sul superamento dei piloti e sulle soglie di
+validation. Il protocollo full-pool è una prova di capacità sul piccolo
+train, non è esteso automaticamente al training ordinario.
+
+**Verifica locale.** Fixture TIFF completa: creazione del riferimento,
+recupero da 300 update, 300 visite per crop, batch effettivo 48, config
+e checkpoint corretti e due audit. Riferimento conservato byte per byte.
+Verificata con microbatch uno e due l'identità di loss e aggiornamento
+rispetto alla media dei sei vecchi obiettivi a pesi fissi. Suite di
+regressione pertinente: **153 test superati**, cinque CUDA saltati, un
+test dei worker persistenti escluso; 18 warning MONAI preesistenti.
+Controllati separatamente anche firma comune dei due piloti, loss/gate
+e collegamenti dei tre config recovery.
+
+Con i pesi MedicalNet ufficiali un update CPU sintetico 48×1×16³, microbatch
+due e accumulo 24, completa loss `0,6125959753990173`, gradienti finiti e
+aggiornamenti non nulli di encoder/decoder (norme 0,03514/0,22517), con tutti
+i buffer BN immutati. Questo verifica il percorso tecnico; tempi/memoria
+su crop 64³ CUDA e l'apprendimento sulle CT richiedono l'esecuzione nel
+laboratorio. Nessun criterio scientifico è dichiarato già superato.
 
 ## Come aggiornare questo registro
 
