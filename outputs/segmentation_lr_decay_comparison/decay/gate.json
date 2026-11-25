@@ -1,0 +1,23 @@
+{
+  "positive_crop_dice": 0.8337022423425856,
+  "negative_crop_fp_fraction": 0.003284454345703125,
+  "passed": false,
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "updates": 300,
+  "finite_gradients": true,
+  "training_loss": {
+    "bce_weight": 0.5,
+    "dice_weight": 0.5,
+    "squared_pred": true,
+    "empty_crops": "BCE_only"
+  },
+  "decoder_padding_mode": "zeros",
+  "lr_schedule": {
+    "after_updates": 200,
+    "factor": 0.1,
+    "groups": [
+      "encoder",
+      "decoder"
+    ]
+  }
+}
