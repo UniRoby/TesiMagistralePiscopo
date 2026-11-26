@@ -1,0 +1,73 @@
+{
+  "n_volumes": 8,
+  "n_positive_volumes": 4,
+  "histogram_bins": 65536,
+  "ap_definition": "probabilities floor-quantized to 65536 bins; all voxels, no negative sampling; single-class scopes null",
+  "dense_ap": 0.0009851635487507504,
+  "dense_auc": 0.7397756821204108,
+  "micro_dice": 0.002378643954339584,
+  "mean_positive_dice": 0.004456582857572838,
+  "mean_positive_ap": 0.0019060597733321645,
+  "mean_positive_auc": 0.7458037914481092,
+  "mean_lung_ap": 0.003992489209612549,
+  "mean_lung_auc": 0.376823898462799,
+  "peak_hits": 0,
+  "real_false_positive_fraction": 0.16667595954790507,
+  "detection_auc": 0.625,
+  "detection_balanced_accuracy": 0.75,
+  "calibration": {
+    "localization_threshold": 0.2349853515625,
+    "detection_threshold": 0.45945480465888977,
+    "detection_score": "max",
+    "histogram_bins": 65536,
+    "source_split": "valid",
+    "checkpoint_sha256": "fd1390e972b6f70e43a2c55b78894071f7ce30d4cec478562ed32e16a4eafd50",
+    "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+    "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+  },
+  "by_spacing_z": {
+    "<=1mm": {
+      "n": 1,
+      "mean_ap": 0.0013261688086157353,
+      "mean_dice": 0.0017788146690228348
+    },
+    "1-2mm": {
+      "n": 2,
+      "mean_ap": 0.0020777826213527377,
+      "mean_dice": 0.0049706574891854975
+    },
+    ">2mm": {
+      "n": 1,
+      "mean_ap": 0.0021425050420074473,
+      "mean_dice": 0.006106201782897525
+    },
+    "unknown": {
+      "n": 0,
+      "mean_ap": null,
+      "mean_dice": null
+    }
+  },
+  "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71",
+  "seconds": 100.04504230001476,
+  "split": "valid",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "checkpoint": "outputs\\segmentation_pilot_recovery\\best.pt",
+  "checkpoint_sha256": "fd1390e972b6f70e43a2c55b78894071f7ce30d4cec478562ed32e16a4eafd50",
+  "preprocessing": {
+    "low": 1.0,
+    "high": 99.0,
+    "clip": false
+  },
+  "model_name": "resnet18_medicalnet_seg",
+  "protocol_signature": "14880e3ca37fee9b584d1e6b85fbb3c7e4c324148745e7e2abd06a899411f2c6",
+  "gate": {
+    "passed": false,
+    "checks": {
+      "dice": false,
+      "peak": false,
+      "ap": false,
+      "real_fp": false
+    },
+    "baseline_cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+  }
+}

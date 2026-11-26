@@ -1,0 +1,61 @@
+{
+  "n_volumes": 8,
+  "n_positive_volumes": 4,
+  "histogram_bins": 65536,
+  "ap_definition": "probabilities floor-quantized to 65536 bins; all voxels, no negative sampling; single-class scopes null",
+  "dense_ap": 0.003045254813756481,
+  "dense_auc": 0.923011730195283,
+  "micro_dice": 0.007896673819627865,
+  "mean_positive_dice": 0.008448711900571271,
+  "mean_positive_ap": 0.004455994547479211,
+  "mean_positive_auc": 0.9107733142552601,
+  "mean_lung_ap": 0.005666129130723535,
+  "mean_lung_auc": 0.5385140601006609,
+  "peak_hits": 0,
+  "real_false_positive_fraction": 0.04231057363013699,
+  "detection_auc": 0.5,
+  "detection_balanced_accuracy": 0.75,
+  "calibration": {
+    "localization_threshold": 0.38604736328125,
+    "detection_threshold": 0.4809850752353668,
+    "detection_score": "max",
+    "histogram_bins": 65536,
+    "source_split": "valid",
+    "checkpoint_sha256": "9118f1601ba71a0741218fd756a64a7fedbf75e37007def4fe35a0ce400879ed",
+    "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+    "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+  },
+  "by_spacing_z": {
+    "<=1mm": {
+      "n": 1,
+      "mean_ap": 0.005560452353171404,
+      "mean_dice": 0.014063775715550649
+    },
+    "1-2mm": {
+      "n": 2,
+      "mean_ap": 0.0037526948406056337,
+      "mean_dice": 0.007918901112291018
+    },
+    ">2mm": {
+      "n": 1,
+      "mean_ap": 0.004758136155534174,
+      "mean_dice": 0.0038932696621524
+    },
+    "unknown": {
+      "n": 0,
+      "mean_ap": null,
+      "mean_dice": null
+    }
+  },
+  "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71",
+  "seconds": 241.66154600004666,
+  "split": "valid",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "checkpoint": "outputs\\train_pix2pix_full_train_resnet18_medicalnet\\best.pt",
+  "checkpoint_sha256": "9118f1601ba71a0741218fd756a64a7fedbf75e37007def4fe35a0ce400879ed",
+  "preprocessing": {
+    "clip": false
+  },
+  "model_name": "resnet18_medicalnet",
+  "protocol_signature": "60d7686cc476dac111147a5e431f53273ca3f36236e98a92e258ea2d97dda850"
+}

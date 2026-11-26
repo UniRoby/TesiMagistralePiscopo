@@ -1,0 +1,10 @@
+{
+  "localization_threshold": 0.2349853515625,
+  "detection_threshold": 0.45945480465888977,
+  "detection_score": "max",
+  "histogram_bins": 65536,
+  "source_split": "valid",
+  "checkpoint_sha256": "fd1390e972b6f70e43a2c55b78894071f7ce30d4cec478562ed32e16a4eafd50",
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+}
