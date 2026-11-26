@@ -20,12 +20,15 @@ Configurazione di riferimento:
 - Sono aumentate sia le esposizioni (sei volte) sia la dimensione del
   gradiente congiunto: non è isolata la causa unica del miglioramento.
   Il gate non dimostra localizzazione su scansioni nuove o generalizzazione.
-- Il pilota recovery del laboratorio è partito e si è fermato al volume
-  4/64 della prima epoca per RAM CPU, durante il calcolo della ROI polmonare.
-  Corretto il conteggio a blocchi; i tre config recovery usano un worker e
-  cache RAM di un volume. Ripartire col pilota, poi eseguire la variante clip.
-  Full ancora condizionato ai risultati pilota. Dettagli nelle sezioni
-  10.29–10.30 e guida 18.3; nessun nuovo overfit necessario.
+- Baseline e due piloti recovery sincronizzati e completi: otto epoche,
+  512 update ciascuno. **Entrambi falliscono tutti i criteri pilota.**
+  Dice micro calibrato 0,002379 / 0,002176, picco corretto 0/4 in entrambi;
+  AP media inferiore alla baseline e falsi positivi sui reali maggiori.
+- Nessun file mancante per analizzare questi risultati; non ripetere i
+  comandi per completare gli output. Full e cross-generator restano bloccati.
+  Il confronto tra crop train e inferenza densa sugli stessi casi è stato
+  implementato e verificato su fixture; resta da eseguire con pesi e CT
+  del laboratorio. Dettagli nelle sezioni 10.31–10.32 e guida 18.3.
 
 ## Glossario rapido
 
@@ -2204,6 +2207,119 @@ stati riesaminati localmente da questo solo log. Nessun training CT/CUDA
 eseguito qui; picco RAM e tempi effettivi su Windows richiedono il riavvio
 del laboratorio. Un worker può ridurre il parallelismo di lettura: misurare
 prima di aumentarlo. Nessuna conclusione nuova sull'efficacia scientifica.
+
+### 10.31 Due piloti completati: localizzazione peggiore della baseline
+
+**Completezza e coerenza.** Presenti baseline e le due directory
+`segmentation_pilot_recovery` / `segmentation_pilot_recovery_clip`, con
+config effettivi, manifest, curve, calibrazioni, report, CSV per volume e
+tutte le otto PNG previste per ciascuna valutazione. La cartella
+`failed_ram_20261126_170421` conserva il primo tentativo interrotto e non
+partecipa al confronto. Non occorre rieseguire comandi per file mancanti.
+I checkpoint allenati `.pt` e le mappe voxel complete non sono presenti
+localmente: l'analisi verifica gli artefatti esportati, senza rifare inferenza.
+
+Ricalcolati hash del manifest, cohort ID degli otto casi, separazione degli
+`orig_id`, coerenza delle calibrazioni con i digest dichiarati dei checkpoint,
+Dice da TP/FP/FN, Dice/AP medi, FPR sui reali e tutti i gate: coincidono con
+i report. AP voxel pooled e AUC non sono ricalcolabili dai soli CSV, che
+non contengono gli istogrammi completi. Entrambe le curve contengono epoche
+1–8, update 64–512 e quattro validation dense; l'AP massima è all'epoca
+otto e coincide con quella del report finale di `best.pt`. Il manifest
+pilota ha 24 injection, 24 removal, 16 reali nel train e 2/2/4 nella
+validation, senza pazienti comuni. I sei casi overfit sono inclusi nel train
+pilota, non nella validation.
+
+| Misura sugli stessi otto casi validation | Classificatore MedicalNet | Segmentazione | Segmentazione clip |
+|---|---:|---:|---:|
+| AP voxel pooled | 0,003045 | 0,000985 | 0,000860 |
+| AP media dei quattro manipolati | 0,004456 | 0,001906 | 0,001641 |
+| Dice micro calibrato | 0,007897 | 0,002379 | 0,002176 |
+| Dice medio dei manipolati | 0,008449 | 0,004457 | 0,003943 |
+| Picco dentro la mask | 0/4 | 0/4 | 0/4 |
+| Voxel FP sui reali | 4,2311% | 16,6676% | 19,8309% |
+| Soglia di segmentazione calibrata | 0,386047 | 0,234985 | 0,194382 |
+
+Fonti: `outputs/segmentation_protocol/baseline_pilot/metrics.json`,
+`outputs/segmentation_pilot_recovery/evaluation/{metrics.json,volumes.csv}`
+e corrispondenti file del ramo clip.
+
+Il gate richiedeva Dice micro ≥0,10, almeno 2/4 picchi corretti, AP media
+≥0,013368 (tre volte la baseline) e FPR reali ≤4,2311%: nessun criterio è
+superato. La variante senza clipping mantiene solo il 42,78% dell'AP media
+della baseline e ne produce 3,94 volte il FPR; clip 36,82% e 4,69 volte.
+Sui reali si contano rispettivamente 31.895.965 e 37.949.346 FP su
+191.365.120 voxel, contro 8.096.768 della baseline. Nessun manipolato
+raggiunge Dice 0,01. Le AUC delle scansioni (0,625 / 0,4375) descrivono
+un compito diverso e non compensano questo esito spaziale.
+
+**Figure e probabilità.** Ispezionate le PNG dei casi `inj_432` e
+`rem_221` senza clipping e del reale `inj_2381` con clipping: risposte
+diffuse su parenchima, contorno toracico e interfacce anatomiche, anziché
+una regione circoscritta alla mask. Nel reale il medesimo pattern genera
+ampie zone FP. I massimi delle mappe complete sono 0,470091 e 0,460023:
+a soglia 0,5 tutte le predizioni voxel di entrambi i piloti sarebbero vuote.
+Abbassare la soglia è già incluso nella calibrazione riportata; non risolve
+il ranking basso o la posizione errata dei massimi. Le annotazioni restano
+cuboidi di manipolazione: non sono dimostrati errori nuovi di dimensione
+o allineamento da questi soli risultati.
+
+**Training e risorse.** Loss media 0,451735→0,385668 senza clipping,
+0,452461→0,383814 con clipping. La discesa non dimostra buone predizioni
+sui crop train: Dice/AP train non sono esportati nei piloti. I tempi
+registrati sono 41,96 + 6,96 minuti train + validation per il primo e
+17,34 + 7,36 per clip, esclusa la valutazione finale. Massimo CUDA
+registrato 1.047,15 MiB in entrambi; nessuna misura del picco RAM host.
+Il primo config effettivo usa worker/cache **1/1**, il secondo **4/2**,
+sebbene i YAML correnti siano entrambi 1/1. Non attribuire il vantaggio
+temporale al clipping. La firma di protocollo ignora esplicitamente I/O;
+il sampling usa RNG per seed/epoca/indice, quindi questa differenza non
+richiede da sola di ripetere i training per interpretare il fallimento.
+L'identità numerica delle inizializzazioni/run non è verificabile senza
+gli stati iniziali e i checkpoint.
+
+**Decisione.** Fermare full e cross-generator secondo il piano, conservando
+questi risultati negativi. Il gate overfit resta una verifica di capacità
+su 48 crop ripetuti 300 volte; il pilota vede ciascuna scansione otto volte
+con nuovi crop/flip, aggiornamenti raggruppati per volume e due epoche di
+encoder congelato. Non è ancora isolata la causa del mancato trasferimento.
+La prossima verifica deve usare i pesi esistenti: sugli stessi sei casi
+train confrontare predizione diretta dei crop e ricostruzione densa, sia
+del checkpoint overfit riuscito sia del pilota. Crop già scarsi indicano
+apprendimento insufficiente nel pilota; crop buoni e mappe dense scarse
+indirizzano verso contesto/ricostruzione; train denso buono con validation
+scarsa indica un divario di generalizzazione. Queste sono ipotesi da
+discriminare, non cause già dimostrate. Nessun nuovo training o test
+diagnostico eseguito sul dataset locale, che non è disponibile.
+
+### 10.32 Confronto sui sei casi train: implementato, risultati reali attesi
+
+Nuovo entrypoint `tesi_m3d.compare_segmentation_crop_volume`: carica i tre
+`best.pt` (overfit full-pool, pilota senza clipping, pilota con clipping),
+verifica SHA256 dichiarato nei rispettivi report, task, manifest, riuscita
+del confronto sorgente e identità dei 48 crop tramite ledger e hash. La
+variante clip mantiene le stesse coordinate/mask, con immagine ritagliata
+ai percentili come nel suo checkpoint. Il comando ricrea i crop fissi senza
+augmentation e fa sola inferenza; non costruisce optimizer né aggiorna pesi.
+
+Su ciascuno dei sei train (due injection, due removal, due reali) misura AP,
+Dice e FP dei crop; poi ripete il predittore a finestre sovrapposte su tutta
+la CT nella geometria originale. Salva `crops.csv`, `volumes.csv`, sei PNG
+per ramo e `report.json` con riepiloghi. Le soglie 0,5 sono comuni; ai due
+piloti si aggiungono le rispettive soglie fissate dalla validation. L'AP
+usa istogrammi streaming a 65.536 bin e nessun campionamento dei voxel.
+I crop fissi sono ripetizioni/ritagli di voxel fisici, perciò la loro AP
+non è direttamente equiparabile all'AP densa. Il confronto con gli otto
+casi validation già valutati serve a leggere il divario train/validation.
+
+Verifica locale: quattro test mirati passati, fra cui un ciclo integrato
+su sei volumi TIFF sintetici con tre checkpoint e ricostruzione MONAI; il
+test controlla binding dei checkpoint, file per caso, soglia validation
+congelata e output finale. La verifica reale non è stata eseguita qui:
+mancano CT e i tre pesi `.pt` in questa copia della repository. L'entrypoint
+fallisce prima di creare output, elencando i checkpoint assenti. Comando
+PowerShell nella guida 18.3. Nessun risultato scientifico aggiunto finché
+non arriva `outputs/segmentation_crop_volume_comparison/report.json`.
 
 ## Come aggiornare questo registro
 

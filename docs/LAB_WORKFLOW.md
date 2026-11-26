@@ -1863,12 +1863,43 @@ generalizzazione su più casi saranno misurate dalla validation densa.
 
 ### 18.3 Baseline comune e due piloti controllati
 
-**Stato dopo il recupero del laboratorio:** gate full-pool superato,
-Dice medio 0,945732 e un solo FP nei crop negativi a soglia 0,5. Questo
-consente il passaggio ai piloti; non è ancora una misura di generalizzazione.
-L'audit esistente include già `pilot_train` sullo stesso manifest: non
-ripeterlo. La baseline pilota non è presente negli output sincronizzati.
-Usare i nuovi config recovery qui sotto; quelli storici restano disponibili.
+**Stato attuale del laboratorio:** baseline e due piloti recovery completi,
+otto epoche ciascuno. Entrambi falliscono tutti e quattro i criteri pilota:
+Dice micro calibrato 0,002379 / 0,002176, picchi corretti 0/4, AP inferiore
+alla baseline e FPR sui reali superiore. **Non avviare il full e non ripetere
+baseline, audit o piloti per completare la sincronizzazione:** i file necessari
+all'analisi sono presenti. Dettagli nel registro, sezione 10.31. Il gate
+full-pool resta superato, ma misura la memorizzazione di crop train.
+
+I comandi seguenti restano il riferimento per riprodurre il protocollo.
+Il prossimo controllo utile confronta crop e volumi completi sugli stessi
+casi train, usando i checkpoint esistenti senza riaddestrarli; non è ancora
+stato eseguito. Il ramo clip completato usava worker/cache 4/2, contro 1/1
+dell'altro: i tempi non misurano l'effetto del solo clipping.
+
+Dopo aver sincronizzato il nuovo codice sul PC del laboratorio, eseguire
+il confronto di sola inferenza. Richiede i tre `best.pt` già prodotti nei
+rami `segmentation_overfit_recovery/full_pool`, `segmentation_pilot_recovery`
+e `segmentation_pilot_recovery_clip`; non richiede un nuovo training:
+
+```powershell
+$ctRoot = "C:\Tesi Magistrale Piscopo"
+$realCtRoot = Join-Path $ctRoot "real\scan"
+python -m tesi_m3d.compare_segmentation_crop_volume `
+  --data-root $ctRoot --real-scan-root $realCtRoot `
+  --device cuda --batch-size 2 `
+  --output-dir outputs\segmentation_crop_volume_comparison
+```
+
+Il comando verifica digest dei checkpoint, manifest e identità dei 48 crop
+sorgente. Per ogni modello scrive `crops.csv`, `volumes.csv`, sei PNG e le
+metriche nel `report.json` generale. Il confronto a soglia 0,5 è comune ai
+tre modelli; per i piloti sono riportate anche le soglie già calibrate sulla
+validation, senza ricalibrarle sui sei train. Le AP sono calcolate sui crop
+e sui volumi originali separatamente: i crop possono ripetere gli stessi
+voxel. La ricostruzione densa usa finestre 64³, overlap 50% e fusione
+gaussiana come nella validation. L'output deve essere vuoto; se una run si
+interrompe, usare un nuovo `--output-dir` per conservare il report parziale.
 
 Impostare nuovamente i percorsi se la sessione PowerShell è nuova:
 
@@ -1960,6 +1991,10 @@ baseline. L'AP media e quella pooled sono riportate separatamente.
 Se entrambi falliscono, fermarsi e analizzare gli errori residui.
 
 ### 18.4 Full soltanto dopo il superamento del pilota
+
+**Bloccato dai risultati attuali:** nessuno dei due piloti recovery supera
+il gate. I comandi qui sotto richiedono prima la risoluzione documentata
+del fallimento pilota.
 
 Estendere prima l'audit e ricalcolare la baseline sulle 58 scansioni comuni:
 
