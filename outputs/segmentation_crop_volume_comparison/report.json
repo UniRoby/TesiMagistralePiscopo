@@ -1,0 +1,150 @@
+{
+  "task": "segmentation_crop_volume_comparison",
+  "complete": true,
+  "evaluation_only": true,
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "scope": "six train scans; 48 fixed source crops with repeated voxels versus dense original volumes",
+  "thresholds": "0.5 for all checkpoints; pilot validation threshold additionally recorded",
+  "ap_definition": "65,536-bin floor-quantized probabilities; no voxel sampling",
+  "runs": {
+    "overfit": {
+      "checkpoint": "outputs\\segmentation_overfit_recovery\\full_pool\\best.pt",
+      "checkpoint_sha256": "d65ca150fa0dbd0fe1cd057540ed11c5450d2dfd8986d386485efdff6b52c0f4",
+      "preprocessing": {
+        "low": 1.0,
+        "high": 99.0,
+        "clip": false
+      },
+      "crop_fixed_0_5": {
+        "threshold": 0.5,
+        "micro_dice": 0.9602932281536695,
+        "mean_positive_dice": 0.9457294210877252,
+        "mean_positive_ap": 0.9917912819692672,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.0,
+        "n_crops": 48,
+        "n_positive_crops": 16,
+        "negative_crop_fp_fraction": 1.1920928955078125e-07,
+        "max_probability": 0.9999099969863892
+      },
+      "dense_fixed_0_5": {
+        "threshold": 0.5,
+        "micro_dice": 0.04133964878054619,
+        "mean_positive_dice": 0.04968089739250613,
+        "mean_positive_ap": 0.035516676437932035,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.004359575658062704,
+        "n_volumes": 6,
+        "n_positive_volumes": 4,
+        "dense_ap": 0.012577715511580831,
+        "dense_auc": 0.6802746635634177
+      },
+      "validation_pilot_report": null,
+      "validation_threshold": null,
+      "crop_validation_threshold": null,
+      "dense_validation_threshold": null
+    },
+    "pilot": {
+      "checkpoint": "outputs\\segmentation_pilot_recovery\\best.pt",
+      "checkpoint_sha256": "fd1390e972b6f70e43a2c55b78894071f7ce30d4cec478562ed32e16a4eafd50",
+      "preprocessing": {
+        "low": 1.0,
+        "high": 99.0,
+        "clip": false
+      },
+      "crop_fixed_0_5": {
+        "threshold": 0.5,
+        "micro_dice": 0.0,
+        "mean_positive_dice": 0.0,
+        "mean_positive_ap": 0.1409724490597303,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.0,
+        "n_crops": 48,
+        "n_positive_crops": 16,
+        "negative_crop_fp_fraction": 0.0,
+        "max_probability": 0.4709915518760681
+      },
+      "dense_fixed_0_5": {
+        "threshold": 0.5,
+        "micro_dice": 0.0,
+        "mean_positive_dice": 0.0,
+        "mean_positive_ap": 0.0031650815261614514,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.0,
+        "n_volumes": 6,
+        "n_positive_volumes": 4,
+        "dense_ap": 0.0016547007904265639,
+        "dense_auc": 0.723556841061623
+      },
+      "validation_pilot_report": "outputs\\segmentation_pilot_recovery\\evaluation\\metrics.json",
+      "validation_threshold": 0.2349853515625,
+      "crop_validation_threshold": {
+        "threshold": 0.2349853515625,
+        "micro_dice": 0.0759040856064767,
+        "mean_positive_dice": 0.16783853593040762,
+        "mean_positive_ap": 0.1409724490597303,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.23565053939819336
+      },
+      "dense_validation_threshold": {
+        "threshold": 0.2349853515625,
+        "micro_dice": 0.003957905380400751,
+        "mean_positive_dice": 0.006339419004905741,
+        "mean_positive_ap": 0.0031650815261614514,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.20200907638649535
+      }
+    },
+    "pilot_clip": {
+      "checkpoint": "outputs\\segmentation_pilot_recovery_clip\\best.pt",
+      "checkpoint_sha256": "e3160e14e8956f5d5017fe854b686e0de89e03db1c5a27da3b92964f9fe9542e",
+      "preprocessing": {
+        "low": 1.0,
+        "high": 99.0,
+        "clip": true
+      },
+      "crop_fixed_0_5": {
+        "threshold": 0.5,
+        "micro_dice": 0.0,
+        "mean_positive_dice": 0.0,
+        "mean_positive_ap": 0.14437756646963312,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.0,
+        "n_crops": 48,
+        "n_positive_crops": 16,
+        "negative_crop_fp_fraction": 0.0,
+        "max_probability": 0.45830053091049194
+      },
+      "dense_fixed_0_5": {
+        "threshold": 0.5,
+        "micro_dice": 0.0,
+        "mean_positive_dice": 0.0,
+        "mean_positive_ap": 0.003702355036936301,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.0,
+        "n_volumes": 6,
+        "n_positive_volumes": 4,
+        "dense_ap": 0.001718104808214777,
+        "dense_auc": 0.7105866137300586
+      },
+      "validation_pilot_report": "outputs\\segmentation_pilot_recovery_clip\\evaluation\\metrics.json",
+      "validation_threshold": 0.1943817138671875,
+      "crop_validation_threshold": {
+        "threshold": 0.1943817138671875,
+        "micro_dice": 0.08192755261417523,
+        "mean_positive_dice": 0.18591806824146845,
+        "mean_positive_ap": 0.14437756646963312,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.2891428470611572
+      },
+      "dense_validation_threshold": {
+        "threshold": 0.1943817138671875,
+        "micro_dice": 0.003542313448141078,
+        "mean_positive_dice": 0.005584617850927243,
+        "mean_positive_ap": 0.003702355036936301,
+        "peak_hits": 0,
+        "real_false_positive_fraction": 0.24116897583007812
+      }
+    }
+  }
+}
