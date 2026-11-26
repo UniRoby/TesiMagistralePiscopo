@@ -33,8 +33,9 @@ training:
   freeze_encoder_epochs: 2
   validation_interval: 2
   early_stopping_validations: 3
-  num_workers: 4
-  volume_cache_size: 2
+  # Each worker holds full CT volumes, masks and preprocessing temporaries.
+  num_workers: 1
+  volume_cache_size: 1
 baseline_report: outputs/segmentation_protocol/baseline_common/metrics.json
 pilot_reports:
   - outputs/segmentation_pilot_recovery/evaluation/metrics.json

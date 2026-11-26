@@ -6,6 +6,18 @@ import numpy as np
 
 ALLOWED_OFFSETS = (0, 512, 1024, 2000, 2048, 3024, 3048, 3072)
 LUNG_PEAK_HU = -1000
+_HISTOGRAM_CHUNK_SIZE = 1 << 20
+
+
+def _chunked_bincount(values: np.ndarray) -> np.ndarray:
+    """Count exactly without bincount's full-volume int64 temporary."""
+    histogram = np.zeros(0, dtype=np.int64)
+    for start in range(0, values.size, _HISTOGRAM_CHUNK_SIZE):
+        counts = np.bincount(values.flat[start:start + _HISTOGRAM_CHUNK_SIZE],
+                             minlength=histogram.size)
+        counts[:histogram.size] += histogram
+        histogram = counts
+    return histogram
 
 
 def estimate_ct_offset_from_histogram(histogram: np.ndarray) -> tuple[int, int]:
@@ -23,7 +35,7 @@ def estimate_ct_offset_from_histogram(histogram: np.ndarray) -> tuple[int, int]:
 def estimate_ct_offset(scan: np.ndarray) -> tuple[int, int]:
     """Estimate the uint16 storage offset from the dominant non-zero air peak."""
 
-    return estimate_ct_offset_from_histogram(np.bincount(np.asarray(scan).reshape(-1)))
+    return estimate_ct_offset_from_histogram(_chunked_bincount(np.asarray(scan)))
 
 
 def lung_mask_from_ct(scan: np.ndarray) -> np.ndarray:
@@ -52,7 +64,7 @@ def lung_mask_from_ct(scan: np.ndarray) -> np.ndarray:
     labels, count = ndimage.label(candidate)
     if count == 0:
         return np.zeros(scan.shape, dtype=bool)
-    sizes = np.bincount(labels.reshape(-1))[1:]
+    sizes = _chunked_bincount(labels)[1:]
     keep = np.argsort(sizes)[-2:] + 1
     lungs = np.isin(labels, keep)
     return ndimage.binary_dilation(lungs, iterations=1)

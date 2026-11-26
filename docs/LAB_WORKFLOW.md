@@ -1863,6 +1863,21 @@ generalizzazione su più casi saranno misurate dalla validation densa.
 
 ### 18.3 Baseline comune e due piloti controllati
 
+**Stato dopo il recupero del laboratorio:** gate full-pool superato,
+Dice medio 0,945732 e un solo FP nei crop negativi a soglia 0,5. Questo
+consente il passaggio ai piloti; non è ancora una misura di generalizzazione.
+L'audit esistente include già `pilot_train` sullo stesso manifest: non
+ripeterlo. La baseline pilota non è presente negli output sincronizzati.
+Usare i nuovi config recovery qui sotto; quelli storici restano disponibili.
+
+Impostare nuovamente i percorsi se la sessione PowerShell è nuova:
+
+```powershell
+$ctRoot = "C:\Tesi Magistrale Piscopo"
+$realCtRoot = Join-Path $ctRoot "real\scan"
+$baselineCheckpoint = "outputs\train_pix2pix_full_train_resnet18_medicalnet\best.pt"
+```
+
 Prima ricalcolare la baseline con il nuovo valutatore sugli otto casi pilota:
 
 ```powershell
@@ -1876,16 +1891,19 @@ Poi eseguire entrambe le prove, ciascuna da massimo otto epoche:
 
 ```powershell
 python -m tesi_m3d.train_segmentation `
-  --config configs\segmentation_pilot.yaml `
+  --config configs\segmentation_pilot_recovery.yaml `
   --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
 
 python -m tesi_m3d.train_segmentation `
-  --config configs\segmentation_pilot_clip.yaml `
+  --config configs\segmentation_pilot_recovery_clip.yaml `
   --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
 ```
 
 Cambia soltanto il clipping p1/p99. Seed, inizializzazione del decoder,
-manifest e sampling sono identici. Otto crop 64³ per scansione: quattro
+manifest e sampling seguono lo stesso protocollo. I piloti ripartono dai
+pesi MedicalNet ufficiali, senza riprendere quelli memorizzati nel recupero.
+Il loro training usa il percorso ordinario: il test deterministico
+full-pool non prova identità numerica fra le nuove run. Otto crop 64³ per scansione: quattro
 positivi con posizione variabile nel crop, due negativi polmonari e due
 globali; sui reali quattro polmonari e quattro globali. I negativi hanno
 intersezione nulla con la mask, con fallback globale se necessario. Anche
@@ -1893,12 +1911,40 @@ intersezioni positive inferiori al 5% restano supervisionate voxel per voxel.
 La ROI euristica non taglia l'inferenza. Nessun resampling; spacing registrato
 e risultati separati nelle fasce z <=1, 1–2 e >2 mm.
 
-Ogni worker legge una scansione e prepara insieme tutti gli otto crop. Il
-trainer usa microbatch 2 e accumulo 4, AMP bfloat16, BCE + Dice sui crop con
-foreground; i crop vuoti ricevono comunque BCE. In caso di OOM cambiare in
+Ogni worker legge una scansione e prepara insieme tutti gli otto crop. I tre
+config recovery usano ora **un worker e un volume in cache RAM per worker**:
+quattro processi con due volumi ciascuno hanno esaurito la RAM del laboratorio.
+Il prefetch resta uno; la cache persistente dei percentili rimane attiva e
+condivisa fra le prove. Il trainer usa microbatch 2 e accumulo 4, AMP bfloat16,
+BCE + Dice sui crop con foreground; i crop vuoti ricevono comunque BCE.
+In caso di **CUDA out of memory** cambiare in
 **entrambi** i YAML `batch_size: 1` e `accumulation_steps: 8`: il peso della
 loss sul batch effettivo resta uguale. I primi due epoch aggiornano solo il
 decoder, poi l'encoder con LR 3e-5 e il decoder con LR 3e-4, AdamW 1e-4.
+
+**Riavvio dopo il MemoryError RAM al quarto volume della prima epoca.** Il
+traceback termina in `lung.py`, con `np.bincount` che tenta una conversione
+temporanea dell'intera CT in int64 da 300 MiB. Il codice aggiornato conta a
+blocchi, sia per l'offset CT sia per le componenti polmonari: conteggi e ROI
+restano identici. Ridurre il batch GPU non corregge questo errore CPU.
+Sincronizzare codice e YAML aggiornati sul PC del laboratorio, quindi:
+
+```powershell
+if (Test-Path outputs\segmentation_pilot_recovery) {
+  Rename-Item -Path outputs\segmentation_pilot_recovery `
+    -NewName ("segmentation_pilot_recovery_failed_ram_" + (Get-Date -Format "yyyyMMdd_HHmmss")) `
+    -ErrorAction Stop
+}
+python -m tesi_m3d.train_segmentation `
+  --config configs\segmentation_pilot_recovery.yaml `
+  --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
+```
+
+Il run documentato si è fermato prima del primo checkpoint di fine epoca:
+riparte dall'inizio, senza `--resume`. La cartella fallita resta disponibile;
+overfit, audit, baseline già accettata dal trainer e cache dei percentili non
+vanno rifatti. Al termine eseguire il secondo comando con clipping riportato
+sopra. Non aumentare nuovamente i worker prima di misurare RAM e tempi di un'epoca.
 
 Ogni due epoche esegue inferenza sui volumi completi. `best.pt` massimizza
 `valid_dense_ap`, calcolata su tutti i voxel con istogrammi streaming a
@@ -1906,7 +1952,7 @@ Ogni due epoche esegue inferenza sui volumi completi. `best.pt` massimizza
 esatto nei test. Non è l'AP delle patch bilanciate. `last.pt` consente il
 resume; si conservano solo questi due checkpoint, con scrittura atomica.
 
-I risultati sono in `outputs/segmentation_pilot*/evaluation/metrics.json`,
+I risultati sono in `outputs/segmentation_pilot_recovery*/evaluation/metrics.json`,
 `volumes.csv` e `images/`. Il gate richiede Dice micro calibrato >=0,10,
 picco dentro la mask in almeno 2/4 positivi, AP voxel media almeno tripla
 della baseline e quota di falsi positivi sui reali non superiore alla
@@ -1919,7 +1965,7 @@ Estendere prima l'audit e ricalcolare la baseline sulle 58 scansioni comuni:
 
 ```powershell
 python -m tesi_m3d.prepare_segmentation `
-  --config configs\segmentation_full.yaml `
+  --config configs\segmentation_full_recovery.yaml `
   --data-root $ctRoot --real-scan-root $realCtRoot --stage full
 
 python -m tesi_m3d.evaluate_segmentation `
@@ -1928,7 +1974,7 @@ python -m tesi_m3d.evaluate_segmentation `
   --out-dir outputs\segmentation_protocol\baseline_common
 
 python -m tesi_m3d.train_segmentation `
-  --config configs\segmentation_full.yaml `
+  --config configs\segmentation_full_recovery.yaml `
   --data-root $ctRoot --real-scan-root $realCtRoot --device cuda
 ```
 
@@ -1945,7 +1991,7 @@ in almeno 15/30 casi, AP voxel media >=3 volte la baseline e falsi positivi
 sui reali non superiori alla baseline. Un fallimento resta scritto nel
 report: la presenza del codice non dimostra un miglioramento scientifico.
 
-Un avvio su una run esistente richiede `--resume outputs\segmentation_full\last.pt`
+Un avvio su una run esistente richiede `--resume outputs\segmentation_full_recovery\last.pt`
 oppure un output nuovo con `--output-dir`; non sovrascrive silenziosamente
 i risultati. Il resume ripristina optimizer e RNG, verifica manifest e
 preprocessing e consente il cambio 2/4 -> 1/8 in caso di OOM.
@@ -1956,18 +2002,18 @@ Valutare i generatori separatamente con le soglie della validation congelate:
 
 ```powershell
 python -m tesi_m3d.evaluate_segmentation `
-  --checkpoint outputs\segmentation_full\best.pt `
-  --calibration outputs\segmentation_full\calibration.json `
+  --checkpoint outputs\segmentation_full_recovery\best.pt `
+  --calibration outputs\segmentation_full_recovery\calibration.json `
   --split test --mods cycle `
   --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
-  --out-dir outputs\segmentation_full\test_cycle
+  --out-dir outputs\segmentation_full_recovery\test_cycle
 
 python -m tesi_m3d.evaluate_segmentation `
-  --checkpoint outputs\segmentation_full\best.pt `
-  --calibration outputs\segmentation_full\calibration.json `
+  --checkpoint outputs\segmentation_full_recovery\best.pt `
+  --calibration outputs\segmentation_full_recovery\calibration.json `
   --split test --mods diffusion `
   --data-root $ctRoot --real-scan-root $realCtRoot --device cuda `
-  --out-dir outputs\segmentation_full\test_diffusion
+  --out-dir outputs\segmentation_full_recovery\test_diffusion
 ```
 
 La CLI rifiuta test senza calibrazione, generatori usati nel train o
@@ -1981,7 +2027,7 @@ Per inferenza su una sola CT non servono metadata, mask o coordinate:
 
 ```powershell
 python -m tesi_m3d.infer_segmentation `
-  --checkpoint outputs\segmentation_full\best.pt `
+  --checkpoint outputs\segmentation_full_recovery\best.pt `
   --volume-dir "$ctRoot\pix2pix\scan\inj_2176" `
   --device cuda --out-dir outputs\segmentation_prediction
 ```

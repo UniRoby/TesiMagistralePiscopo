@@ -75,6 +75,8 @@ def test_recovery_pilots_keep_the_clipping_comparison_and_bind_the_correct_gate(
         assert config["training"]["squared_pred"] is True
         assert config["overfit_report"] == "outputs/segmentation_overfit_recovery/full_pool/gate.json"
         assert config["training"]["batch_size"] * config["training"]["accumulation_steps"] == 8
+        assert config["training"]["num_workers"] == 1
+        assert config["training"]["volume_cache_size"] == 1
     assert full["pilot_reports"] == [c["output_dir"] + "/evaluation/metrics.json" for c in (first, second)]
 
 

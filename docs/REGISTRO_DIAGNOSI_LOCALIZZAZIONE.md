@@ -9,21 +9,23 @@ Configurazione di riferimento:
   manipolata annotata, non del contorno preciso del tumore.
 - Gate: sei scansioni train, 48 crop fissi 64³, 300 aggiornamenti,
   Dice medio dei 16 positivi ≥0,90 e FPR dei 32 negativi <1% a soglia 0,5.
-- Ultimo confronto completo: `outputs/segmentation_lr_decay_comparison/`.
-  Prime 200 tracce identiche al controllo, LR ridotto dal passo 201.
-  Best e last al passo 300: Dice 0,833702, FPR negativi 0,32845%; gate fallito.
-- Il last migliora di 0,173425 Dice rispetto al controllo costante, ma
-  l'AP globale scende da 0,865872 a 0,809693. Non è un miglioramento uniforme.
-- Soglia comune ottimale: Dice 0,834342; media oracoli per crop 0,850238.
-  La sola soglia non recupera il gate. Nessuna promozione a piloti/full.
-- La curva ridotta è ancora crescente al passo 300. Ogni crop ha ricevuto
-  50 esposizioni contro le 300 dei test isolati riusciti: non è dimostrata
-  convergenza o un limite definitivo dell'encoder.
-- Recupero implementato: `--full-pool-overfit`, 48 crop per aggiornamento
-  con microbatch 2 e accumulo 24; massimo 300 update e 300 esposizioni per
-  crop. Sei volte le presentazioni, protocollo distinto dai precedenti,
-  gate invariato. Output `outputs/segmentation_overfit_recovery/`.
-  Dettagli nelle sezioni 10.27–10.28; comando nella guida 18.2.12.
+- Recupero completato: `outputs/segmentation_overfit_recovery/`.
+  **Gate superato** a soglia 0,5: Dice medio 0,945732, FPR negativi
+  0,00001192% (un voxel su 8.388.608); zero FP nei 16 crop reali.
+- Primo superamento al passo 150 e tutti i controlli successivi positivi.
+  Best e last al passo 300: AP globale crop 0,989654, recall 96,79%,
+  14/16 positivi con Dice ≥0,90. Due crop mantengono errori residui.
+- Ricontrollati NPZ, conteggi, AP, ledger, manifest, 300 visite per crop
+  e LR effettivi. Capacità di memorizzazione verificata sui sei casi.
+- Sono aumentate sia le esposizioni (sei volte) sia la dimensione del
+  gradiente congiunto: non è isolata la causa unica del miglioramento.
+  Il gate non dimostra localizzazione su scansioni nuove o generalizzazione.
+- Il pilota recovery del laboratorio è partito e si è fermato al volume
+  4/64 della prima epoca per RAM CPU, durante il calcolo della ROI polmonare.
+  Corretto il conteggio a blocchi; i tre config recovery usano un worker e
+  cache RAM di un volume. Ripartire col pilota, poi eseguire la variante clip.
+  Full ancora condizionato ai risultati pilota. Dettagli nelle sezioni
+  10.29–10.30 e guida 18.3; nessun nuovo overfit necessario.
 
 ## Glossario rapido
 
@@ -2089,6 +2091,119 @@ aggiornamenti non nulli di encoder/decoder (norme 0,03514/0,22517), con tutti
 i buffer BN immutati. Questo verifica il percorso tecnico; tempi/memoria
 su crop 64³ CUDA e l'apprendimento sulle CT richiedono l'esecuzione nel
 laboratorio. Nessun criterio scientifico è dichiarato già superato.
+
+### 10.29 Recupero full-pool completato: gate superato, passaggio ai piloti
+
+**Verifica degli artefatti.** `comparison.json` completo, `passed: true`,
+senza errore o fase attiva. Manifest uguale al riferimento; ledger dei
+48 crop identico e SHA ricalcolato `80c77851…`. Verificati 300 update
+con tutti gli indici 0–47, 16 crop positivi e 16 reali per update, 300
+esposizioni per ciascun crop. LR iniziali fino al passo 200, ridotti
+dal 201; loss/componenti coerenti entro `1e-6`, norme/aggiornamenti finiti
+e aggiornamenti non nulli di encoder e decoder in tutti i passi registrati.
+
+Dai due NPZ ricalcolati conservazione dei voxel alle 1.001 soglie,
+conteggi a 0,5, AP quantizzata a 65.536 bin e profili/oracoli: coincidono
+con i report. TP/FP/FN per crop e conteggi interi per fascia coincidono
+con i CSV. Gli audit best/last riportano zero scarti rispetto alle metriche
+originali. I checkpoint allenati `.pt` non sono presenti localmente:
+non è stata rieseguita inferenza né confrontati direttamente i pesi.
+
+| Misura a soglia 0,5 | LR ridotto precedente | Recupero full-pool |
+|---|---:|---:|
+| Dice medio positivi | 0,833702 | **0,945732** |
+| Dice micro positivi | 0,845128 | 0,960298 |
+| Precision micro positivi | 85,82% | 95,28% |
+| Recall micro positivi | 83,25% | 96,79% |
+| AP globale crop | 0,809693 | 0,989654 |
+| FP nei crop negativi | 27.552 | **1** |
+| FPR negativi | 0,32845% | 0,00001192% |
+| FP nei positivi / FN | 37.692 / 45.884 | 13.140 / 8.783 |
+
+Best e last sono al passo 300 e hanno metriche coincidenti. Primo gate
+osservato al passo 150 (Dice 0,921425); tutti i controlli 175–300 restano
+sopra 0,90 e sotto 1% FPR. Non è necessario cambiare soglia: quella
+diagnostica 0,596 darebbe Dice 0,952372, ma resta una misura sul train
+e non viene adottata come calibrazione. Nei 16 crop reali: zero FP su
+4.194.304 voxel. L'unico FP negativo è in `inj_1419/7`, al bordo.
+
+**Residui e figure.** Quattordici positivi su 16 superano individualmente
+0,90. Restano `inj_2092/3` a Dice 0,829425 (precision 71,21%, recall 99,31%)
+e `rem_133/2` a 0,886238. Il gate usa la media: il suo superamento non
+equivale a ogni crop perfetto. Ispezionate le PNG del peggior positivo
+e del peggior negativo: la regione injection è recuperata con un alone
+FP residuo, coerente con i conteggi. I quattro Dice medi per scansione
+manipolata sono 0,92182 / 0,96508 / 0,93159 / 0,96444. Nel nucleo positivo
+il recall è 96,79%; rimangono 1.763 FN e 2.361 FP. Non rimuovere bordi o
+casi difficili dalle metriche. Le annotazioni restano cuboidi di manipolazione.
+
+Tempo del ramo circa **23,2 minuti**, massimo CUDA registrato **1.670,8 MiB**
+(microbatch due, accumulo 24). Le presentazioni dei crop sono sei volte
+quelle precedenti; il tempo è circa 4,3 volte, non sei. Il confronto non
+separa l'effetto delle esposizioni da quello del gradiente congiunto e
+non dimostra la ripetibilità di una seconda run full-pool indipendente.
+
+**Decisione.** Verifica di capacità superata, senza cambio di encoder,
+decoder o soglia. Non servono altri overfit o audit degli stessi pesi.
+Il successo non dimostra ancora localizzazione su volumi nuovi: avviare
+baseline e due piloti recovery da MedicalNet, con training ordinario e
+validation densa. Il batch dei piloti resta otto crop per volume: il
+risultato full-pool non garantisce la stabilità del nuovo training.
+Controllati manifest e `orig_id` disgiunti: 64 train (48 manipolati,
+16 reali), otto validation (quattro manipolati, quattro reali).
+
+L'audit sincronizzato include già `pilot_train` e `common_valid` sullo
+stesso manifest: non occorre ripeterlo per questi piloti. Manca invece
+`outputs/segmentation_protocol/baseline_pilot/metrics.json` negli output
+sincronizzati: va prodotto col classificatore MedicalNet e valutatore
+comune prima dei training. I due config recovery sono già coerenti con
+loss quadratica e nuovo gate. Nessun pilota/full lanciato localmente;
+full ancora condizionato ai criteri di validation. Comandi in guida 18.3.
+
+### 10.30 Pilota interrotto per RAM CPU: conteggi a blocchi e loader ridotto
+
+**Evidenza del laboratorio.** Il comando con
+`configs/segmentation_pilot_recovery.yaml` arriva al volume 4/64 della prima
+epoca, poi un worker solleva `_ArrayMemoryError`: `np.bincount` in
+`estimate_ct_offset` tenta di allocare 300 MiB int64 per 39.321.600 voxel.
+È un errore di memoria host, non un CUDA OOM o una misura di fallimento della
+localizzazione. Il punto del traceback identifica l'allocazione fallita;
+non misura il consumo complessivo degli altri processi Windows.
+
+**Modifica.** `lung.py` accumula gli stessi conteggi interi su blocchi di
+massimo 1.048.576 voxel, senza conversione int64 dell'intero volume. Anche il
+conteggio delle componenti etichettate usa questa procedura, evitando una
+seconda allocazione analoga. Non cambiano offset, soglie o morfologia della
+ROI. I config `segmentation_pilot_recovery`, `segmentation_pilot_recovery_clip`
+e `segmentation_full_recovery` passano insieme da quattro worker/cache due
+a un worker/cache uno. Il prefetch resta uno. Modello MedicalNet, geometria,
+seed, sampling, loss, batch fisico e accumulo restano invariati; il confronto
+dei piloti continua a variare soltanto il clipping. La cache persistente dei
+percentili resta utilizzata. La cache RAM LRU può ancora trattenere il volume
+precedente mentre viene caricato quello successivo: il limite è un elemento
+residente, non un tetto in byte al picco del preprocessing.
+
+**Verifica locale.** 82 test passati su conteggio/ROI, audit intensità,
+volume IO, percentili, segmentazione, config recovery e collegamenti del
+training; un test di worker persistenti spawn escluso. Diciotto warning
+preesistenti MONAI sull'indicizzazione. I nuovi test confrontano conteggi e
+offset con il calcolo denso, includono zeri, array vuoti, valore 65.535 e
+viste non contigue, verificano il limite dei blocchi passati a `bincount` e
+l'identità della ROI sintetica rispetto al calcolo precedente.
+In una prova separata su uint16 150×512×512, conteggi e offset attesi esatti:
+picco delle allocazioni tracciate durante il solo istogramma circa **10,0 MiB**,
+contro i 300 MiB della sola conversione int64 fallita. Questa misura non è
+il consumo RAM dell'intero loader o del training.
+
+**Decisione e limiti.** Conservare la cartella fallita con un nome datato e
+riavviare il primo pilota senza resume: nel log non è completata la prima
+epoca, quindi non è stato raggiunto il salvataggio periodico. Audit, gate e
+baseline sono già stati accettati prima dell'ingresso nel loop; non vanno
+ripetuti per questa correzione. I nuovi risultati della baseline non sono
+stati riesaminati localmente da questo solo log. Nessun training CT/CUDA
+eseguito qui; picco RAM e tempi effettivi su Windows richiedono il riavvio
+del laboratorio. Un worker può ridurre il parallelismo di lettura: misurare
+prima di aumentarlo. Nessuna conclusione nuova sull'efficacia scientifica.
 
 ## Come aggiornare questo registro
 
