@@ -1,0 +1,170 @@
+{
+  "task": "segmentation_sampling",
+  "complete": true,
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "window_report_sha256": "76513a89878ae7a65495cdfc0f26221a4a9fdbec65f86fcac00db7716df2281b",
+  "arms": {
+    "standard": {
+      "n_volumes": 8,
+      "n_positive_volumes": 4,
+      "histogram_bins": 65536,
+      "ap_definition": "probabilities floor-quantized to 65536 bins; all voxels, no negative sampling; single-class scopes null",
+      "dense_ap": 0.0009167552087335917,
+      "dense_auc": 0.7264505092319931,
+      "micro_dice": 0.0023327910291420016,
+      "mean_positive_dice": 0.004343709124417327,
+      "mean_positive_ap": 0.0017696570444698885,
+      "mean_positive_auc": 0.7372761854577117,
+      "mean_lung_ap": 0.0038219899533882755,
+      "mean_lung_auc": 0.36370175407752253,
+      "peak_hits": 0,
+      "real_false_positive_fraction": 0.1686470240762789,
+      "detection_auc": 0.5625,
+      "detection_balanced_accuracy": 0.625,
+      "calibration": {
+        "localization_threshold": 0.23291015625,
+        "detection_threshold": 0.4344627857208252,
+        "detection_score": "max",
+        "histogram_bins": 65536,
+        "source_split": "valid",
+        "checkpoint_sha256": "2eafe605e0723395b05b3a92f6bcf33249c599fcf73324591b795134cc65b4b9",
+        "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+        "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+      },
+      "by_spacing_z": {
+        "<=1mm": {
+          "n": 1,
+          "mean_ap": 0.001267197040015873,
+          "mean_dice": 0.0018145803200247433
+        },
+        "1-2mm": {
+          "n": 2,
+          "mean_ap": 0.0018758860291602263,
+          "mean_dice": 0.004851144298143678
+        },
+        ">2mm": {
+          "n": 1,
+          "mean_ap": 0.002059659079543229,
+          "mean_dice": 0.005857967581357209
+        },
+        "unknown": {
+          "n": 0,
+          "mean_ap": null,
+          "mean_dice": null
+        }
+      },
+      "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71",
+      "seconds": 99.80477629997768,
+      "split": "valid",
+      "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+      "checkpoint": "outputs\\segmentation_sampling_comparison\\standard\\best.pt",
+      "checkpoint_sha256": "2eafe605e0723395b05b3a92f6bcf33249c599fcf73324591b795134cc65b4b9",
+      "preprocessing": {
+        "low": 1.0,
+        "high": 99.0,
+        "clip": false
+      },
+      "model_name": "resnet18_medicalnet_seg",
+      "protocol_signature": "2be222a3379d9d2a9fa450021058c9745dfd671a6843faeffe0cd49d32176652",
+      "gate": {
+        "passed": false,
+        "checks": {
+          "dice": false,
+          "peak": false,
+          "ap": false,
+          "real_fp": false
+        },
+        "baseline_cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+      }
+    },
+    "paired": {
+      "n_volumes": 8,
+      "n_positive_volumes": 4,
+      "histogram_bins": 65536,
+      "ap_definition": "probabilities floor-quantized to 65536 bins; all voxels, no negative sampling; single-class scopes null",
+      "dense_ap": 0.0009731811646322528,
+      "dense_auc": 0.7348273485620851,
+      "micro_dice": 0.0023884904822492952,
+      "mean_positive_dice": 0.004434434773338527,
+      "mean_positive_ap": 0.0018907686172865393,
+      "mean_positive_auc": 0.7399358525046017,
+      "mean_lung_ap": 0.0038443660358433744,
+      "mean_lung_auc": 0.36224552750012934,
+      "peak_hits": 0,
+      "real_false_positive_fraction": 0.17291475583429206,
+      "detection_auc": 0.5625,
+      "detection_balanced_accuracy": 0.625,
+      "calibration": {
+        "localization_threshold": 0.2254486083984375,
+        "detection_threshold": 0.39631056785583496,
+        "detection_score": "max",
+        "histogram_bins": 65536,
+        "source_split": "valid",
+        "checkpoint_sha256": "d531b4e57e52fe65dfeaff1d0989d1b95dd7fd652fbce2fa00d6ce7a2610d111",
+        "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+        "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+      },
+      "by_spacing_z": {
+        "<=1mm": {
+          "n": 1,
+          "mean_ap": 0.0012925878500280766,
+          "mean_dice": 0.0018912015931110714
+        },
+        "1-2mm": {
+          "n": 2,
+          "mean_ap": 0.0020441199741733627,
+          "mean_dice": 0.0048555508892090425
+        },
+        ">2mm": {
+          "n": 1,
+          "mean_ap": 0.0021822466707713552,
+          "mean_dice": 0.006135435721824951
+        },
+        "unknown": {
+          "n": 0,
+          "mean_ap": null,
+          "mean_dice": null
+        }
+      },
+      "cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71",
+      "seconds": 99.80150729999878,
+      "split": "valid",
+      "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+      "checkpoint": "outputs\\segmentation_sampling_comparison\\paired\\best.pt",
+      "checkpoint_sha256": "d531b4e57e52fe65dfeaff1d0989d1b95dd7fd652fbce2fa00d6ce7a2610d111",
+      "preprocessing": {
+        "low": 1.0,
+        "high": 99.0,
+        "clip": false
+      },
+      "model_name": "resnet18_medicalnet_seg",
+      "protocol_signature": "80ad22b8822ad7cc6ceca402daf46d2c1c97e471d2c7a9b7812bfdde83cc0c40",
+      "gate": {
+        "passed": false,
+        "checks": {
+          "dice": false,
+          "peak": false,
+          "ap": false,
+          "real_fp": false
+        },
+        "baseline_cohort_id": "15085dc2ce1ace5f797c2f00da47e841b44c3c8773fae5a3b2cb91ea7e017a71"
+      }
+    }
+  },
+  "scope": "two fresh pilots; paired negatives replace crop slots 4/5; global slots 6/7 retained",
+  "limitations": "single seed; geometry checks do not certify anatomical registration; no full promotion",
+  "control": {
+    "updates_per_arm": 512,
+    "crops_per_arm": 4096,
+    "initial_state_sha256": "9a053aa13279d2f56112daf5f2c34e4cdd267da0007acbaf47547f06c6e8d2c8",
+    "retained_crops_and_targets_identical": true
+  },
+  "paired_minus_standard": {
+    "dense_ap": 5.642595589866104e-05,
+    "mean_positive_ap": 0.0001211115728166508,
+    "micro_dice": 5.569945310729364e-05,
+    "mean_positive_dice": 9.07256489211996e-05,
+    "peak_hits": 0,
+    "real_false_positive_fraction": 0.004267731758013149
+  }
+}
