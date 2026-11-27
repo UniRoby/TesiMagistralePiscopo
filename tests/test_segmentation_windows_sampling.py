@@ -15,7 +15,7 @@ from tesi_m3d import compare_segmentation_sampling as comparison
 from tesi_m3d import diagnose_segmentation_windows as windows
 from tesi_m3d.dataset import load_tiff_stack, scan_dir
 from tesi_m3d.segmentation import predict_segmentation
-from tesi_m3d.segmentation_data import SegmentationDataset
+from tesi_m3d.segmentation_data import SegmentationDataset, validate_experiment_output
 from tesi_m3d.train import load_yaml_config
 
 
@@ -59,6 +59,29 @@ def test_window_missing_weights_and_output_protection(tmp_path):
     assert not (tmp_path / "out").exists()
     with pytest.raises(ValueError, match="separate"):
         windows.run_diagnostic(tmp_path / "data", source_dir=tmp_path / "source", output_dir=tmp_path / "source/diag")
+
+
+def test_project_inside_dataset_root_output_protection(tmp_path):
+    root = tmp_path / "dataset"
+    scan = root / "pix2pix/scan/case"
+    label = root / "pix2pix/label/case"
+    real = tmp_path / "originals"
+    source = root / "project/outputs/source"
+    for path in (scan, label, real, source):
+        path.mkdir(parents=True)
+    out = root / "project/outputs/diagnostic"
+    validate_experiment_output(out, [source], root, real)
+    with pytest.raises(FileNotFoundError, match="trained checkpoint"):
+        windows.run_diagnostic(root, source_dir=source, output_dir=out, real_scan_root=real)
+    for forbidden in (root, root.parent, scan, scan / "out", label, label / "out",
+                      scan.parent, scan.parent.parent, real, real / "out",
+                      source, source / "out", source.parent):
+        with pytest.raises(ValueError, match="separate"):
+            validate_experiment_output(forbidden, [source], root, real)
+    alias = root / "project/data_alias"
+    alias.symlink_to(scan, target_is_directory=True)
+    with pytest.raises(ValueError, match="separate"):
+        validate_experiment_output(alias / "out", [source], root, real)
 
 
 def paired_fixture(tmp_path):

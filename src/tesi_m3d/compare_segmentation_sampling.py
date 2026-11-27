@@ -9,7 +9,7 @@ from pathlib import Path
 from .dataset import read_records, scan_dir
 from .diagnose_localization import write_csv, write_json
 from .segmentation import build_segmenter, file_digest
-from .segmentation_data import manifest_records, validate_stack
+from .segmentation_data import manifest_records, validate_stack, validate_experiment_output
 from .train import load_yaml_config, set_global_seed
 from .train_segmentation import check_prerequisites, read_json, run_training, validate_config
 
@@ -65,11 +65,8 @@ def run_comparison(config, data_root, *, window_report, output_dir="outputs/segm
     output = Path(output_dir)
     # Protect sources, including user-specified output ancestors.
     protected = [Path(config["output_dir"]), Path(window_report).parent, Path(config["manifest"]).parent,
-                 Path(config["overfit_report"]).parent, Path(data_root)]
-    if real_scan_root:
-        protected.append(Path(real_scan_root))
-    if any(output.resolve() == p.resolve() or output.resolve() in p.resolve().parents or p.resolve() in output.resolve().parents for p in protected):
-        raise ValueError("comparison output must be separate from data and source runs")
+                 Path(config["overfit_report"]).parent]
+    validate_experiment_output(output, protected, data_root, real_scan_root)
     if output.exists() and any(output.iterdir()):
         raise ValueError("output is not empty; choose a new directory (no partial-run resume)")
     records = manifest_records(manifest, "pilot_train")

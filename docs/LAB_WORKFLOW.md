@@ -2086,13 +2086,14 @@ full, non introduce loss di consistenza né un ramo forense.
 Dalla root del progetto aggiornato, con l'ambiente del laboratorio attivo:
 
 ```powershell
-$ctRoot = "D:\Dataset Tesi Piscopo"
-$realCtRoot = "C:\Tesi Magistrale Piscopo\real\scan"
+$audit = Get-Content outputs\segmentation_protocol\audit.json -Raw | ConvertFrom-Json
+$ctRoot = $audit.data_root
+$realCtRoot = $audit.real_scan_root
 python -m pip install -e ".[train]"
 ```
 
-Usare le stesse root dell'audit esistente. Se tutto è su C:, assegnare a
-`$ctRoot` la root effettiva già usata. I nuovi comandi non scaricano pesi.
+Le root vengono lette dall'audit esistente: se il dataset è stato spostato,
+aggiornarle ai percorsi attuali. I nuovi comandi non scaricano pesi.
 
 **Fase 1: finestre prima della fusione, nessun training.**
 

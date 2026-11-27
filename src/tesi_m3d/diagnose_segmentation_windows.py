@@ -12,7 +12,7 @@ from monai.data.utils import compute_importance_map, dense_patch_slices
 from .compare_segmentation_batches import tensor_digest
 from .diagnose_localization import write_csv, write_json
 from .segmentation import file_digest, load_predictor
-from .segmentation_data import crop_plan, load_bundle, manifest_records
+from .segmentation_data import crop_plan, load_bundle, manifest_records, validate_experiment_output
 from .segmentation_metrics import ScoreHistogram, dice_counts, preview_planes, save_preview
 from .train_segmentation import read_json
 
@@ -145,9 +145,7 @@ def run_diagnostic(data_root, *, real_scan_root=None, device="cpu", cache_dir=No
                    source_dir="outputs/segmentation_overfit_recovery",
                    output_dir="outputs/segmentation_window_diagnostics"):
     source, output = Path(source_dir), Path(output_dir)
-    protected = [source, Path(data_root)] + ([Path(real_scan_root)] if real_scan_root else [])
-    if any(output.resolve() == p.resolve() or output.resolve() in p.resolve().parents or p.resolve() in output.resolve().parents for p in protected):
-        raise ValueError("output must be separate from source runs and data")
+    validate_experiment_output(output, [source], data_root, real_scan_root)
     if output.exists() and any(output.iterdir()):
         raise ValueError("output already contains files; choose a new directory")
     checkpoint = source / "full_pool/best.pt"

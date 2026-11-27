@@ -13,6 +13,18 @@ from .dataset import M3DSynthRecord, assert_no_orig_id_leakage, cross_generator_
 from .volume_io import VolumeCache, align_mask_to_scan, count_contiguous_slices, load_label_mask, probe_volume_shape
 
 
+def validate_experiment_output(output, sources, data_root, real_scan_root=None):
+    output, root = Path(output).resolve(), Path(data_root).resolve()
+    # The dataset root can also contain the project: protect its data branches.
+    protected = [Path(p).resolve() for p in sources]
+    protected.extend(p.parent.resolve() for pattern in ("*/scan", "*/label") for p in root.glob(pattern))
+    if real_scan_root:
+        protected.append(Path(real_scan_root).resolve())
+    if (output == root or output in root.parents or
+            any(output == p or output in p.parents or p in output.parents for p in protected)):
+        raise ValueError("output must be separate from source runs and data")
+
+
 def category(record):
     return "real" if record.is_real else record.ty
 
