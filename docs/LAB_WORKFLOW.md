@@ -1868,17 +1868,20 @@ otto epoche ciascuno. Entrambi falliscono tutti e quattro i criteri pilota:
 Dice micro calibrato 0,002379 / 0,002176, picchi corretti 0/4, AP inferiore
 alla baseline e FPR sui reali superiore. **Non avviare il full e non ripetere
 baseline, audit o piloti per completare la sincronizzazione:** i file necessari
-all'analisi sono presenti. Dettagli nel registro, sezione 10.31. Il gate
-full-pool resta superato, ma misura la memorizzazione di crop train.
+all'analisi sono presenti. Il confronto crop/volume sui sei train è completo:
+l'overfit ha Dice 0,9457 sui crop e 0,0497 sui volumi, mentre i piloti
+localizzano male già i crop train. Dettagli nel registro, sezioni 10.31–10.33.
+Il gate full-pool resta superato, ma misura la memorizzazione di crop train.
 
-I comandi seguenti restano il riferimento per riprodurre il protocollo.
-Il prossimo controllo utile confronta crop e volumi completi sugli stessi
-casi train, usando i checkpoint esistenti senza riaddestrarli; non è ancora
-stato eseguito. Il ramo clip completato usava worker/cache 4/2, contro 1/1
-dell'altro: i tempi non misurano l'effetto del solo clipping.
+I comandi seguenti restano il riferimento per riprodurre il protocollo;
+il confronto di sola inferenza è già stato eseguito e non va rilanciato.
+Il prossimo controllo mirato è sulle singole finestre dense che attraversano
+le mask, prima della fusione, per distinguere sensibilità al contesto da
+un eventuale problema di ricostruzione. Il ramo clip completato usava
+worker/cache 4/2, contro 1/1 dell'altro: i tempi non misurano l'effetto
+del solo clipping.
 
-Dopo aver sincronizzato il nuovo codice sul PC del laboratorio, eseguire
-il confronto di sola inferenza. Richiede i tre `best.pt` già prodotti nei
+Per riprodurre il confronto di sola inferenza, usare i tre `best.pt` già prodotti nei
 rami `segmentation_overfit_recovery/full_pool`, `segmentation_pilot_recovery`
 e `segmentation_pilot_recovery_clip`; non richiede un nuovo training:
 
@@ -2072,3 +2075,127 @@ window 64³, sovrapposizione 50%, fusione gaussiana di probabilità voxel,
 accumulo su CPU; dimensioni e coordinate restano quelle originali.
 Le figure di valutazione usano assi z/y/x, sezioni della mask e del picco,
 scala della probabilità fissa 0..1 e colori distinti per FP/FN/TP.
+
+## 18.6 Finestre dense e confronto del sampling appaiato
+
+Implementazione del 27 novembre 2026. Sono due esperimenti separati: prima
+sola inferenza sui pesi overfit esistenti, poi due nuovi piloti controllati.
+Non ripetere preparazione, baseline o audit già completati. Non abilita il
+full, non introduce loss di consistenza né un ramo forense.
+
+Dalla root del progetto aggiornato, con l'ambiente del laboratorio attivo:
+
+```powershell
+$ctRoot = "D:\Dataset Tesi Piscopo"
+$realCtRoot = "C:\Tesi Magistrale Piscopo\real\scan"
+python -m pip install -e ".[train]"
+```
+
+Usare le stesse root dell'audit esistente. Se tutto è su C:, assegnare a
+`$ctRoot` la root effettiva già usata. I nuovi comandi non scaricano pesi.
+
+**Fase 1: finestre prima della fusione, nessun training.**
+
+```powershell
+python -m tesi_m3d.diagnose_segmentation_windows `
+  --data-root "$ctRoot" `
+  --real-scan-root "$realCtRoot" `
+  --source-dir outputs\segmentation_overfit_recovery `
+  --output-dir outputs\segmentation_window_diagnostics `
+  --cache-dir outputs\segmentation_protocol\cache `
+  --device cuda
+```
+
+Richiede `full_pool/best.pt` e gli artefatti già presenti nella directory
+recovery. Verifica digest del checkpoint, manifest e hash dei quattro crop
+positivi fissi per ciascuna delle quattro CT manipolate. Non rivaluta il gate
+sui 48 crop né ricalcola metriche su tutti i volumi.
+
+Usa FP32 sia sui crop fissi sia sulle finestre, un crop alla volta. La griglia
+è quella MONAI di produzione: overlap 0,5, pesi gaussiani sigma 0,125. Valuta
+ogni finestra che contribuisce alla ROI contenente tutta la mask e i quattro
+crop fissi, comprese finestre senza target che possono diluire la fusione.
+La fusione è esatta nella ROI rispetto allo stesso predittore FP32; non è
+una nuova valutazione dell'intera CT né una replica numerica AMP della run
+precedente. CT più piccole del crop sono rifiutate, per non introdurre una
+nuova convenzione di padding nei confronti di coordinate.
+
+Output per caso:
+
+- `windows.csv`: coordinate, Dice/AP e distanza media del target dai bordi
+  per ogni finestra prima della fusione.
+- `shared_voxels.csv`: differenze fra finestra e crop fisso sugli stessi
+  voxel, separate per foreground/background, Dice dei due su quella stessa
+  intersezione e disaccordo binario a 0,5. Le intersezioni si sovrappongono:
+  non sommarle come voxel indipendenti del volume.
+- `fixed_vs_fused.csv`: Dice/AP diretti e fusi sugli stessi quattro crop.
+- `roi.npz`: mask, probabilità fusa, conteggio finestre, min/max/deviazione
+  standard delle probabilità per voxel e origine z/y/x della ROI.
+- `fused.png` e `summary.json`: figure nei tre piani e riepilogo della ROI.
+
+Leggere `report.json`: `complete=true` significa sola esecuzione completata.
+Differenze pre-fusione sui medesimi voxel indicano sensibilità al contesto/
+posizione. Controllare la distanza dal bordo; non attribuirle automaticamente
+alla GroupNorm. Se le finestre sono buone ma la fusione scarsa, esaminare le
+contribuzioni e i pesi; la media può diluire finestre discordanti senza un bug.
+Nessuna soglia viene ottimizzata. Esaminare questi risultati prima della fase 2.
+
+**Fase 2: due piloti nuovi, standard contro appaiato.**
+
+```powershell
+python -m tesi_m3d.compare_segmentation_sampling `
+  --config configs\segmentation_pilot_recovery.yaml `
+  --window-report outputs\segmentation_window_diagnostics\report.json `
+  --data-root "$ctRoot" `
+  --real-scan-root "$realCtRoot" `
+  --output-dir outputs\segmentation_sampling_comparison `
+  --cache-dir outputs\segmentation_protocol\cache `
+  --device cuda
+```
+
+Il runner richiede la fase 1 completa sullo stesso manifest; non deduce dal
+report una causa né richiede che la localizzazione sia riuscita. Conserva i
+prerequisiti del pilota e controlla prima del training che ogni Pix2Pix abbia
+un originale train con stesso img_id, orig_id, serie e forma nativa. Non
+basta l'identità della forma per certificare l'allineamento anatomico: usare
+le coppie controllate dall'audit, verificando visivamente quelle dubbie.
+
+Entrambi i rami partono dalla stessa copia dei pesi iniziali MedicalNet +
+decoder, non dai checkpoint dei piloti falliti. Mantengono configurazione,
+ordine dei volumi, crop positivi, loss, LR, warmup e augmentation. Nel ramo
+appaiato i crop 4/5 (due negativi polmonari) sono sostituiti da originali alle
+coordinate dei positivi 0/1, con gli stessi flip e target vuoto. I crop 6/7
+restano i negativi globali originali; i volumi reali non cambiano. L'originale
+è normalizzato con i propri percentili tramite lo stesso preprocessing, non
+con statistiche prelevate dal fake. Non serve una CT appaiata in inferenza.
+
+Early stopping disabilitato simmetricamente per garantire otto epoche,
+512 aggiornamenti e 4.096 crop per ramo con il manifest corrente. La scelta
+best resta AP densa sulle otto validation comuni; ciascun best ha la propria
+calibrazione di validation. Il confronto usa due run fresche, non il vecchio
+pilota come controllo. Il carico I/O aggiuntivo del ramo paired non va
+interpretato come differenza nel budget di ottimizzazione.
+
+Output `standard/` e `paired/`: checkpoint best/last, config effettivo,
+metriche, calibrazione, evaluation con otto figure, `initialization.json` e
+`sampling.csv`. Quest'ultimo registra per aggiornamento hash dei sei crop
+conservati e di tutti i target, oltre a conteggi e identità del volume.
+`pairs.csv` identifica gli originali usati. `comparison.json` verifica
+inizializzazione, esposizioni e identità dei dati mantenuti e riporta i delta
+paired meno standard di AP, Dice, picchi e FPR. `complete=true` non significa
+che il gate pilota sia superato: leggere `arms.*.gate` e metriche per volume.
+
+Entrambi i comandi rifiutano output non vuoti e proteggono dati e sorgenti.
+Un'interruzione lascia un report incompleto con errore/caso o ramo attivo;
+conservare la directory e usare un nuovo nome per ripartire. Non è previsto
+resume parziale del confronto. Nessuna promozione automatica al full.
+
+Il confronto è a un solo seed, con identità iniziale e del campionamento
+verificata, non una replica CUDA bit-per-bit. I kernel restano quelli del
+pilota ordinario. Se emerge un guadagno, va confermato con repliche prima di
+attribuirlo con robustezza al sampler. Solo dopo l'interpretazione di questi
+esiti valutare allineamento del sampling alla griglia, consistenza spaziale,
+o ramo forense, ciascuno come esperimento distinto.
+
+Sincronizzare le due directory di output, inclusi i `roi.npz` della fase 1;
+non occorre trasferire i checkpoint per una prima lettura di CSV e figure.

@@ -175,13 +175,17 @@ def crop_plan(mask, lung, patch_shape, rng, count=8):
 class SegmentationDataset:
     """One loader item is one volume's eight crops, split into GPU microbatches later."""
     def __init__(self, records, data_root, *, patch_shape=(64, 64, 64), cache_dir=None,
-                 preprocessing=None, seed=21, augment=True, fixed=False, volume_cache_size=2, real_scan_root=None):
+                 preprocessing=None, seed=21, augment=True, fixed=False, volume_cache_size=2, real_scan_root=None,
+                 paired_records=None):
         self.records, self.data_root = list(records), Path(data_root)
         self.patch_shape, self.cache_dir = tuple(patch_shape), cache_dir
         self.preprocessing, self.seed = preprocessing, int(seed)
         self.real_scan_root = real_scan_root
         self.augment, self.fixed = augment, fixed
         self.cache = VolumeCache(volume_cache_size)
+        self.paired_records = paired_records
+        if paired_records is not None and len(paired_records) != len(self.records):
+            raise ValueError("one paired record is required per training record")
 
     def __len__(self):
         return len(self.records)
@@ -200,14 +204,39 @@ class SegmentationDataset:
             mask = np.pad(mask, padding)
             lung = np.pad(lung, padding)
         coords = crop_plan(mask, lung, self.patch_shape, rng)
+        paired_image = None
+        if self.paired_records is not None and not record.is_real:
+            from .segmentation import preprocess_scan
+            paired = self.paired_records[index]
+            if (not paired.is_real or paired.split != "train" or record.split != "train" or
+                    (paired.img_id, paired.orig_id, paired.sdir_id) != (record.img_id, record.orig_id, record.sdir_id)):
+                raise ValueError("paired negative must be the same original train CT")
+            dirname = scan_dir(self.data_root, paired, self.real_scan_root)
+            shape = validate_stack(dirname)
+            if tuple(shape) != tuple(bundle[0].shape):
+                raise ValueError("paired scans must have identical native geometry")
+            raw = load_tiff_stack(dirname)
+            if raw.dtype != np.uint16:
+                raise ValueError("paired CT must be uint16")
+            paired_image, paired_background = preprocess_scan(raw, dirname, self.cache_dir, self.preprocessing)
+            del raw
+            if any(b for _, b in padding):
+                paired_image = np.pad(paired_image, padding, constant_values=paired_background)
         images, targets = [], []
-        for coord in coords:
+        flips = []
+        for crop_index, coord in enumerate(coords):
+            # Consume the original RNG sequence even for replaced negatives.
+            axes = tuple(axis for axis in (1, 2) if self.augment and rng.random() < 0.5)
+            flips.append(axes)
+            if paired_image is not None and crop_index in (4, 5):
+                coord = coords[crop_index - 4]
+                axes = flips[crop_index - 4]
             slc = tuple(slice(a, a + p) for a, p in zip(coord, self.patch_shape))
             crop, target = image[slc], mask[slc]
-            if self.augment:
-                for axis in (1, 2):
-                    if rng.random() < 0.5:
-                        crop, target = np.flip(crop, axis), np.flip(target, axis)
+            if paired_image is not None and crop_index in (4, 5):
+                crop, target = paired_image[slc], np.zeros(self.patch_shape, dtype=bool)
+            for axis in axes:
+                crop, target = np.flip(crop, axis), np.flip(target, axis)
             images.append(np.array(crop, dtype=np.float32, copy=True))
             targets.append(np.array(target, dtype=np.float32, copy=True))
         return {"image": torch.from_numpy(np.stack(images)[:, None]),

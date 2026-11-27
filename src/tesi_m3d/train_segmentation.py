@@ -261,6 +261,10 @@ def validate_config(config):
     if config["stage"] not in {"overfit", "pilot", "full"} or config["model"]["name"] != SEGMENTER_NAME:
         raise ValueError("invalid segmentation stage/model")
     training = config["training"]
+    if config.get("sampling_protocol", "standard") not in ("standard", "paired"):
+        raise ValueError("invalid sampling protocol")
+    if "sampling_protocol" in config and config["stage"] != "pilot":
+        raise ValueError("sampling comparison is pilot-only; full requires a separately validated protocol")
     full_pool = config.get("overfit_protocol") == "full_pool"
     if config.get("overfit_protocol") not in (None, "full_pool") or (full_pool and config["stage"] != "overfit"):
         raise ValueError("full_pool is a dedicated overfit protocol")
@@ -285,8 +289,12 @@ def validate_config(config):
 
 
 def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=None, resume=None, real_scan_root=None,
-                 debug_updates=False):
+                 debug_updates=False, initial_state=None, paired_records=None, sampling_audit=False):
     config = copy.deepcopy(config)
+    if (initial_state is not None or paired_records is not None or sampling_audit) and (resume or config["stage"] != "pilot"):
+        raise ValueError("controlled sampling comparison requires fresh pilot runs")
+    if (config.get("sampling_protocol", "standard") == "paired") != (paired_records is not None):
+        raise ValueError("paired sampling must be run through compare_segmentation_sampling")
     validate_config(config)
     if config.get("overfit_protocol") == "full_pool":
         raise ValueError("use compare_segmentation_padding --full-pool-overfit for the joint 48-crop protocol")
@@ -318,7 +326,10 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                 cfg["training"].pop(key, None)
         if old != new:
             raise ValueError("resume would change model, preprocessing or training protocol")
-    model = build_segmenter(config["model"], state_dict=restored["model_state_dict"] if restored else None).to(device)
+    model = build_segmenter(config["model"], state_dict=restored["model_state_dict"] if restored else initial_state).to(device)
+    if sampling_audit:
+        from .compare_segmentation_batches import named_tensor_digest, tensor_digest
+        write_json(output / "initialization.json", {"state_sha256": named_tensor_digest(model.state_dict().items())})
     optimizer = make_optimizer(model, training)
     if restored:
         optimizer.load_state_dict(restored["optimizer_state_dict"])
@@ -332,7 +343,8 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
     dataset = SegmentationDataset(records, data_root, patch_shape=config["patches"]["patch_shape"],
                                   cache_dir=cache, preprocessing=config["preprocessing"], seed=manifest["seed"],
                                   augment=stage != "overfit", fixed=stage == "overfit",
-                                  volume_cache_size=training.get("volume_cache_size", 2), real_scan_root=real_scan_root)
+                                  volume_cache_size=training.get("volume_cache_size", 2), real_scan_root=real_scan_root,
+                                  paired_records=paired_records)
     loader, order = make_loader(dataset, training, device)
     best_ap = restored.get("best_ap", -1.0) if restored else -1.0
     stale = restored.get("stale_validations", 0) if restored else 0
@@ -374,6 +386,13 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
         model.train()
         losses = []
         for batch in tqdm(loader, desc=f"seg epoch {epoch + 1}/{max_epochs}", unit="vol"):
+            if sampling_audit:
+                _write_metrics_row(output / "sampling.csv", {
+                    "update": updates + 1, "epoch": epoch + 1, "img_id": batch["img_id"],
+                    "crops": len(batch["image"]), "positive_crops": int(batch["mask"].flatten(1).any(1).sum()),
+                    "retained_image_sha256": tensor_digest(batch["image"][[0, 1, 2, 3, 6, 7]]),
+                    "mask_sha256": tensor_digest(batch["mask"]),
+                    "image_sha256": tensor_digest(batch["image"])})
             diagnostics = {} if debug_updates else None
             losses.append(train_volume(model, batch, optimizer, device=device, microbatch=training["batch_size"],
                                        accumulation=training["accumulation_steps"], diagnostics=diagnostics,

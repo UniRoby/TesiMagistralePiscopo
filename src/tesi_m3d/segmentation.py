@@ -70,6 +70,8 @@ def protocol_signature(config):
     preprocessing.pop("clip", None)
     protocol = {"model": config["model"], "patches": config["patches"], "training": training,
                 "preprocessing": preprocessing}
+    if "sampling_protocol" in config:
+        protocol["sampling_protocol"] = config["sampling_protocol"]
     return hashlib.sha256(json.dumps(protocol, sort_keys=True).encode()).hexdigest()
 
 

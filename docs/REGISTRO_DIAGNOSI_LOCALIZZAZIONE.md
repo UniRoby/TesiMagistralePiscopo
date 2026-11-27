@@ -26,9 +26,10 @@ Configurazione di riferimento:
   AP media inferiore alla baseline e falsi positivi sui reali maggiori.
 - Nessun file mancante per analizzare questi risultati; non ripetere i
   comandi per completare gli output. Full e cross-generator restano bloccati.
-  Il confronto tra crop train e inferenza densa sugli stessi casi è stato
-  implementato e verificato su fixture; resta da eseguire con pesi e CT
-  del laboratorio. Dettagli nelle sezioni 10.31–10.32 e guida 18.3.
+  Il confronto tra crop train e inferenza densa sugli stessi sei casi è
+  completo: l'overfit scende da Dice 0,9457 sui crop a 0,0497 sui volumi;
+  i piloti sono deboli già sui crop train e hanno picco fuori mask in tutti
+  i quattro volumi manipolati. Dettagli nelle sezioni 10.31–10.33.
 
 ## Glossario rapido
 
@@ -2292,7 +2293,7 @@ scarsa indica un divario di generalizzazione. Queste sono ipotesi da
 discriminare, non cause già dimostrate. Nessun nuovo training o test
 diagnostico eseguito sul dataset locale, che non è disponibile.
 
-### 10.32 Confronto sui sei casi train: implementato, risultati reali attesi
+### 10.32 Confronto sui sei casi train: protocollo
 
 Nuovo entrypoint `tesi_m3d.compare_segmentation_crop_volume`: carica i tre
 `best.pt` (overfit full-pool, pilota senza clipping, pilota con clipping),
@@ -2315,11 +2316,94 @@ casi validation già valutati serve a leggere il divario train/validation.
 Verifica locale: quattro test mirati passati, fra cui un ciclo integrato
 su sei volumi TIFF sintetici con tre checkpoint e ricostruzione MONAI; il
 test controlla binding dei checkpoint, file per caso, soglia validation
-congelata e output finale. La verifica reale non è stata eseguita qui:
-mancano CT e i tre pesi `.pt` in questa copia della repository. L'entrypoint
-fallisce prima di creare output, elencando i checkpoint assenti. Comando
-PowerShell nella guida 18.3. Nessun risultato scientifico aggiunto finché
-non arriva `outputs/segmentation_crop_volume_comparison/report.json`.
+congelata e output finale. Il laboratorio ha poi eseguito il comando
+PowerShell della guida 18.3; risultati nella sezione seguente. In questa
+copia della repository i CT e i tre pesi `.pt` non sono disponibili per
+rifare l'inferenza.
+
+### 10.33 Crop fissi contro volumi train completi: nessun trasferimento utile
+
+`outputs/segmentation_crop_volume_comparison/report.json` dichiara
+`complete=true` e sola inferenza. Presenti e leggibili 48 righe crop, sei
+righe volume e sei figure per ciascuno dei tre rami; i sei identificativi
+coincidono. Verificati dai CSV i conteggi voxel, i Dice per caso, le medie
+Dice/AP e le frazioni FP sui reali. L'overfit riproduce il proprio gate sui
+crop entro 0,000003 Dice. Gli hash dei checkpoint sono registrati nel report
+e controllati dall'entrypoint sul PC del laboratorio; gli stati `.pt` non
+sono presenti qui per una verifica indipendente. AP pooled e AUC richiedono
+gli istogrammi voxel e non sono ricostruibili dai soli CSV.
+
+| Checkpoint, soglia | Dice medio 16 crop positivi | AP media 16 crop positivi | Dice medio 4 volumi manipolati | AP media 4 volumi manipolati | Picco nella mask, volumi | FP sui 2 reali, volumi |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Overfit, 0,5 | 0,9457 | 0,9918 | 0,0497 | 0,0355 | 0/4 | 0,4360% |
+| Pilota, 0,5 | 0 | 0,1410 | 0 | 0,00317 | 0/4 | 0% |
+| Pilota, soglia valid 0,234985 | 0,1678 | 0,1410 | 0,00634 | 0,00317 | 0/4 | 20,201% |
+| Pilota clip, 0,5 | 0 | 0,1444 | 0 | 0,00370 | 0/4 | 0% |
+| Pilota clip, soglia valid 0,194382 | 0,1859 | 0,1444 | 0,00558 | 0,00370 | 0/4 | 24,117% |
+
+Le soglie pilot sono quelle fissate sulla validation, mai ottimizzate sui
+sei train. A 0,5 i massimi dei pilot sui crop sono 0,4710 e 0,4583:
+predicono sempre background; lo 0% di FP in quelle righe è quindi banale.
+Abbassare la soglia fa comparire molti FP reali senza spostare i picchi.
+Le AP dei crop e dei volumi hanno prevalenze e voxel ripetuti differenti:
+non trattare il loro rapporto come misura causale della perdita di qualità.
+
+Sui medesimi quattro train manipolati, l'overfit memorizza i crop ma ha
+Dice dei volumi 0,0119, 0,0457, 0,0172 e 0,1239; tutti i picchi sono
+fuori annotazione. Le figure `overfit/images/01_pix2pix_inj_1419.png` e
+`pilot/images/01_pix2pix_inj_1419.png` mostrano, rispettivamente, risposte
+focali fuori dalla regione e risposte diffuse su polmoni/interfacce. Nel
+reale `pilot_clip/images/04_real_inj_1713.png` la soglia valid produce
+ampi falsi positivi anatomici. Sono figure fissate per caso, non esempi
+selezionati a posteriori.
+
+**Interpretazione.** Il pilota non localizza bene neppure i casi train sui
+crop fissi; la validation densa precedente è altrettanto scarsa. Non è
+quindi spiegabile come solo divario train→validation. L'overfit dimostra
+capacità sui crop ripetuti, ma non stabilità al passaggio ai contesti delle
+finestre dense sugli stessi volumi. Questo confronto non separa sensibilità
+al contesto/posizione da un eventuale effetto di fusione delle finestre;
+i test sintetici verificano coordinate e copertura, non la resa sui CT reali.
+La differenza di esposizioni e protocollo tra overfit e pilot impedisce di
+attribuire il fallimento a una sola causa. Prossimo controllo mirato, senza
+training: per l'overfit misurare la predizione delle singole finestre dense
+che attraversano ogni mask prima della fusione e confrontarla con il crop
+fisso della stessa lesione. Se le finestre sono già errate, indagare la
+sensibilità a contesto/posizione; se sono corrette e la mappa fusa no,
+indagare la ricostruzione. Full e cross-generator restano bloccati.
+
+### 10.34 Diagnostica delle finestre e sampling appaiato: pronti per il laboratorio
+
+Implementati `diagnose_segmentation_windows` e `compare_segmentation_sampling`.
+Il primo analizza il checkpoint overfit riuscito in FP32, confrontando gli
+stessi voxel nei crop fissi e nelle finestre MONAI prima della fusione, poi
+ricostruisce la ROI con i pesi gaussiani di produzione. Include tutte le
+finestre che contribuiscono alla mask e ai crop di riferimento, anche quelle
+negative. Report, CSV per finestra/intersezione/crop, NPZ della ROI e figure;
+nessun training, calibrazione sul train o nuova ripetizione degli audit.
+
+Il secondo esegue due piloti nuovi dalla stessa inizializzazione, con budget
+identico e stesso manifest. Sostituisce soltanto due negativi polmonari con
+originali train alle coordinate/flip di due positivi; conserva quattro
+positivi e due negativi globali. Loss e architettura invariate. L'early
+stopping è disattivato in entrambi per completare il budget. Registra e
+verifica hash iniziale, ordine, esposizioni, sei crop conservati e target;
+valuta/calibra i best sulla validation densa comune. Controlla identità della
+serie, split e forma delle coppie; ciò non certifica la registrazione anatomica.
+
+Verifica locale: fixture puntuale e dipendente dalla posizione, fusione ROI
+confrontata con MONAI anche su griglie con ultima finestra fuori passo;
+fixture TIFF end-to-end per diagnostica e due piloti, integrità sorgenti,
+inizializzazione comune, budget, flip appaiati e rifiuto di mismatch. Le
+verifiche sintetiche non misurano efficacia sulle CT. Nessun nuovo risultato
+scientifico: i pesi allenati e i CT del laboratorio non sono disponibili qui.
+Suite pertinente: 58 test superati, un test preesistente dei worker persistenti
+escluso; warning MONAI preesistenti. Nei metadata locali risolte tutte le
+48 coppie train del pilota, con 16 record reali invariati; la disponibilità
+e geometria dei TIFF saranno controllate sul PC del laboratorio.
+Comandi e interpretazione nella sezione 18.6 di LAB_WORKFLOW.md. Fasi di
+consistenza e ramo forense non implementate: dipendono dagli esiti. Full e
+cross-generator restano bloccati; nessun gate viene rilassato.
 
 ## Come aggiornare questo registro
 
