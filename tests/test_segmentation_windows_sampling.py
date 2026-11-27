@@ -121,7 +121,8 @@ def test_pair_metadata_rejects_missing_cross_split_and_wrong_series(tmp_path):
     assert pairs == [original, records[1]]
 
 
-def test_two_complete_pilots_share_initialization_and_budget(tmp_path, monkeypatch):
+@pytest.mark.parametrize("variant", ["paired", "grid"])
+def test_two_complete_pilots_share_initialization_and_budget(tmp_path, monkeypatch, variant):
     from tesi_m3d import train_segmentation as trainer, evaluate_segmentation as evaluator
     from tesi_m3d.segmentation_metrics import evaluate_records
     root, records, original = paired_fixture(tmp_path)
@@ -161,24 +162,41 @@ def test_two_complete_pilots_share_initialization_and_budget(tmp_path, monkeypat
     baseline = evaluate_records(TinySegmenter(), {"config": config}, records, root)
     baseline.update(manifest_id="fixture", split="valid", model_name="resnet18_medicalnet")
     (protocol / "baseline.json").write_text(json.dumps(baseline))
+    phase2 = tmp_path / "phase2"
+    phase2.mkdir()
+    (phase2 / "comparison.json").write_text(json.dumps({"task": "segmentation_sampling", "complete": True, "manifest_id": "fixture"}))
+    extra = dict(variant=variant, sampling_report=phase2 / "comparison.json")
     out = tmp_path / "comparison"
-    result = comparison.run_comparison(config, root, window_report=diagnostic / "report.json", output_dir=out)
+    if variant == "grid":
+        with pytest.raises(ValueError, match="phase-2"):
+            comparison.run_comparison(config, root, window_report=diagnostic / "report.json",
+                                      output_dir=out, variant="grid")
+        assert not out.exists()
+    result = comparison.run_comparison(config, root, window_report=diagnostic / "report.json", output_dir=out, **extra)
     assert result["complete"] and result["control"]["updates_per_arm"] == 4
     assert result["control"]["crops_per_arm"] == 32
-    assert result["arms"]["standard"]["protocol_signature"] != result["arms"]["paired"]["protocol_signature"]
-    for arm in ("standard", "paired"):
+    assert result["arms"]["standard"]["protocol_signature"] != result["arms"][variant]["protocol_signature"]
+    for arm in ("standard", variant):
         payload = torch.load(out / arm / "last.pt", weights_only=False)
         assert payload["updates"] == 4 and payload["epoch"] == 2
         assert payload["config"]["sampling_protocol"] == arm
         assert (out / arm / "calibration.json").exists()
     with pytest.raises(ValueError, match="not empty"):
-        comparison.run_comparison(config, root, window_report=diagnostic / "report.json", output_dir=out)
-    rows = list(csv.DictReader((out / "paired/sampling.csv").open()))
-    rows[0]["retained_image_sha256"] = "tampered"
-    with (out / "paired/sampling.csv").open("w", newline="") as f:
+        comparison.run_comparison(config, root, window_report=diagnostic / "report.json", output_dir=out, **extra)
+    rows = list(csv.DictReader((out / variant / "sampling.csv").open()))
+    if variant == "grid":
+        original_starts = rows[0]["crop_starts"]
+        rows[0]["crop_starts"] = json.dumps([[1, 1, 1]] * 8)
+        with (out / variant / "sampling.csv").open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0]); writer.writeheader(); writer.writerows(rows)
+        with pytest.raises(ValueError, match="inference grid"):
+            comparison.verify_sampling(out, 4, variant, (8, 8, 8))
+        rows[0]["crop_starts"] = original_starts
+    rows[0]["retained_image_sha256" if variant == "paired" else "flips"] = "tampered"
+    with (out / variant / "sampling.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0]); writer.writeheader(); writer.writerows(rows)
     with pytest.raises(ValueError, match="not controlled"):
-        comparison.verify_sampling(out, 4)
+        comparison.verify_sampling(out, 4, variant, (8, 8, 8))
 
 
 def test_complete_window_diagnostic_preserves_checkpoint_and_binds_crop_ledger(tmp_path, monkeypatch):
@@ -232,3 +250,40 @@ def test_standard_sampler_preserves_original_random_draws(tmp_path):
     actual = SegmentationDataset(records, root, patch_shape=(8, 8, 8), seed=21, augment=True)[(3, 0)]
     np.testing.assert_array_equal(actual['image'].numpy()[:, 0], np.stack(expected_images))
     np.testing.assert_array_equal(actual['mask'].numpy()[:, 0], np.stack(expected_masks))
+
+
+def test_grid_alignment_preserves_class_and_includes_shifted_end_windows():
+    from monai.data.utils import dense_patch_slices
+    from tesi_m3d.segmentation_data import align_crop_plan
+    mask = np.zeros((19, 21, 23), dtype=bool)
+    mask[9, 10, 12] = True
+    patch = (8, 8, 8)
+    coords = [(2, 3, 5), (11, 13, 15)]  # First crop barely contains the target.
+    aligned = align_crop_plan(mask, patch, coords)
+    allowed = {tuple(s.start for s in w) for w in dense_patch_slices(mask.shape, patch, (4, 4, 4))}
+    assert aligned[1] == (11, 13, 15)
+    for before, after in zip(coords, aligned):
+        assert after in allowed
+        assert mask[windows.slices(before, patch)].any() == mask[windows.slices(after, patch)].any()
+    assert aligned == align_crop_plan(mask, patch, coords)
+    # A clean arbitrary crop can exist without any clean inference window.
+    almost_full = np.ones((9, 9, 9), dtype=bool)
+    almost_full[1:8, 1:8, 1:8] = False
+    with pytest.raises(ValueError, match="no window"):
+        align_crop_plan(almost_full, (7, 7, 7), [(1, 1, 1)])
+    with pytest.raises(ValueError, match="unpadded"):
+        align_crop_plan(np.zeros((4, 4, 4), bool), patch, [(0, 0, 0)])
+
+
+def test_grid_dataset_keeps_class_counts_flips_and_global_negative_slots(tmp_path):
+    root, records, _ = paired_fixture(tmp_path)
+    options = dict(patch_shape=(8, 8, 8), seed=21, augment=True)
+    standard = SegmentationDataset(records, root, **options)
+    grid = SegmentationDataset(records, root, grid_aligned=True, **options)
+    for epoch in (0, 1, 3):
+        for index in (0, 1):
+            a, b = standard[(epoch, index)], grid[(epoch, index)]
+            assert a['flips'] == b['flips']
+            assert torch.equal(a['mask'].flatten(1).any(1), b['mask'].flatten(1).any(1))
+            assert not b['mask'][4:].any()
+            assert all(all(v % 4 == 0 for v in c) for c in json.loads(b['crop_starts']))

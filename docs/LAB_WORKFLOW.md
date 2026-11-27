@@ -2200,3 +2200,71 @@ o ramo forense, ciascuno come esperimento distinto.
 
 Sincronizzare le due directory di output, inclusi i `roi.npz` della fase 1;
 non occorre trasferire i checkpoint per una prima lettura di CSV e figure.
+
+## 18.7 Fase 3: allineamento delle finestre di training
+
+Il confronto della fase 2 è completo: il sampling appaiato non recupera la
+localizzazione (Dice medio positivo 0,00443 contro 0,00434; picchi 0/4 in
+entrambi i bracci). La fase 1 ha mostrato instabilità degli stessi voxel al
+cambiare della finestra sui pesi overfit. La fase 3 verifica separatamente
+l'allineamento geometrico, senza appaiamento, nuova loss o ramo forense.
+
+Si riusa `compare_segmentation_sampling` con `--variant grid`. Esegue due
+piloti nuovi, `standard` e `grid`, con stessi pesi iniziali, ordine dei casi,
+flip, loss, ottimizzatore e budget completo: 8 epoche, 512 aggiornamenti e
+4096 crop per braccio con il manifest corrente. Non riutilizza il risultato
+standard della fase 2 come controllo di una nuova inizializzazione.
+
+La variante grid genera le stesse proposte del sampler standard e sposta
+ciascuna sulla finestra MONAI più vicina (distanza euclidea delle origini),
+con overlap 0,5 e correzione della posizione finale ai bordi. Cerca una
+finestra della stessa classe: quattro positivi e quattro negativi nelle
+CT manipolate, otto negativi nelle reali. Le proposte polmonari e globali
+restano presenti; spostarle può cambiare la quantità di polmone contenuta.
+Non introduce ulteriore casualità e conserva i flip originali.
+
+Questo allinea le origini, non campiona uniformemente tutte le finestre:
+la distribuzione resta condizionata dalle proposte originali. Sono ammessi
+crop duplicati, come nel controllo. Cambiano necessariamente i voxel delle
+maschere e la frazione di foreground; il report registra i voxel positivi
+presentati e il numero medio di origini distinte per aggiornamento. Volumi
+più piccoli del crop o privi di una finestra della classe richiesta causano
+un errore esplicito, senza fallback fuori griglia.
+
+Dalla root del progetto aggiornato sul PC del laboratorio:
+
+```powershell
+$audit = Get-Content outputs\segmentation_protocol\audit.json -Raw | ConvertFrom-Json
+$ctRoot = $audit.data_root
+$realCtRoot = $audit.real_scan_root
+
+python -m tesi_m3d.compare_segmentation_sampling `
+  --variant grid `
+  --config configs\segmentation_pilot_recovery.yaml `
+  --window-report outputs\segmentation_window_diagnostics\report.json `
+  --sampling-report outputs\segmentation_sampling_comparison\comparison.json `
+  --data-root "$ctRoot" `
+  --real-scan-root "$realCtRoot" `
+  --output-dir outputs\segmentation_geometry_comparison `
+  --cache-dir outputs\segmentation_protocol\cache `
+  --device cuda
+```
+
+Richiede i report completi delle fasi 1 e 2 sullo stesso manifest, i dati e
+il checkpoint MedicalNet originale. Non richiede i pesi pilot della fase 2.
+Le root lette dall'audit devono corrispondere alla posizione attuale dei dati.
+Non avviare nella directory di un esperimento precedente: output non vuoti
+sono rifiutati, senza resume parziale.
+
+Sincronizzare `outputs/segmentation_geometry_comparison`: `comparison.json`,
+configurazioni, inizializzazioni, `sampling.csv`, `metrics.csv`, calibrazioni
+e cartelle `evaluation` dei due bracci. La traccia include origini, forma del
+volume, flip e voxel positivi. A fine confronto si verificano budget,
+inizializzazione, ordine, conteggi positivi e appartenenza alla griglia.
+
+Leggere AP densa, Dice, picchi e falsi positivi insieme alle immagini. Le
+soglie vengono calibrate separatamente sulla stessa validazione, non su test.
+Un guadagno in questo singolo seed richiede conferma; un esito negativo non
+esclude ogni forma di allineamento geometrico. La consistenza fra crop resta
+un esperimento successivo: questo confronto da solo non misura la stabilità
+degli stessi voxel sui nuovi pesi. Nessuna promozione automatica al full.

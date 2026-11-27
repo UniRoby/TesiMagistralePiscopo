@@ -2405,6 +2405,34 @@ Comandi e interpretazione nella sezione 18.6 di LAB_WORKFLOW.md. Fasi di
 consistenza e ramo forense non implementate: dipendono dagli esiti. Full e
 cross-generator restano bloccati; nessun gate viene rilassato.
 
+### 10.35 Esito del sampling appaiato e implementazione fase 3
+
+Il report `outputs/segmentation_sampling_comparison/comparison.json` è
+completo. Le tracce confermano identità iniziale, 512 aggiornamenti e 4096
+crop per braccio, con crop conservati e maschere identici. AP densa standard
+0,00091676, appaiata 0,00097318; Dice medio positivo 0,00434371 contro
+0,00443443; picchi 0/4 in entrambi. Falsi positivi sui reali 16,86% contro
+17,29% alle rispettive soglie calibrate. Entrambi falliscono il gate.
+L'appaiamento nella forma sperimentata non recupera la localizzazione;
+un singolo seed e otto CT di validazione non permettono conclusioni generali.
+
+Implementata la sola fase 3 di allineamento delle origini alla griglia MONAI:
+`compare_segmentation_sampling --variant grid`. Due nuovi piloti standard/grid,
+identità iniziale e budget comune, stessa loss e stessi flip. Si proietta
+ogni proposta sulla finestra più vicina della stessa classe, mantenendo
+quattro positivi/quattro negativi sulle CT manipolate e otto negativi sulle
+reali. Include le finestre finali fuori passo. Il report verifica coordinate,
+ordine e classi e quantifica voxel positivi presentati e origini duplicate.
+Non è campionamento uniforme sulla griglia; possono cambiare foreground e
+contenuto polmonare dei negativi. Non certifica consistenza dei nuovi pesi.
+
+Verifica locale: 62 test passati, uno preesistente sui worker persistenti
+escluso; warning MONAI preesistenti. Include confronto completo sintetico
+standard/grid, regressione standard/paired, griglia con bordi fuori passo,
+conservazione delle classi e dei flip, rifiuto di coordinate fuori griglia.
+Nessun training sulle CT del laboratorio. Comando nella sezione 18.7 del
+workflow. Loss di consistenza e ramo forense restano separati e non attivati.
+
 ## Come aggiornare questo registro
 
 Per ogni punto chiuso, sostituire «Da compilare» con: **verifica eseguita**

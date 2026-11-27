@@ -184,11 +184,36 @@ def crop_plan(mask, lung, patch_shape, rng, count=8):
     return result
 
 
+def align_crop_plan(mask, patch_shape, coords):
+    """Move proposals to the nearest MONAI inference window of the same class."""
+    from monai.data.utils import dense_patch_slices
+    patch = tuple(int(p) for p in patch_shape)
+    if any(n < p for n, p in zip(mask.shape, patch)):
+        raise ValueError("grid sampling requires an unpadded volume at least as large as the patch")
+    intervals = tuple(max(1, int(p * 0.5)) if n != p else p for n, p in zip(mask.shape, patch))
+    windows = dense_patch_slices(mask.shape, patch, intervals)
+    starts = np.asarray([[s.start for s in window] for window in windows])
+    labels = {}
+    result = []
+    for coord in coords:
+        target = bool(mask[tuple(slice(a, a + p) for a, p in zip(coord, patch))].any())
+        distances = ((starts - np.asarray(coord)) ** 2).sum(axis=1)
+        for index in np.argsort(distances, kind="stable"):
+            if index not in labels:
+                labels[index] = bool(mask[windows[index]].any())
+            if labels[index] == target:
+                result.append(tuple(int(v) for v in starts[index]))
+                break
+        else:
+            raise ValueError("inference grid has no window of the requested class")
+    return result
+
+
 class SegmentationDataset:
     """One loader item is one volume's eight crops, split into GPU microbatches later."""
     def __init__(self, records, data_root, *, patch_shape=(64, 64, 64), cache_dir=None,
                  preprocessing=None, seed=21, augment=True, fixed=False, volume_cache_size=2, real_scan_root=None,
-                 paired_records=None):
+                 paired_records=None, grid_aligned=False):
         self.records, self.data_root = list(records), Path(data_root)
         self.patch_shape, self.cache_dir = tuple(patch_shape), cache_dir
         self.preprocessing, self.seed = preprocessing, int(seed)
@@ -196,6 +221,9 @@ class SegmentationDataset:
         self.augment, self.fixed = augment, fixed
         self.cache = VolumeCache(volume_cache_size)
         self.paired_records = paired_records
+        self.grid_aligned = grid_aligned
+        if grid_aligned and paired_records is not None:
+            raise ValueError("grid alignment and pairing must be separate experiments")
         if paired_records is not None and len(paired_records) != len(self.records):
             raise ValueError("one paired record is required per training record")
 
@@ -211,11 +239,15 @@ class SegmentationDataset:
                                 lambda: load_bundle(self.data_root, record, self.cache_dir, self.preprocessing, self.real_scan_root))
         image, mask, lung, background = bundle
         padding = [(0, max(0, p - s)) for p, s in zip(self.patch_shape, image.shape)]
+        if self.grid_aligned and any(b for _, b in padding):
+            raise ValueError("grid alignment does not support padded small volumes")
         if any(b for _, b in padding):
             image = np.pad(image, padding, constant_values=background)
             mask = np.pad(mask, padding)
             lung = np.pad(lung, padding)
         coords = crop_plan(mask, lung, self.patch_shape, rng)
+        if self.grid_aligned:
+            coords = align_crop_plan(mask, self.patch_shape, coords)
         paired_image = None
         if self.paired_records is not None and not record.is_real:
             from .segmentation import preprocess_scan
@@ -235,7 +267,7 @@ class SegmentationDataset:
             if any(b for _, b in padding):
                 paired_image = np.pad(paired_image, padding, constant_values=paired_background)
         images, targets = [], []
-        flips = []
+        flips, actual_coords = [], []
         for crop_index, coord in enumerate(coords):
             # Consume the original RNG sequence even for replaced negatives.
             axes = tuple(axis for axis in (1, 2) if self.augment and rng.random() < 0.5)
@@ -243,6 +275,8 @@ class SegmentationDataset:
             if paired_image is not None and crop_index in (4, 5):
                 coord = coords[crop_index - 4]
                 axes = flips[crop_index - 4]
+            flips[crop_index] = axes
+            actual_coords.append(coord)
             slc = tuple(slice(a, a + p) for a, p in zip(coord, self.patch_shape))
             crop, target = image[slc], mask[slc]
             if paired_image is not None and crop_index in (4, 5):
@@ -252,7 +286,9 @@ class SegmentationDataset:
             images.append(np.array(crop, dtype=np.float32, copy=True))
             targets.append(np.array(target, dtype=np.float32, copy=True))
         return {"image": torch.from_numpy(np.stack(images)[:, None]),
-                "mask": torch.from_numpy(np.stack(targets)[:, None]), "img_id": record.img_id}
+                "mask": torch.from_numpy(np.stack(targets)[:, None]), "img_id": record.img_id,
+                "crop_starts": json.dumps(actual_coords), "flips": json.dumps(flips),
+                "volume_shape": json.dumps(list(image.shape))}
 
 
 class VolumeOrder:

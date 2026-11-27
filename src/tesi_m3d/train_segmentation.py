@@ -261,7 +261,7 @@ def validate_config(config):
     if config["stage"] not in {"overfit", "pilot", "full"} or config["model"]["name"] != SEGMENTER_NAME:
         raise ValueError("invalid segmentation stage/model")
     training = config["training"]
-    if config.get("sampling_protocol", "standard") not in ("standard", "paired"):
+    if config.get("sampling_protocol", "standard") not in ("standard", "paired", "grid"):
         raise ValueError("invalid sampling protocol")
     if "sampling_protocol" in config and config["stage"] != "pilot":
         raise ValueError("sampling comparison is pilot-only; full requires a separately validated protocol")
@@ -344,7 +344,7 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                                   cache_dir=cache, preprocessing=config["preprocessing"], seed=manifest["seed"],
                                   augment=stage != "overfit", fixed=stage == "overfit",
                                   volume_cache_size=training.get("volume_cache_size", 2), real_scan_root=real_scan_root,
-                                  paired_records=paired_records)
+                                  paired_records=paired_records, grid_aligned=config.get("sampling_protocol") == "grid")
     loader, order = make_loader(dataset, training, device)
     best_ap = restored.get("best_ap", -1.0) if restored else -1.0
     stale = restored.get("stale_validations", 0) if restored else 0
@@ -390,9 +390,12 @@ def run_training(config, data_root, *, device="cpu", output_dir=None, cache_dir=
                 _write_metrics_row(output / "sampling.csv", {
                     "update": updates + 1, "epoch": epoch + 1, "img_id": batch["img_id"],
                     "crops": len(batch["image"]), "positive_crops": int(batch["mask"].flatten(1).any(1).sum()),
+                    "positive_voxels": int(batch["mask"].sum()),
                     "retained_image_sha256": tensor_digest(batch["image"][[0, 1, 2, 3, 6, 7]]),
                     "mask_sha256": tensor_digest(batch["mask"]),
-                    "image_sha256": tensor_digest(batch["image"])})
+                    "image_sha256": tensor_digest(batch["image"]),
+                    "crop_starts": batch.get("crop_starts", ""), "flips": batch.get("flips", ""),
+                    "volume_shape": batch.get("volume_shape", "")})
             diagnostics = {} if debug_updates else None
             losses.append(train_volume(model, batch, optimizer, device=device, microbatch=training["batch_size"],
                                        accumulation=training["accumulation_steps"], diagnostics=diagnostics,
