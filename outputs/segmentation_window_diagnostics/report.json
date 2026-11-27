@@ -1,0 +1,121 @@
+{
+  "task": "segmentation_windows",
+  "complete": true,
+  "evaluation_only": true,
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "checkpoint_sha256": "d65ca150fa0dbd0fe1cd057540ed11c5450d2dfd8986d386485efdff6b52c0f4",
+  "precision": "FP32 for both fixed and dense windows; no training or threshold calibration",
+  "geometry": "production MONAI grid, overlap 0.5, gaussian sigma_scale 0.125",
+  "scope": "ROI encloses the full mask and four fixed positive crops; all contributing windows included",
+  "interpretation": "shared-voxel differences isolate context/position effects before fusion; ROI metrics are not whole-volume metrics",
+  "cases": [
+    {
+      "img_id": "inj_2092",
+      "mod": "pix2pix",
+      "roi_origin_zyx": [
+        0,
+        126,
+        290
+      ],
+      "roi_shape": [
+        84,
+        136,
+        127
+      ],
+      "windows": 168,
+      "windows_intersecting_mask": 32,
+      "roi_metrics": {
+        "tp": 1130,
+        "fp": 5855,
+        "fn": 26378,
+        "tn": 1417485,
+        "dice": 0.06552054039950135,
+        "ap": 0.1065124719720386
+      },
+      "foreground_mean_window_std": 0.1723378598690033,
+      "foreground_mean_window_range": 0.5163092613220215,
+      "background_mean_window_std": 0.013074246235191822
+    },
+    {
+      "img_id": "inj_1419",
+      "mod": "pix2pix",
+      "roi_origin_zyx": [
+        56,
+        272,
+        384
+      ],
+      "roi_shape": [
+        110,
+        113,
+        113
+      ],
+      "windows": 144,
+      "windows_intersecting_mask": 48,
+      "roi_metrics": {
+        "tp": 15919,
+        "fp": 20964,
+        "fn": 64081,
+        "tn": 1303626,
+        "dice": 0.2723920501698279,
+        "ap": 0.23915064297626382
+      },
+      "foreground_mean_window_std": 0.19352388381958008,
+      "foreground_mean_window_range": 0.5269174575805664,
+      "background_mean_window_std": 0.0538402758538723
+    },
+    {
+      "img_id": "rem_133",
+      "mod": "pix2pix",
+      "roi_origin_zyx": [
+        31,
+        244,
+        114
+      ],
+      "roi_shape": [
+        102,
+        119,
+        106
+      ],
+      "windows": 120,
+      "windows_intersecting_mask": 27,
+      "roi_metrics": {
+        "tp": 1566,
+        "fp": 10405,
+        "fn": 15282,
+        "tn": 1259375,
+        "dice": 0.10867830250876158,
+        "ap": 0.09344029042873625
+      },
+      "foreground_mean_window_std": 0.13581673800945282,
+      "foreground_mean_window_range": 0.4640282094478607,
+      "background_mean_window_std": 0.015139934606850147
+    },
+    {
+      "img_id": "rem_15",
+      "mod": "pix2pix",
+      "roi_origin_zyx": [
+        0,
+        242,
+        301
+      ],
+      "roi_shape": [
+        73,
+        117,
+        103
+      ],
+      "windows": 90,
+      "windows_intersecting_mask": 16,
+      "roi_metrics": {
+        "tp": 15962,
+        "fp": 13435,
+        "fn": 13990,
+        "tn": 836336,
+        "dice": 0.537902913275708,
+        "ap": 0.5449947166856298
+      },
+      "foreground_mean_window_std": 0.2934876084327698,
+      "foreground_mean_window_range": 0.6907357573509216,
+      "background_mean_window_std": 0.028111876919865608
+    }
+  ]
+}

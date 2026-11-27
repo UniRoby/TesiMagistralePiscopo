@@ -1,0 +1,27 @@
+{
+  "img_id": "rem_133",
+  "mod": "pix2pix",
+  "roi_origin_zyx": [
+    31,
+    244,
+    114
+  ],
+  "roi_shape": [
+    102,
+    119,
+    106
+  ],
+  "windows": 120,
+  "windows_intersecting_mask": 27,
+  "roi_metrics": {
+    "tp": 1566,
+    "fp": 10405,
+    "fn": 15282,
+    "tn": 1259375,
+    "dice": 0.10867830250876158,
+    "ap": 0.09344029042873625
+  },
+  "foreground_mean_window_std": 0.13581673800945282,
+  "foreground_mean_window_range": 0.4640282094478607,
+  "background_mean_window_std": 0.015139934606850147
+}

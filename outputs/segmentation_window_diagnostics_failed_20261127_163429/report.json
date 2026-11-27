@@ -1,0 +1,14 @@
+{
+  "task": "segmentation_windows",
+  "complete": false,
+  "evaluation_only": true,
+  "manifest_id": "0de4718f8115e9c7ca10bd75f32350e214bddb63a105a12b10406c6c86594200",
+  "checkpoint_sha256": "d65ca150fa0dbd0fe1cd057540ed11c5450d2dfd8986d386485efdff6b52c0f4",
+  "precision": "FP32 for both fixed and dense windows; no training or threshold calibration",
+  "geometry": "production MONAI grid, overlap 0.5, gaussian sigma_scale 0.125",
+  "scope": "ROI encloses the full mask and four fixed positive crops; all contributing windows included",
+  "interpretation": "shared-voxel differences isolate context/position effects before fusion; ROI metrics are not whole-volume metrics",
+  "cases": [],
+  "active_case": "inj_2092",
+  "error": "FileNotFoundError: no TIFF slices found in D:\\Dataset Tesi Piscopo\\pix2pix\\scan\\inj_2092"
+}

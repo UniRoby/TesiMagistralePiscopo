@@ -1,0 +1,27 @@
+{
+  "img_id": "inj_2092",
+  "mod": "pix2pix",
+  "roi_origin_zyx": [
+    0,
+    126,
+    290
+  ],
+  "roi_shape": [
+    84,
+    136,
+    127
+  ],
+  "windows": 168,
+  "windows_intersecting_mask": 32,
+  "roi_metrics": {
+    "tp": 1130,
+    "fp": 5855,
+    "fn": 26378,
+    "tn": 1417485,
+    "dice": 0.06552054039950135,
+    "ap": 0.1065124719720386
+  },
+  "foreground_mean_window_std": 0.1723378598690033,
+  "foreground_mean_window_range": 0.5163092613220215,
+  "background_mean_window_std": 0.013074246235191822
+}

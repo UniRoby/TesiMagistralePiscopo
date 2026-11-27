@@ -25,9 +25,97 @@ Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT.
 
 Questo branch usa **ResNet-18 3D preaddestrata con MedicalNet (23 dataset)** al
 posto della CNN compatta. Il pretraining è obbligatorio per le nuove run;
-solo la testa binaria è inizializzata da zero. I checkpoint della vecchia CNN
+nel classificatore solo la testa binaria è inizializzata da zero. I checkpoint della vecchia CNN
 sono incompatibili. Download verificato dei pesi, smoke test e comandi di
 training/valutazione sono in [docs/LAB_WORKFLOW.md](docs/LAB_WORKFLOW.md).
+
+Per allenare su tutti i record train pix2pix + real usare
+[`configs/train_pix2pix_full_train.yaml`](configs/train_pix2pix_full_train.yaml):
+visita tutte le scansioni ogni epoca e campiona 32 patch per scansione.
+La configurazione balanced mantiene il sottoinsieme rapido da 256 record.
+
+Per il recupero della localizzazione è disponibile anche la **segmentazione
+voxel con encoder ResNet-18 MedicalNet** e decoder supervisionato dalle mask.
+Il classificatore rimane disponibile come baseline. Il protocollo esegue audit,
+overfit su sei scansioni, due piloti con/senza clipping e infine il full solo
+se superati i criteri di localizzazione. Comandi Windows e condizioni di stop:
+[segmentazione MedicalNet](docs/LAB_WORKFLOW.md#18-recupero-della-localizzazione-segmentazione-medicalnet).
+Il nuovo decoder parte da zero; l'encoder richiede sempre i pesi MedicalNet.
+
+Se l'overfit fallisce, il comando `python -m tesi_m3d.debug_segmentation`
+controlla gli aggiornamenti dei pesi, prova un crop positivo fisso e poi una
+coppia positivo/negativo; torna alle sei scansioni solo dopo questi successi.
+Comando completo e lettura del report:
+[debug guidato](docs/LAB_WORKFLOW.md#1821-debug-guidato-dopo-i-due-overfit-falliti).
+
+Per isolare l'effetto della composizione dei batch è disponibile un
+[confronto appaiato](docs/LAB_WORKFLOW.md#1822-confronto-appaiato-batch-per-volume-e-batch-misti):
+stessi 48 crop fissi, pesi iniziali identici e stessa ponderazione della loss,
+300 aggiornamenti per variante, senza cambiare LR o soglia.
+
+Il confronto ha migliorato parzialmente i risultati, ma il gate resta fallito.
+Il prossimo controllo è il [debug dei due crop peggiori](docs/LAB_WORKFLOW.md#1823-debug-dei-due-crop-peggiori):
+`python -m tesi_m3d.debug_segmentation_hard_crops`, quattro prove indipendenti
+con verifica degli hash e conteggio degli errori rispetto ai bordi del crop.
+
+Per misurare le probabilità complete dentro/fuori dalle mask sui suoi
+checkpoint best/last, senza training, usare
+[`diagnose_segmentation_probabilities`](docs/LAB_WORKFLOW.md#1824-probabilità-complete-sui-checkpoint-bestlast).
+Salva distribuzioni, masse probabilistiche e mappe float32 degli otto checkpoint.
+
+Il [confronto appaiato delle loss](docs/LAB_WORKFLOW.md#1825-confronto-dice-linearequadratico)
+esegue `python -m tesi_m3d.compare_segmentation_losses`: baseline lineare e
+variante quadratica sulle stesse quattro prove, con valutazione automatica
+delle probabilità best/last. Nessuna promozione automatica a piloti/full.
+
+Dopo il successo sui due crop, il [gate sulle sei scansioni con Dice quadratico](docs/LAB_WORKFLOW.md#1826-gate-sulle-sei-scansioni-con-dice-quadratico)
+usa `configs/segmentation_overfit_squared.yaml` con `train_segmentation`.
+Riparte da MedicalNet, conserva i criteri originali e salva risultati separati;
+le vecchie configurazioni continuano a usare il Dice lineare.
+
+Il gate quadratico sulle sei scansioni è ancora fallito. Il
+[confronto grouped/mixed con Dice quadratico](docs/LAB_WORKFLOW.md#1827-batch-per-volume-contro-misti-con-dice-quadratico)
+riusa `compare_segmentation_batches` e la stessa configurazione, con
+output `outputs/segmentation_batch_comparison_squared`: due rami da 300
+aggiornamenti, stessi 48 crop, con CSV e immagini di best e last.
+Il mixed finale ottiene Dice medio 0,8212 e FP negativi 0,4975%:
+migliora il confronto, ma non supera il gate Dice 0,90. Piloti/full bloccati;
+risultati e controllo successivo nella sezione 10.17 del registro diagnostico.
+
+L'[audit delle probabilità sui 48 crop](docs/LAB_WORKFLOW.md#1828-probabilità-e-soglie-sui-quattro-checkpoint-e-sui-48-crop)
+usa `python -m tesi_m3d.diagnose_segmentation_batch_probabilities`, senza
+training: grouped/mixed best/last, AP voxel e profili su soglie comuni.
+Gli output diagnostici non modificano il gate a 0,5 o la calibrazione.
+
+Il nuovo [overfit appaiato sul padding del decoder](docs/LAB_WORKFLOW.md#1829-nuovo-overfit-padding-zero-contro-replicate-nel-decoder)
+usa `python -m tesi_m3d.compare_segmentation_padding`: due training mixed
+quadratici da 300 aggiornamenti, MedicalNet e pool originali verificati,
+cambiando solo padding zero/replicate. Salva anche gli audit best/last
+e gli errori per distanza dal bordo in `outputs/segmentation_padding_comparison`.
+
+Il [test di ripetibilità del training](docs/LAB_WORKFLOW.md#18210-due-overfit-zero-identici-con-determinismo-stretto)
+aggiunge `--deterministic-repeats` allo stesso runner: due overfit zero,
+algoritmi deterministici stretti e backward trilineare/MaxPool3D esplicitamente CPU
+(forward nativi, indici dei massimi preservati).
+Confronta loss, hash di pesi/gradienti a ogni passo e metriche; salva tutto
+in `outputs/segmentation_determinism_comparison`, compresi gli audit finali.
+
+Il [confronto con LR ridotto nella fase finale](docs/LAB_WORKFLOW.md#18211-overfit-deterministico-con-lr-ridotto-dopo-200-update)
+usa lo stesso runner con `--lr-decay`: una sola nuova run da 300 update,
+prime 200 tracce identiche al controllo salvato e LR encoder/decoder
+divisi per 10 dal passo 201. Audit best/last e confronto in
+`outputs/segmentation_lr_decay_comparison`.
+
+Il [recupero con aggiornamenti congiunti](docs/LAB_WORKFLOW.md#18212-recupero-delloverfit-con-tutti-i-48-crop)
+usa `--full-pool-overfit`: ogni aggiornamento accumula tutti i 48 crop con
+microbatch 2. Sono 300 esposizioni per crop anziché 50, quindi sei volte
+le presentazioni precedenti. Il gate resta invariato; risultati in
+`outputs/segmentation_overfit_recovery`.
+
+Training, validation e calibrazione finale riusano p1/p99 da una cache su
+disco (`cache/percentiles` nella cartella della run). I valori normalizzati
+restano identici; i TIFF vengono ancora letti a ogni miss della cache RAM.
+Procedura di misura in [Ottimizzazione data loading](docs/LAB_WORKFLOW.md#13-ottimizzazione-data-loading).
 
 ## Struttura
 
