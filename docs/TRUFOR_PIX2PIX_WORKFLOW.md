@@ -89,14 +89,15 @@ Il checkpoint atteso è `checkpoints\TruFor\weights\trufor.pth.tar`. Le director
 
 ## Preparazione e verifica della GPU
 
-Impostare i due percorsi effettivi. `$ctRoot` è la cartella che contiene `pix2pix`, non `pix2pix` stessa. `$realCtRoot` contiene le serie autentiche. Gli esempi seguenti vanno adattati ai dischi presenti nel laboratorio:
+Impostare i due percorsi effettivi. `$ctRoot` è la cartella che contiene `pix2pix`, non `pix2pix` stessa. `$realCtRoot` contiene le serie autentiche. I percorsi seguenti corrispondono a quelli registrati in `LAB_WORKFLOW.md`; se i dati sono stati spostati, usare la nuova posizione:
 
 ```powershell
-$ctRoot = 'D:\Dataset Tesi Piscopo'
+$ctRoot = 'C:\Tesi Magistrale Piscopo'
 $realCtRoot = 'C:\Tesi Magistrale Piscopo\real\scan'
 Test-Path (Join-Path $ctRoot 'pix2pix\scan')
 Test-Path (Join-Path $ctRoot 'pix2pix\label')
 Test-Path $realCtRoot
+if (-not (Test-Path (Join-Path $ctRoot 'pix2pix\scan\rem_10\slide0000.tiff'))) { throw 'Verificare la posizione effettiva di Pix2Pix prima di procedere.' }
 
 python -m tesi_m3d.trufor prepare --data-root "$ctRoot" --real-scan-root "$realCtRoot" --output outputs\trufor\manifest.json
 if ($LASTEXITCODE -ne 0) { throw 'Preparazione non completata: risolvere il primo errore mostrato prima del profiling.' }
@@ -105,6 +106,8 @@ python -m tesi_m3d.trufor profile --manifest outputs\trufor\manifest.json --outp
 ```
 
 Il manifest viene scritto soltanto dopo la verifica di tutte le serie. Attendere il messaggio `Preparation complete` prima del profiling. Se `prepare` si interrompe, ripetere lo stesso comando: la cache dei percentili delle serie già completate viene riutilizzata. Se il manifest è stato salvato con un altro nome o in un'altra cartella, indicare quel file con `--manifest`. I percorsi relativi vengono risolti dalla directory corrente di PowerShell.
+
+Nei metadati i record autentici precedono quelli Pix2Pix: i primi 470 casi del training deduplicato sono autentici. Vedere quei casi completati non conferma che `$ctRoot` punti alle immagini manipolate. `prepare` controlla la presenza della prima TIFF di ogni scansione e maschera Pix2Pix prima di iniziare il calcolo dei percentili.
 
 Il profiling usa quattro slice di training, comprende forward, backward e optimizer, e verifica entrambe le varianti alla risoluzione nativa. Riporta memoria GPU allocata, tempo per slice e caricamento iniziale con i quattro worker. Non è una stima completa del tempo per epoca: non include il costo della validazione e conserva i quattro esempi in memoria durante la misura del modello.
 

@@ -105,6 +105,20 @@ def test_existing_manifest_still_loads(tmp_path, manifest):
     assert data.load_manifest(path) == manifest
 
 
+def test_wrong_pix2pix_root_fails_before_reading_real_cts(tmp_path, monkeypatch):
+    from tesi_m3d.dataset import M3DSynthRecord
+    records = [M3DSynthRecord("rem_10", "rem", mod, "patient", "series", 0, 0, 0, "train")
+               for mod in ("real", "pix2pix")]
+    monkeypatch.setattr(data, "read_records", lambda _: records)
+    monkeypatch.setattr(data, "inspect_scan", lambda *_: pytest.fail("Decoded a CT before checking Pix2Pix paths"))
+    with pytest.raises(FileNotFoundError, match="Pix2Pix input missing") as error:
+        data.prepare(tmp_path, tmp_path / "wrong-root", tmp_path / "real",
+                     tmp_path / "cache", tmp_path / "manifest.json")
+    assert "--data-root" in str(error.value)
+    assert "rem_10" in str(error.value)
+    assert not (tmp_path / "manifest.json").exists()
+
+
 def test_percentile_cache_and_invalidation(tmp_path, monkeypatch):
     arrays = [np.array([[0, 2], [5, 65535]], dtype=np.uint16),
               np.array([[1, 2], [5, 8]], dtype=np.uint16)]

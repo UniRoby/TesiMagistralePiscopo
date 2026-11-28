@@ -123,6 +123,20 @@ def prepare(metadata_dir, data_root, real_scan_root, cache_dir, output):
     metadata_dir = Path(metadata_dir)
     records = read_records(metadata_dir)
     groups = cross_generator_records(records, ["pix2pix"], ["pix2pix"])
+    # Real records come first: reject a wrong Pix2Pix root before decoding their CTs.
+    for rows in groups.values():
+        for record in rows:
+            if record.is_real:
+                continue
+            for directory in (scan_dir(data_root, record), label_dir(data_root, record)):
+                first_slice = directory / "slide0000.tiff"
+                if not first_slice.is_file():
+                    raise FileNotFoundError(
+                        f"Pix2Pix input missing: {first_slice.resolve()}\n"
+                        f"Check --data-root ({Path(data_root).resolve()}): it must contain "
+                        "pix2pix/scan and pix2pix/label with slide0000.tiff in each series. "
+                        "--real-scan-root points to a separate dataset and does not verify the Pix2Pix root."
+                    )
     with (metadata_dir / "LIDC.csv").open(newline="") as stream:
         spacing = {(r["orig_id"], r["sdir_id"]):
                    [float(r[f"spacing_{axis}"]) for axis in "zyx"]
