@@ -87,6 +87,24 @@ def manifest(tmp_path):
     return dict(version=1, entries=entries, fingerprint=data.digest(entries))
 
 
+def test_missing_manifest_explains_prepare_and_custom_path(tmp_path):
+    path = tmp_path / "outputs" / "manifest.json"
+    with pytest.raises(FileNotFoundError) as error:
+        data.load_manifest(path)
+    message = str(error.value)
+    assert str(path.resolve()) in message
+    assert "python -m tesi_m3d.trufor prepare" in message
+    assert "Preparation complete" in message
+    assert "--manifest <existing-file>" in message
+    assert not path.exists()
+
+
+def test_existing_manifest_still_loads(tmp_path, manifest):
+    path = tmp_path / "custom_manifest.json"
+    data.atomic_json(path, manifest)
+    assert data.load_manifest(path) == manifest
+
+
 def test_percentile_cache_and_invalidation(tmp_path, monkeypatch):
     arrays = [np.array([[0, 2], [5, 65535]], dtype=np.uint16),
               np.array([[1, 2], [5, 8]], dtype=np.uint16)]

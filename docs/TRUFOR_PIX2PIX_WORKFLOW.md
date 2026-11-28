@@ -98,9 +98,13 @@ Test-Path (Join-Path $ctRoot 'pix2pix\scan')
 Test-Path (Join-Path $ctRoot 'pix2pix\label')
 Test-Path $realCtRoot
 
-python -m tesi_m3d.trufor prepare --data-root "$ctRoot" --real-scan-root "$realCtRoot"
-python -m tesi_m3d.trufor profile --output outputs\trufor\profile.json
+python -m tesi_m3d.trufor prepare --data-root "$ctRoot" --real-scan-root "$realCtRoot" --output outputs\trufor\manifest.json
+if ($LASTEXITCODE -ne 0) { throw 'Preparazione non completata: risolvere il primo errore mostrato prima del profiling.' }
+if (-not (Test-Path outputs\trufor\manifest.json -PathType Leaf)) { throw 'Manifest non trovato.' }
+python -m tesi_m3d.trufor profile --manifest outputs\trufor\manifest.json --output outputs\trufor\profile.json
 ```
+
+Il manifest viene scritto soltanto dopo la verifica di tutte le serie. Attendere il messaggio `Preparation complete` prima del profiling. Se `prepare` si interrompe, ripetere lo stesso comando: la cache dei percentili delle serie già completate viene riutilizzata. Se il manifest è stato salvato con un altro nome o in un'altra cartella, indicare quel file con `--manifest`. I percorsi relativi vengono risolti dalla directory corrente di PowerShell.
 
 Il profiling usa quattro slice di training, comprende forward, backward e optimizer, e verifica entrambe le varianti alla risoluzione nativa. Riporta memoria GPU allocata, tempo per slice e caricamento iniziale con i quattro worker. Non è una stima completa del tempo per epoca: non include il costo della validazione e conserva i quattro esempi in memoria durante la misura del modello.
 

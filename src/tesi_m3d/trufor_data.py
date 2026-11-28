@@ -158,11 +158,24 @@ def prepare(metadata_dir, data_root, real_scan_root, cache_dir, output):
             print(f"Prepared {len(entries)}: {split} {entries[-1]['id']}", flush=True)
     manifest = dict(version=1, entries=entries, fingerprint=digest(entries))
     atomic_json(output, manifest)
+    print(f"Preparation complete: {len(entries)} volumes. Manifest: {Path(output).resolve()}", flush=True)
     return manifest
 
 
 def load_manifest(path):
-    manifest = json.loads(Path(path).read_text())
+    path = Path(path)
+    try:
+        contents = path.read_text()
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"TruFor manifest not found: {path.resolve()}\n"
+            "Run python -m tesi_m3d.trufor prepare --data-root <dataset-root> "
+            f'--real-scan-root <real-scan-root> --output "{path}" and wait for '
+            "'Preparation complete' before profiling or training. "
+            "If prepare saved the manifest elsewhere, pass --manifest <existing-file>. "
+            "An interrupted preparation can be repeated: completed percentile caches are reused."
+        ) from exc
+    manifest = json.loads(contents)
     if manifest.get("version") != 1 or manifest.get("fingerprint") != digest(manifest["entries"]):
         raise ValueError("Invalid manifest; rerun prepare")
     patients = {}
