@@ -4,6 +4,11 @@ Localizzazione patch-wise 3D di manipolazioni sintetiche locali in volumi CT,
 ispirata a *Localization of Synthetic Manipulations in Western Blot Images* e
 valutata sul dataset M3Dsynth.
 
+Il branch `truFor-custom` aggiunge il confronto fra TruFor 2D adattato a Pix2Pix
+e TruFor con contesto fra slice. Preparazione dei dati, ripresa delle sessioni
+e comandi PowerShell sono descritti in
+[TruFor Pix2Pix: metodo e workflow](docs/TRUFOR_PIX2PIX_WORKFLOW.md).
+
 ## Struttura
 
 - `src/tesi_m3d/`: dataset, patch 3D, modello, loss, inferenza e metriche.

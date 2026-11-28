@@ -24,6 +24,12 @@ train = [
 conversion = [
   "pydicom>=2.4",
 ]
+trufor = [
+  "torch>=2.6",
+  "timm==1.0.22",
+  "yacs==0.1.8",
+  "PyYAML>=6",
+]
 dev = [
   "pytest>=8",
 ]

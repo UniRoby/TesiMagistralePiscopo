@@ -25,6 +25,7 @@ data/
 outputs/
 runs/
 checkpoints/
+external/
 *.ckpt
 *.pth
 *.pt
